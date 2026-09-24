@@ -46,9 +46,6 @@
     zenmap         # GUI для nmap
     parabolic      # Скачивание видео (ранее известен как Nickvision)
 
-    # --- Sublime Text ---
-    # Sublime Text — проприетарный, но доступен в nixpkgs
-    sublimetext4       # Редактор кода
 
     # --- Утилиты ---
     tree           # Дерево каталогов
