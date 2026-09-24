@@ -16,7 +16,7 @@ buildGoModule rec {
     owner = "aic0d3r";
     repo = "z13gui-plus";
     rev = "v${version}";
-    hash = "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=";  # заменить
+    hash = "sha256-VOd3eD9l6n0hj/gTFo8K1QRMT3rL0kqWG1NV1fxQlAc=";  # заменить
   };
 
   vendorHash = "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=";  # заменить
