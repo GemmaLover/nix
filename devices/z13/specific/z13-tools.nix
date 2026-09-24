@@ -31,7 +31,7 @@ in
 
     serviceConfig = {
       Type = "simple";
-      ExecStart = "${z13ctl-plus}/bin/z13ctld";
+      ExecStart = "${z13ctl-plus}/bin/z13ctl-plus daemon";
       Restart = "on-failure";
       RestartSec = "5";
     };

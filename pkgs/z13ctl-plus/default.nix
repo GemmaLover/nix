@@ -25,8 +25,9 @@ buildGoModule rec {
 
   nativeBuildInputs = [ pkg-config ];
 
-  # Указываем, что собираем только CLI и демон.
-  subPackages = [ "cmd/z13ctl" "cmd/z13ctld" ];
+    # Собираем основной пакет из корня. CLI и демон — это один бинарник
+  # z13ctl-plus, который запускается с разными аргументами.
+  subPackages = [ "." ];
 
   # Отключаем проверки, которые требуют доступа к реальному железу.
   doCheck = false;
