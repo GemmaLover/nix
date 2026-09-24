@@ -19,7 +19,7 @@
   # sing-box — универсальная прокси-платформа (настраивается отдельно)
   # Подробнее: https://wiki.nixos.org/wiki/Sing-box
   services.sing-box = {
-    enable = true;
+    enable = false;
     settings = {
       # Настройки sing-box будут добавлены после предоставления конфигурации прокси
       # Пример конфигурации: см. https://sing-box.sagernet.org/configuration/
