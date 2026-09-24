@@ -17,7 +17,7 @@ buildGoModule rec {
     hash = "sha256-S6dy73wRv9A3d9YkRDYL5LoknW7g2GcMJ+OuaVDpkJ0=";  # заменить после первой сборки
   };
 
-  vendorHash = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";  # заменить после первой сборки
+  vendorHash = "sha256-XZjY9g+IaByYca8w1fs+wKarDAeBQEq90c/JBURMIZA=";  # заменить после первой сборки
 
   # z13ctl-plus использует cgo для доступа к hidraw и sysfs.
   # glibc нужен для работы с системными вызовами.
