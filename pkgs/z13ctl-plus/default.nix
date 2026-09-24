@@ -14,7 +14,7 @@ buildGoModule rec {
     owner = "aic0d3r";
     repo = "z13ctl-plus";
     rev = "v${version}";
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # заменить после первой сборки
+    hash = "sha256-S6dy73wRv9A3d9YkRDYL5LoknW7g2GcMJ+OuaVDpkJ0=";  # заменить после первой сборки
   };
 
   vendorHash = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";  # заменить после первой сборки
