@@ -92,3 +92,15 @@ programs.git.settings = {
   user.name = "lexi";
   user.email = "lexi@example.com";
 };
+
+[P-6] services.dnscrypt-proxy2 переименован
+
+Дата: 2026-09-24
+Статус: Решено
+Устройство: любое
+
+Описание: Warning: опция переименована.
+
+Причина: В NixOS 26.05 модуль переименован в services.dnscrypt-proxy.
+
+Решение: Использовать services.dnscrypt-proxy.

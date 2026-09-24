@@ -1,55 +1,129 @@
 # Прогресс проекта
 
-## Статус: В работе
+Последнее обновление: 2026-09-24
 
-### Этап 1: Базовая структура ✅
-- [x] Создан `flake.nix`
-- [x] Созданы базовые модули `base/system/`, `base/ui/`, `base/tools/`
-- [x] Создан `devices/z13/config.nix`
-- [x] Создан `devices/z13/hardware.nix`
-- [x] Создан `devices/z13/specific/kernel.nix`
-- [x] Создан `devices/z13/specific/asus-tools.nix`
-- [x] Созданы заглушки для `devices/pc/` и `devices/asus5304uv/`
-- [x] Создан `dev/dev.nix`
-- [x] Создан `llm/llm.nix`
-- [x] Создан `games/games.nix` (TODO)
+Легенда:
+- [x] — реализовано и проверено
+- [~] — частично реализовано (есть рабочий каркас, но не всё)
+- [ ] — не начато
+- [!] — сломано или требует срочного внимания
 
-### Этап 2: Базовые настройки системы 🔄
-- [x] Сеть (NetworkManager)
-- [x] DNS (dnscrypt-proxy2)
-- [x] Пользователи (lexi, группы)
-- [x] Клавиатура (US/RU, CapsLock)
-- [x] Шифрование LUKS
-- [x] AppArmor (режим обучения)
-- [x] Звук (PipeWire)
-- [ ] Wi-Fi (настраивается через NetworkManager)
-- [ ] Горячие клавиши (частично)
+---
 
-### Этап 3: UI и рабочий стол 🔄
-- [x] KDE Plasma 6
-- [x] SDDM
-- [x] Тачпад (блокировка при печати)
-- [ ] Управление подсветкой клавиатуры (скрипт в разработке)
-- [ ] Блокировка засыпания при видео (TODO)
+## 1. Инфраструктура
 
-### Этап 4: Программы 🔄
-- [x] Base tools (vim, git, firefox и др.)
-- [x] Flatpak (Amnezia, ProtonVPN, Android Studio)
-- [x] Dev (Podman, Docker, Waydroid)
-- [x] LLM (скрипты для Podman)
-- [ ] Games (Steam, Lutris, Heroic)
+- [x] Flake с каналом `nixos-26.05`
+- [x] Home Manager (интегрирован как модуль NixOS)
+- [x] Disko (подключён как модуль, но в конфиге пока не используется)
+- [x] Git-репозиторий `https://github.com/GemmaLover/nix.git`
+- [x] `flake.lock` с зафиксированными ревизиями
 
-### Этап 5: Специфика Z13 🔄
-- [x] Параметры ядра (amdgpu.gttsize, ttm.pages_limit)
-- [x] asusctl
-- [ ] z13-tablet-kit (TODO)
-- [ ] z13ctl-plus (TODO)
-- [ ] z13gui-plus (TODO)
+## 2. Структура конфига
 
-### Этап 6: Проектные файлы 🔄
-- [x] `project/progress.md` (этот файл)
-- [ ] `project/problems.md`
+- [x] `base/system/` — общие системные настройки
+- [x] `base/ui/` — KDE
+- [x] `base/tools/` — базовые пакеты
+- [~] `base/system/scripts/` — только `keyboard-backlight-idle` (не работает, TODO)
+- [x] `devices/z13/` — конфиг текущего устройства
+- [ ] `devices/pc/` — заглушка
+- [ ] `devices/asus5304uv/` — заглушка
+- [x] `dev/` — podman, docker, waydroid, python
+- [~] `llm/` — только комментарии с планами, образов нет
+- [ ] `games/` — папка отсутствует
+- [x] `project/` — есть, но не полная
+
+## 3. Базовые настройки системы (base/system)
+
+- [x] `boot.nix` — systemd-boot, лимит 10 поколений
+- [x] `network.nix` — NetworkManager, firewall
+- [~] `network.nix` — `services.sing-box.enable = true`, но `settings` пустой
+- [x] `users.nix` — lexi (wheel, networkmanager, kvm, libvirt)
+- [x] `keyboard.nix` — US/RU, переключение по CapsLock, `caps:escape`
+- [~] `luks.nix` — файл-заглушка, реальные настройки в `hardware.nix`
+- [x] `apparmor.nix` — включён, режим обучения
+- [x] `audio.nix` — PipeWire, rtkit
+- [x] `dns.nix` — `dnscrypt-proxy` с quad9/cloudflare/scaleway
+- [x] `touchpad.nix` — `disableWhileTyping`, тап-клик, two-finger scroll
+- [~] `scripts/default.nix` — скрипт подсветки есть, но с TODO
+- [ ] `scripts/` — нет скриптов для засыпания при видео
+- [ ] `scripts/` — нет скриптов для LLM-контейнеров
+- [ ] `scripts/` — нет деинсталлятора z13-утилит
+
+## 4. UI (base/ui)
+
+- [x] `kde.nix` — KDE Plasma 6, SDDM, CUPS
+- [ ] Блокировка засыпания при просмотре видео (Firefox/VLC)
+- [ ] Дополнительные горячие клавиши (кроме раскладки)
+
+## 5. Программы (base/tools)
+
+- [x] `base.nix` — vim, tree, file, which, wget, curl, unzip, git, htop, btop
+- [x] `base.nix` — firefox, libreoffice, vlc, keepassxc, qbittorrent, obs-studio
+- [x] `base.nix` — kdePackages.kleopatra, krita, librewolf, brave, putty, zenmap, parabolic
+- [ ] `base.nix` — sublime4 (удалён: требует небезопасный openssl-1.1.1w, см. P-2)
+- [ ] `base.nix` — AIMP (не добавлен)
+- [ ] `base.nix` — Portmaster / safing.io (не добавлен)
+- [x] `flatpak.nix` — модуль включён, Flathub подключён
+- [ ] `flatpak.nix` — приложения (Amnezia, ProtonVPN, Android Studio) не установлены декларативно
+
+## 6. Dev
+
+- [x] Podman (rootless, autoPrune, dns_enabled)
+- [x] Docker (overlay2)
+- [x] Waydroid (nftables)
+- [x] Python 3, pip
+- [x] wl-clipboard
+
+## 7. LLM
+
+- [ ] Podman-образ Unsloth
+- [ ] Podman-образ DeepSeek Harness
+- [ ] Ярлык «запуск Unsloth + открыть»
+- [ ] Ярлык «закрыть Unsloth + остановить podman»
+- [ ] Ярлык «запуск dsharness + открыть web»
+- [ ] Ярлык «закрыть dsharness + остановить podman»
+- [x] Пользователь в группах kvm/libvirt (для доступа к /dev/kvm)
+
+## 8. Games
+
+- [ ] `games/games.nix` — папка и модуль отсутствуют
+- [ ] Steam
+- [ ] Lutris
+- [ ] Heroic Games Launcher
+
+## 9. Специфика Z13
+
+- [x] `kernel.nix` — amdgpu.gttsize=113777, ttm.pages_limit=29126912
+- [x] `kernel.nix` — boot.kernelPackages = linuxPackages_latest
+- [x] `asus-tools.nix` — asusctl + services.asusd (без asusd-user)
+- [x] `asus-tools.nix` — /etc/asusd через tmpfiles
+- [ ] `z13-tablet-kit` — не установлен
+- [ ] `z13ctl-plus` — не установлен
+- [ ] `z13gui-plus` — не установлен
+- [ ] Скрипт-деинсталлятор для z13-утилит
+- [ ] Скрипт отключения подсветки клавиатуры через 15 секунд простоя
+
+## 10. Другие устройства
+
+- [ ] `devices/pc/` — PC AMD + NVIDIA (TODO)
+- [ ] `devices/asus5304uv/` — ASUS Intel (TODO)
+
+## 11. Проектные файлы
+
+- [x] `project/user_input.md` — ТЗ
+- [x] `project/progress.md` — этот файл
+- [x] `project/problems.md` — заведён
 - [ ] `project/agents.md`
-- [ ] `guide.md`
+- [ ] `project/projcet.md` — список всех требований (генерируется из user_input.md)
+- [ ] `project/log/consoleYYYYMMDD.log` — логи команд не ведутся
+- [ ] `guide.md` — содержимое не выверено
 
-### Текущая задача: Завершить настройку подсветки клавиатуры и добавить игры
+---
+
+## Текущая задача
+
+**Приведение документации в порядок** (этот файл, problems.md, project.md).
+
+## Следующая задача
+
+**Скрипт отключения подсветки клавиатуры через 15 секунд простоя.**
