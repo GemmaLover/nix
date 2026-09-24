@@ -15,7 +15,7 @@ stdenv.mkDerivation rec {
     owner = "aic0d3r";
     repo = "z13-tablet-kit";
     rev = "master";
-    hash = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=";  # заменить
+    hash = "sha256-zBaen/P7+9uf5X0UB3ClE+MdonB24HlvSAOfuVOG6kk=";  # заменить
   };
 
   # z13-tablet-kit — набор shell-скриптов, а не бинарник.
