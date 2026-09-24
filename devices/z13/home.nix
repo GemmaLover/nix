@@ -20,9 +20,11 @@
   # === Git ===
   programs.git = {
     enable = true;
-    userName = "lexi";
-    userEmail = "lexi@example.com";
-    extraConfig = {
+    settings = {
+      user = {
+        name = "lexi";
+        email = "lexi@example.com";
+      };
       init.defaultBranch = "main";
       pull.rebase = true;
     };

@@ -38,7 +38,7 @@
     keepassxc      # Менеджер паролей
     qbittorrent    # Торрент-клиент
     obs-studio     # Запись экрана и стриминг
-    kleopatra      # Управление PGP-ключами
+    kdePackages.kleopatra  # Управление PGP-ключами
     krita          # Графический редактор
     librewolf      # Приватный браузер на базе Firefox
     brave          # Браузер с блокировкой рекламы

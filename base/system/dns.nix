@@ -2,7 +2,7 @@
 
 {
   # === Шифрование DNS через DNSCrypt-proxy2 ===
-  services.dnscrypt-proxy2 = {
+  services.dnscrypt-proxy = {
     enable = true;
 
     settings = {
@@ -45,5 +45,5 @@
   services.resolved.enable = false;
 
   # StateDirectory для кэша.
-  systemd.services.dnscrypt-proxy2.serviceConfig.StateDirectory = "dnscrypt-proxy";
+  systemd.services.dnscrypt-proxy.serviceConfig.StateDirectory = "dnscrypt-proxy";
 }
