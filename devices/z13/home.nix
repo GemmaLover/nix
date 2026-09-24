@@ -3,6 +3,10 @@
 {
   # === Home Manager: пользователь lexi ===
 
+  imports = [
+    ./home-services.nix
+  ];
+
   # Домашняя директория пользователя.
   home.homeDirectory = "/home/lexi";
 
