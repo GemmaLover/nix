@@ -19,7 +19,7 @@ buildGoModule rec {
     hash = "sha256-VOd3eD9l6n0hj/gTFo8K1QRMT3rL0kqWG1NV1fxQlAc=";  # заменить
   };
 
-  vendorHash = "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=";  # заменить
+  vendorHash = "sha256-7XEC7eAeVnJTdHoGa99zAkf2Yk7JkjLy2HML4UthOLo=";  # заменить
 
   # z13gui-plus — GTK4-оверлей, требует GTK4 и libadwaita.
   buildInputs = [
