@@ -35,7 +35,8 @@
 ## 3. Базовые настройки системы (base/system)
 
 - [x] `boot.nix` — systemd-boot, лимит 10 поколений
-- [x] `network.nix` — NetworkManager, firewall
+- [~] `network.nix` — `services.sing-box.enable = false` (временно отключён, нет конфига)
+- [x] `time.nix` — Europe/Moscow, NTP-синхронизация
 - [~] `network.nix` — `services.sing-box.enable = true`, но `settings` пустой
 - [x] `users.nix` — lexi (wheel, networkmanager, kvm, libvirt)
 - [x] `keyboard.nix` — US/RU, переключение по CapsLock, `caps:escape`
@@ -101,7 +102,8 @@
 - [ ] `z13ctl-plus` — не установлен
 - [ ] `z13gui-plus` — не установлен
 - [ ] Скрипт-деинсталлятор для z13-утилит
-- [ ] Скрипт отключения подсветки клавиатуры через 15 секунд простоя
+- [x] Скрипт отключения подсветки через 15 секунд простоя (через swayidle + systemd user services)
+- [x] Статичная белая подсветка без пульсации (asusctl aura effect static -c ffffff, leds set low)
 
 ## 10. Другие устройства
 
@@ -122,8 +124,8 @@
 
 ## Текущая задача
 
-**Приведение документации в порядок** (этот файл, problems.md, project.md).
+Документация актуализирована, подсветка клавиатуры работает.
 
 ## Следующая задача
 
-**Скрипт отключения подсветки клавиатуры через 15 секунд простоя.**
+Блокировка засыпания при просмотре видео (Firefox/VLC).
