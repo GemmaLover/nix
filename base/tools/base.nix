@@ -48,7 +48,7 @@
 
     # --- Sublime Text ---
     # Sublime Text — проприетарный, но доступен в nixpkgs
-    sublime4       # Редактор кода
+    sublimetext4       # Редактор кода
 
     # --- Утилиты ---
     tree           # Дерево каталогов
