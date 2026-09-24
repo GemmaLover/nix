@@ -18,6 +18,7 @@
     ../../base/system/dns.nix
     ../../base/system/scripts
     ../../base/system/touchpad.nix
+    ../../base/system/time.nix
 
     # === UI ===
     ../../base/ui/kde.nix
