@@ -11,6 +11,9 @@ stdenv.mkDerivation rec {
   pname = "z13-tablet-kit";
   version = "unstable-2026-08-05";
 
+    buildInputs = [ coreutils ];
+
+
   src = fetchFromGitHub {
     owner = "aic0d3r";
     repo = "z13-tablet-kit";
@@ -21,6 +24,17 @@ stdenv.mkDerivation rec {
   # z13-tablet-kit — набор shell-скриптов, а не бинарник.
   # Не собираем, а устанавливаем.
   dontBuild = true;
+
+
+  # Заменяем жёстко прописанные FHS-пути (/usr/bin/...) на пути из Nix store.
+  # Это стандартная практика для udev-правил в NixOS.
+  # /usr/bin/chmod -> /nix/store/...-coreutils-.../bin/chmod
+  # /usr/bin/chgrp -> /nix/store/...-coreutils-.../bin/chgrp
+  postPatch = ''
+    substituteInPlace udev/99-disable-asus-touchpad.rules \
+      --replace "/usr/bin/chmod" "${coreutils}/bin/chmod" \
+      --replace "/usr/bin/chgrp" "${coreutils}/bin/chgrp"
+  '';
 
   installPhase = ''
     runHook preInstall
