@@ -16,10 +16,10 @@
     ../../base/system/audio.nix
     ../../base/system/dns.nix
     ../../base/system/scripts
+    ../../base/system/touchpad.nix
 
     # === UI ===
     ../../base/ui/kde.nix
-    ../../base/ui/touchpad.nix
 
     # === Программы ===
     ../../base/tools/base.nix
