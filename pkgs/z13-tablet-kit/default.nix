@@ -14,7 +14,7 @@ stdenv.mkDerivation rec {
   src = fetchFromGitHub {
     owner = "aic0d3r";
     repo = "z13-tablet-kit";
-    rev = "main";
+    rev = "master";
     hash = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=";  # заменить
   };
 
