@@ -8,6 +8,7 @@
     ./specific/asus-tools.nix      # asusctl, z13-tablet-kit, z13ctl-plus
 
     # === Базовые модули для всех устройств ===
+    ../../base/system/boot.nix
     ../../base/system/network.nix
     ../../base/system/users.nix
     ../../base/system/keyboard.nix
