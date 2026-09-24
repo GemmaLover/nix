@@ -1,0 +1,41 @@
+{ lib
+, buildGoModule
+, fetchFromGitHub
+, pkg-config
+, glibc
+, ryzen_smu ? null  # опциональная зависимость для undervolting
+}:
+
+buildGoModule rec {
+  pname = "z13ctl-plus";
+  version = "1.3.1";
+
+  src = fetchFromGitHub {
+    owner = "aic0d3r";
+    repo = "z13ctl-plus";
+    rev = "v${version}";
+    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # заменить после первой сборки
+  };
+
+  vendorHash = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";  # заменить после первой сборки
+
+  # z13ctl-plus использует cgo для доступа к hidraw и sysfs.
+  # glibc нужен для работы с системными вызовами.
+  buildInputs = [ glibc ];
+
+  nativeBuildInputs = [ pkg-config ];
+
+  # Указываем, что собираем только CLI и демон.
+  subPackages = [ "cmd/z13ctl" "cmd/z13ctld" ];
+
+  # Отключаем проверки, которые требуют доступа к реальному железу.
+  doCheck = false;
+
+  meta = with lib; {
+    description = "CLI and daemon for ASUS ROG Flow Z13 hardware control";
+    homepage = "https://github.com/aic0d3r/z13ctl-plus";
+    license = licenses.asl20;
+    maintainers = [ ];
+    platforms = [ "x86_64-linux" ];
+  };
+}

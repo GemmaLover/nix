@@ -6,6 +6,7 @@
     ./hardware.nix                 # hardware-configuration.nix
     ./specific/kernel.nix          # Параметры ядра (amdgpu.gttsize, ttm.pages_limit)
     ./specific/asus-tools.nix      # asusctl, z13-tablet-kit, z13ctl-plus
+    ./specific/z13-tools.nix
 
     # === Базовые модули для всех устройств ===
     ../../base/system/boot.nix
