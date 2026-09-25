@@ -3,21 +3,26 @@
 let
   # =====================================================================
   # Unsloth — контейнер для тонкой настройки и инференса LLM на AMD GPU.
-  # Скрипты разделены по назначению: install / start / stop / remove.
+  # Скрипты разделены по назначению: install / start / stop / remove / reset-password.
   # Каждый скрипт получает только те переменные, которые использует —
   # это требование shellcheck (SC2034: unused variable).
+  #
+  # Веб-интерфейс Unsloth Studio слушает 8000 внутри контейнера,
+  # наружу проброшен на 8005 (внешний порт можно менять в PORT_HOST).
   # =====================================================================
 
   # --- Установка (одноразово) ---
   unslothInstall = pkgs.writeShellApplication {
     name = "unsloth-install";
-    runtimeInputs = [ pkgs.podman ];
+    runtimeInputs = [ pkgs.podman pkgs.curl ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="unsloth"
       IMAGE="docker.io/unsloth/unsloth-rocm:studio"
       DATA_VOLUME="unsloth-data"
       HOST_PROJECTS="''${HOME}/projects"
+      PORT_HOST=8005
+      PORT_CONTAINER=8000
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' уже существует."
@@ -29,7 +34,7 @@ let
         echo "Образ '$IMAGE' уже есть локально."
       else
         echo "Образ '$IMAGE' не найден локально."
-        read -r -p "Скачать его сейчас (~5-7 ГБ)? [y/N] " answer
+        read -r -p "Скачать его сейчас (~10 ГБ)? [y/N] " answer
         if [[ "''${answer,,}" != "y" ]]; then
           echo "Отменено."
           exit 1
@@ -42,14 +47,17 @@ let
         echo "Создан volume '$DATA_VOLUME'."
       fi
 
+      # --shm-size=8g: ROCm/PyTorch требуют большую shared memory,
+      #                иначе падают при работе с моделями.
+      # Внутренний порт 8000 пробрасываем на внешний 8005.
       podman create \
         --name "$CONTAINER_NAME" \
         --device /dev/kfd \
         --device /dev/dri \
         --group-add keep-groups \
         --security-opt label=disable \
-        -p 8888:8888 \
-        -p 8000:8000 \
+        --shm-size=8g \
+        -p "$PORT_HOST:$PORT_CONTAINER" \
         -v "$HOST_PROJECTS:/workspace/host:Z" \
         -v "$DATA_VOLUME:/workspace/studio" \
         -e JUPYTER_PASSWORD=unsloth \
@@ -57,9 +65,50 @@ let
 
       echo
       echo "Контейнер '$CONTAINER_NAME' создан."
-      echo "Запуск:    unsloth-start"
-      echo "Остановка: unsloth-stop"
-      echo "Удаление:  unsloth-remove"
+      echo "Запускаю контейнер для первичной настройки пароля..."
+      podman start "$CONTAINER_NAME"
+
+      echo -n "Ожидание сервиса Unsloth Studio"
+      READY=0
+      for _ in {1..90}; do
+        if curl -fsS -o /dev/null "http://localhost:$PORT_HOST" 2>/dev/null; then
+          echo " — готов."
+          READY=1
+          break
+        fi
+        echo -n "."
+        sleep 1
+      done
+
+      if [ "$READY" -eq 0 ]; then
+        echo " — сервис не поднялся за 90 секунд."
+        echo "Проверьте логи: podman logs $CONTAINER_NAME"
+        exit 1
+      fi
+
+      # Получаем пароль. Сначала пробуем reset-password,
+      # если не сработает — читаем .bootstrap_password.
+      echo
+      echo "=================================================="
+      echo "  Пароль для входа в Unsloth Studio"
+      echo "  (имя пользователя: unsloth)"
+      echo "=================================================="
+      if podman exec "$CONTAINER_NAME" unsloth studio reset-password 2>/dev/null; then
+        :
+      elif podman exec "$CONTAINER_NAME" cat /opt/unsloth-studio/auth/.bootstrap_password 2>/dev/null; then
+        :
+      else
+        echo "(не удалось получить пароль автоматически)"
+        echo "Попробуйте вручную:"
+        echo "  unsloth-reset-password"
+      fi
+      echo "=================================================="
+      echo
+      echo "Дальше:"
+      echo "  unsloth-start            — открыть веб-интерфейс (http://localhost:$PORT_HOST)"
+      echo "  unsloth-stop             — остановить контейнер"
+      echo "  unsloth-remove           — удалить контейнер"
+      echo "  unsloth-reset-password   — сбросить пароль веб-интерфейса"
     '';
   };
 
@@ -70,6 +119,8 @@ let
     text = ''
       set -euo pipefail
       CONTAINER_NAME="unsloth"
+      PORT_HOST=8005
+      URL="http://localhost:$PORT_HOST"
 
       if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' не найден." >&2
@@ -86,7 +137,7 @@ let
 
       echo -n "Ожидание сервиса"
       for _ in {1..60}; do
-        if curl -fsS -o /dev/null "http://localhost:8000" 2>/dev/null; then
+        if curl -fsS -o /dev/null "$URL" 2>/dev/null; then
           echo " — готов."
           break
         fi
@@ -94,8 +145,8 @@ let
         sleep 1
       done
 
-      echo "Открываю http://localhost:8000"
-      xdg-open "http://localhost:8000" &
+      echo "Открываю $URL"
+      xdg-open "$URL" &
     '';
   };
 
@@ -151,7 +202,7 @@ let
       fi
 
       if podman image exists "$IMAGE" 2>/dev/null; then
-        read -r -p "Удалить образ '$IMAGE' (~5-7 ГБ)? [y/N] " answer
+        read -r -p "Удалить образ '$IMAGE' (~10 ГБ)? [y/N] " answer
         if [[ "''${answer,,}" == "y" ]]; then
           podman rmi "$IMAGE"
           echo "Образ удалён."
@@ -164,6 +215,31 @@ let
     '';
   };
 
+  # --- Сброс пароля Unsloth Studio ---
+  unslothResetPassword = pkgs.writeShellApplication {
+    name = "unsloth-reset-password";
+    runtimeInputs = [ pkgs.podman ];
+    text = ''
+      set -euo pipefail
+      CONTAINER_NAME="unsloth"
+
+      if ! podman container running "$CONTAINER_NAME" 2>/dev/null; then
+        echo "Контейнер '$CONTAINER_NAME' не запущен."
+        echo "Запустите его: unsloth-start"
+        exit 1
+      fi
+
+      echo "Сбрасываю пароль Unsloth Studio..."
+      if podman exec "$CONTAINER_NAME" unsloth studio reset-password; then
+        echo
+        echo "Используйте этот пароль для входа (имя пользователя: unsloth)."
+      else
+        echo "Команда reset-password не сработала, читаю bootstrap-пароль..."
+        podman exec "$CONTAINER_NAME" cat /opt/unsloth-studio/auth/.bootstrap_password
+      fi
+    '';
+  };
+
 in
 {
   home.packages = [
@@ -171,6 +247,7 @@ in
     unslothStart
     unslothStop
     unslothRemove
+    unslothResetPassword
   ];
 
   xdg.desktopEntries = {
