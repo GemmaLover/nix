@@ -27,7 +27,16 @@ let
   # --- Установка (одноразово) ---
   dshInstall = pkgs.writeShellApplication {
     name = "dsh-install";
-    runtimeInputs = [ pkgs.git pkgs.nodejs_22 pkgs.pnpm ];
+        runtimeInputs = [
+      pkgs.git
+      pkgs.nodejs_22
+      pkgs.pnpm
+      # Инструменты для сборки нативных модулей Node.js (node-gyp).
+      # Без них node-gyp не может найти компилятор C (cc).
+      pkgs.gcc
+      pkgs.gnumake
+      pkgs.python3
+    ];
     text = ''
       set -euo pipefail
       REPO_URL="https://github.com/deepseek-ai/deepseek-harness.git"
