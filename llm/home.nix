@@ -15,7 +15,7 @@ let
     text = ''
       set -euo pipefail
       CONTAINER_NAME="unsloth"
-      IMAGE="docker.io/unsloth/unsloth:latest"
+      IMAGE="docker.io/unsloth/unsloth-rocm:latest"
       DATA_VOLUME="unsloth-data"
       HOST_PROJECTS="''${HOME}/projects"
 
@@ -131,7 +131,7 @@ let
       set -euo pipefail
       CONTAINER_NAME="unsloth"
       DATA_VOLUME="unsloth-data"
-      IMAGE="docker.io/unsloth/unsloth:latest"
+      IMAGE="docker.io/unsloth/unsloth-rocm:latest"
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Удаляю контейнер '$CONTAINER_NAME'..."
