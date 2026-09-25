@@ -2,11 +2,18 @@
 
 let
   # === Общие переменные для всех скриптов Unsloth ===
+  # Только те, что используются везде: имя контейнера, образ, volume.
   unslothVars = ''
     CONTAINER_NAME="unsloth"
     IMAGE="docker.io/unsloth/unsloth:latest"
-    HOST_PROJECTS="''${HOME}/projects"
     DATA_VOLUME="unsloth-data"
+  '';
+
+  # === Переменные, специфичные для install ===
+  # HOST_PROJECTS нужен только при создании контейнера — он определяет,
+  # какую папку с хоста пробросить внутрь.
+  unslothInstallVars = ''
+    HOST_PROJECTS="''${HOME}/projects"
   '';
 
   # === Установка контейнера (одноразово) ===
@@ -16,6 +23,7 @@ let
     text = ''
       set -euo pipefail
       ${unslothVars}
+      ${unslothInstallVars}
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' уже существует."
