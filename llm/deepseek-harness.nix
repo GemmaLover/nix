@@ -9,7 +9,8 @@ let
   # Запуск: `pnpm dsh web` — поднимает Web UI на 3080 внутри репозитория.
   #
   # Скрипты:
-  #   dsh-install         — клонировать, собрать (одноразово)
+  #   dsh-install         — клонировать или обновить, пересобрать (идемпотентно)
+  #   dsh-rebuild         — пересобрать без git-обновления
   #   dsh-start           — запустить веб-UI на порту 3085
   #   dsh-stop            — остановить
   #   dsh-remove          — удалить репозиторий и конфиг (по выбору)
@@ -25,7 +26,7 @@ let
   # node-addon-require-builtin, который не работает с Nix-сборкой Node.js.
   nodejs-official = pkgs.callPackage ../pkgs/nodejs-official { };
 
-  # --- Установка (одноразово) ---
+  # --- Установка / переустановка (идемпотентно) ---
   dshInstall = pkgs.writeShellApplication {
     name = "dsh-install";
     runtimeInputs = [
@@ -37,23 +38,43 @@ let
       pkgs.gcc
       pkgs.gnumake
       pkgs.python3
+      pkgs.findutils
     ];
     text = ''
       set -euo pipefail
       REPO_URL="https://github.com/deepseek-ai/deepseek-harness.git"
       REPO_DIR="''${HOME}/llm/deepseek-harness"
 
-      if [ -d "$REPO_DIR" ]; then
-        echo "Репозиторий '$REPO_DIR' уже существует."
-        echo "Для переустановки сначала запустите dsh-remove."
-        exit 1
+      # --- Клонирование или обновление исходников ---
+      if [ ! -d "$REPO_DIR" ]; then
+        echo "Клонирую DeepSeek Harness..."
+        mkdir -p "''${HOME}/llm"
+        git clone "$REPO_URL" "$REPO_DIR"
+      else
+        echo "Репозиторий уже есть — обновляю исходники без удаления."
+        cd "$REPO_DIR"
+        git fetch origin
+        BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        git reset --hard "origin/$BRANCH"
       fi
 
-      echo "Клонирую DeepSeek Harness..."
-      mkdir -p "''${HOME}/llm"
-      git clone "$REPO_URL" "$REPO_DIR"
       cd "$REPO_DIR"
 
+      # --- Сброс скомпилированных артефактов ---
+      # Нативные модули в node_modules собраны против конкретного Node.js ABI.
+      # После смены Node.js (например, на официальный) их нужно пересобрать.
+      echo "Удаляю node_modules и build-артефакты..."
+      rm -rf node_modules
+      rm -rf apps/*/node_modules
+      rm -rf packages/*/*/node_modules
+      rm -rf vendor/*/node_modules
+      # Кэш pnpm — не удаляем, чтобы не тянуть всё заново.
+      # Build-выходы: lib/ и dist/ в каждом пакете (кроме node_modules).
+      find apps packages vendor -maxdepth 4 -type d \( -name lib -o -name dist \) \
+        -path '*/node_modules' -prune -o -type d \( -name lib -o -name dist \) -print0 2>/dev/null \
+        | xargs -0 rm -rf 2>/dev/null || true
+
+      # --- Установка зависимостей и сборка ---
       echo "Устанавливаю зависимости (pnpm install)..."
       pnpm install
 
@@ -65,9 +86,50 @@ let
       echo "DeepSeek Harness установлен в $REPO_DIR"
       echo "Конфигурация будет создана в ''${HOME}/.dsh при первом запуске."
       echo
-      echo "Запуск:    dsh-start"
-      echo "Обновление: dsh-update"
-      echo "Удаление:  dsh-remove"
+      echo "Запуск:      dsh-start"
+      echo "Пересборка:  dsh-rebuild (без git)"
+      echo "Обновление:  dsh-update (с git pull)"
+      echo "Удаление:    dsh-remove"
+    '';
+  };
+
+  # --- Пересборка без обновления исходников ---
+  dshRebuild = pkgs.writeShellApplication {
+    name = "dsh-rebuild";
+    runtimeInputs = [
+      nodejs-official
+      pkgs.pnpm
+      pkgs.gcc
+      pkgs.gnumake
+      pkgs.python3
+      pkgs.findutils
+    ];
+    text = ''
+      set -euo pipefail
+      REPO_DIR="''${HOME}/llm/deepseek-harness"
+
+      if [ ! -d "$REPO_DIR" ]; then
+        echo "Репозиторий не найден. Сначала запустите dsh-install" >&2
+        exit 1
+      fi
+
+      cd "$REPO_DIR"
+
+      echo "Удаляю node_modules и build-артефакты..."
+      rm -rf node_modules
+      rm -rf apps/*/node_modules packages/*/*/node_modules vendor/*/node_modules
+      find apps packages vendor -maxdepth 4 -type d \( -name lib -o -name dist \) \
+        -path '*/node_modules' -prune -o -type d \( -name lib -o -name dist \) -print0 2>/dev/null \
+        | xargs -0 rm -rf 2>/dev/null || true
+
+      echo "Устанавливаю зависимости (pnpm install)..."
+      pnpm install
+
+      echo "Собираю (pnpm run build)..."
+      pnpm run build
+
+      echo
+      echo "Пересборка завершена."
     '';
   };
 
@@ -105,6 +167,7 @@ let
       echo "Запускаю DeepSeek Harness на порту $PORT..."
       # Запускаем напрямую через официальный Node.js с --expose-internals.
       # Обходим несовместимость node-addon-require-builtin с Nix-сборкой Node.js.
+      # --no-open: не открывать браузер самому — откроем позже.
       nohup ${nodejs-official}/bin/node --expose-internals \
         apps/cli/lib/bin.js web --no-open \
         >/tmp/dsh.log 2>&1 &
@@ -228,6 +291,7 @@ let
       pkgs.gcc
       pkgs.gnumake
       pkgs.python3
+      pkgs.findutils
     ];
     text = ''
       set -euo pipefail
@@ -254,6 +318,13 @@ let
 
       echo "Обновляю из upstream (ветка $BRANCH)..."
       git pull --ff-only origin "$BRANCH"
+
+      echo "Удаляю node_modules и build-артефакты..."
+      rm -rf node_modules
+      rm -rf apps/*/node_modules packages/*/*/node_modules vendor/*/node_modules
+      find apps packages vendor -maxdepth 4 -type d \( -name lib -o -name dist \) \
+        -path '*/node_modules' -prune -o -type d \( -name lib -o -name dist \) -print0 2>/dev/null \
+        | xargs -0 rm -rf 2>/dev/null || true
 
       echo "Устанавливаю обновлённые зависимости (pnpm install)..."
       pnpm install
@@ -286,6 +357,7 @@ in
   # === Пользовательские команды ===
   home.packages = [
     dshInstall
+    dshRebuild
     dshStart
     dshStop
     dshRemove
