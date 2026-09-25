@@ -20,6 +20,8 @@ in
     z13-tablet-kit
   ];
 
+   # ОТКЛЮЧЕНО: правило 99-disable-asus-touchpad.rules отключает тачпад.
+  # services.udev.packages = [ z13-tablet-kit ];
 
   # === Udev-правила для z13ctl-plus ===
   # Декларативный эквивалент `z13ctl setup`.
@@ -86,21 +88,22 @@ in
     };
   };
 
-  # === Systemd user-сервис: демон z13ctl ===
-  systemd.user.services.z13ctld = {
-    description = "z13ctl device daemon for ASUS ROG Flow Z13";
-
-    partOf = [ "graphical-session.target" ];
-    after = [ "graphical-session.target" ];
-    wantedBy = [ "graphical-session.target" ];
-
-    serviceConfig = {
-      Type = "simple";
-      ExecStart = "${z13ctl-plus}/bin/z13ctl daemon";
-      Restart = "on-failure";
-      RestartSec = "5";
-    };
-  };
+   # === Systemd user-сервис: демон z13ctl ===
+  # ОТКЛЮЧЕНО: демон перебивает настройки подсветки, которые
+  # ставит наш сервис asus-keyboard-backlight. Также без демона
+  # не работает z13gui, но GUI нам пока не нужен.
+  # systemd.user.services.z13ctld = {
+  #   description = "z13ctl device daemon for ASUS ROG Flow Z13";
+  #   partOf = [ "graphical-session.target" ];
+  #   after = [ "graphical-session.target" ];
+  #   wantedBy = [ "graphical-session.target" ];
+  #   serviceConfig = {
+  #     Type = "simple";
+  #     ExecStart = "${z13ctl-plus}/bin/z13ctl daemon";
+  #     Restart = "on-failure";
+  #     RestartSec = "5";
+  #   };
+  # };
 
   # === Директория состояния ===
   systemd.tmpfiles.rules = [
