@@ -20,9 +20,6 @@ in
     z13-tablet-kit
   ];
 
-  # === Udev-правила из z13-tablet-kit ===
-  # Дают доступ к тачпаду и тачскрину без root-прав.
-  services.udev.packages = [ z13-tablet-kit ];
 
   # === Udev-правила для z13ctl-plus ===
   # Декларативный эквивалент `z13ctl setup`.
