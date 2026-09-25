@@ -1,12 +1,6 @@
 { config, lib, pkgs, inputs, ... }:
 
 {
-  # Импортируем модуль Portmaster из nixpkgs-unstable.
-  # Это возможно благодаря specialArgs = { inherit inputs; } в flake.nix.
-  imports = [
-    inputs.nixpkgs-unstable.nixosModules.portmaster
-  ];
-
   # === Safing Portmaster ===
   # Application firewall + DNS-фильтр с графическим клиентом.
   # Модуль и пакет берутся из nixpkgs-unstable, так как в стабильном
