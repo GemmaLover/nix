@@ -27,15 +27,18 @@ let
     installPhase = ''
       runHook preInstall
 
-      mkdir -p $out/share/amnezia
-      cd $out/share/amnezia
+      # Файлы в /nix/store read-only — копируем .run во временную
+      # директорию, чтобы сделать его исполняемым.
+      cp $src ./amnezia.run
+      chmod +x ./amnezia.run
 
-      chmod +x $src
-      $src --target $out/share/amnezia --noexec
+      mkdir -p $out/share/amnezia
+      # --noexec: только извлечь файлы, не запускать установочный скрипт.
+      # --target: куда распаковать.
+      ./amnezia.run --target $out/share/amnezia --noexec
 
       runHook postInstall
     '';
-  };
 
 in
 # buildFHSEnv создаёт окружение, где бинарник видит стандартные пути
