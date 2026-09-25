@@ -186,7 +186,7 @@ in
   };
 
   systemd.services.z13-apply-balanced = {
-    description = "Apply Z13 balanced profile (80W, factory fans)";
+    description = "Apply Z13 balanced profile (75W, factory fans)";
     serviceConfig = {
       Type = "oneshot";
       ExecStart = "${mkApplyProfile "balanced" balanced}/bin/z13-apply-balanced";
