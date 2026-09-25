@@ -46,7 +46,7 @@
     zenmap         # GUI для nmap
     parabolic      # Скачивание видео (ранее известен как Nickvision)
 
-    (pkgs.callPackage ../../pkgs/amnezia-vpn { })
+    (pkgs.callPackage ../../pkgs/amnezia-vpn-run { })
 
     # --- Утилиты ---
     tree           # Дерево каталогов
