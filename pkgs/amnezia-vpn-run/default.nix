@@ -24,10 +24,17 @@ let
       echo "Запускаю установщик. Целевая директория: $INSTALL_DIR"
       mkdir -p "$INSTALL_DIR"
 
+      # Копируем .run в writable-директорию, потому что /nix/store
+      # read-only и chmod +x там не работает.
+      TMPDIR=$(mktemp -d)
+      trap 'rm -rf "$TMPDIR"' EXIT
+      cp ${amnezia-run} "$TMPDIR/amnezia.run"
+      chmod +x "$TMPDIR/amnezia.run"
+
       # --mode unattended: тихая установка без GUI.
-      # --prefix: куда устанавливать.
       # --unattendedmodeui none: не показывать прогресс-бар.
-      ${amnezia-run} \
+      # --prefix: куда устанавливать.
+      "$TMPDIR/amnezia.run" \
         --mode unattended \
         --unattendedmodeui none \
         --prefix "$INSTALL_DIR" || true
@@ -35,8 +42,7 @@ let
       if [ ! -x "$BIN" ]; then
         echo "Автоматическая установка не удалась."
         echo "Попробуйте запустить вручную:"
-        echo "  ${amnezia-run}"
-        echo "и укажите путь установки: $INSTALL_DIR"
+        echo "  $TMPDIR/amnezia.run --prefix $INSTALL_DIR"
         exit 1
       fi
     fi
