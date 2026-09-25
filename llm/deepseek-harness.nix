@@ -6,12 +6,12 @@ let
   #
   # Репозиторий: https://github.com/deepseek-ai/deepseek-harness
   # Монорепо на pnpm, Node.js ≥ 22.19, сборка через `pnpm run build`.
-  # Запуск: `pnpm dsh web` — поднимает Web UI на 3080 внутри репозитория.
+  # Запуск: `dsh web` — поднимает Web UI (по умолчанию 3080) с токеном.
   #
   # Скрипты:
   #   dsh-install         — клонировать или обновить, пересобрать (идемпотентно)
   #   dsh-rebuild         — пересобрать без git-обновления
-  #   dsh-start           — запустить веб-UI на порту 3085
+  #   dsh-start           — запустить веб-UI (URL парсится из лога)
   #   dsh-stop            — остановить
   #   dsh-remove          — удалить репозиторий и конфиг (по выбору)
   #   dsh-check-update    — проверить обновления в upstream
@@ -134,7 +134,6 @@ let
   };
 
   # --- Запуск ---
-  # --- Запуск ---
   dshStart = pkgs.writeShellApplication {
     name = "dsh-start";
     runtimeInputs = [
@@ -149,6 +148,9 @@ let
       set -euo pipefail
       REPO_DIR="''${HOME}/llm/deepseek-harness"
       LOG_FILE="/tmp/dsh.log"
+      # Паттерн для поиска процесса. После перехода на прямой запуск через
+      # node командная строка содержит "apps/cli/lib/bin.js web".
+      PROC_PATTERN="apps/cli/lib/bin.js web"
 
       if [ ! -d "$REPO_DIR" ]; then
         echo "Репозиторий не найден. Сначала запустите dsh-install" >&2
@@ -156,9 +158,9 @@ let
       fi
 
       # Если уже запущен — останавливаем.
-      if pgrep -f "dsh web" >/dev/null 2>&1; then
+      if pgrep -f "$PROC_PATTERN" >/dev/null 2>&1; then
         echo "DeepSeek Harness уже запущен. Перезапускаю..."
-        pkill -f "dsh web" 2>/dev/null || true
+        pkill -f "$PROC_PATTERN" 2>/dev/null || true
         sleep 2
       fi
 
@@ -207,13 +209,15 @@ let
     runtimeInputs = [ pkgs.procps ];
     text = ''
       set -euo pipefail
-      if ! pgrep -f "dsh web" >/dev/null 2>&1; then
+      PROC_PATTERN="apps/cli/lib/bin.js web"
+
+      if ! pgrep -f "$PROC_PATTERN" >/dev/null 2>&1; then
         echo "DeepSeek Harness не запущен — нечего останавливать."
         exit 0
       fi
 
       echo "Останавливаю DeepSeek Harness..."
-      pkill -f "dsh web" 2>/dev/null || true
+      pkill -f "$PROC_PATTERN" 2>/dev/null || true
       sleep 1
       echo "Готово."
     '';
@@ -227,9 +231,10 @@ let
       set -euo pipefail
       REPO_DIR="''${HOME}/llm/deepseek-harness"
       DSH_HOME="''${HOME}/.dsh"
+      PROC_PATTERN="apps/cli/lib/bin.js web"
 
       # Останавливаем, если запущен.
-      pkill -f "dsh web" 2>/dev/null || true
+      pkill -f "$PROC_PATTERN" 2>/dev/null || true
 
       if [ -d "$REPO_DIR" ]; then
         read -r -p "Удалить репозиторий '$REPO_DIR' (≈200 МБ)? [y/N] " answer
