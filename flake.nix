@@ -45,7 +45,9 @@
             home-manager.users.lexi = {
               imports = [
                 # Модуль plasma-manager для декларативной настройки KDE.
-                plasma-manager.homeManagerModules.plasma-manager
+                # В новых версиях plasma-manager путь homeManagerModules
+                # переименован в homeModules.
+                plasma-manager.homeModules.plasma-manager
                 # Основной конфиг пользователя lexi.
                 ./devices/z13/home.nix
               ];
