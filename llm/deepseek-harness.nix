@@ -99,7 +99,7 @@ let
       # --no-open: не пытаться открыть браузер самому — откроем позже.
       # --port: задаём порт явно.
       # Логи пишем в /tmp/dsh.log.
-      nohup pnpm dsh web --no-open --port "$PORT" >/tmp/dsh.log 2>&1 &
+      nohup pnpm dsh web --expose-internals --no-open --port "$PORT" >/tmp/dsh.log 2>&1 &
       echo "PID: $!"
       echo "Лог: /tmp/dsh.log"
 
