@@ -6,12 +6,12 @@ let
   # Скачиваем официальный .run файл с GitHub.
   amnezia-run = pkgs.fetchurl {
     url = "https://github.com/amnezia-vpn/amnezia-client/releases/download/${version}/AmneziaVPN_${version}_linux_x64.run";
-    # Хэш-заглушка — Nix выдаст правильный при первой сборке.
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    # Хэш получен при первой сборке (Nix вывел got-значение).
+    hash = "sha256-AzXyZD9YxNdJS+TG1HWCV0+n5aRjRQ6aR7DFwu2nl8I=";
   };
 
-  # Распаковываем .run во временную директорию в store.
-  # .run — самораспаковывающийся архив, --noexec извлекает только файлы.
+  # Распаковываем .run в store. --noexec извлекает только файлы,
+  # не запуская установочный скрипт.
   amnezia-extracted = pkgs.stdenv.mkDerivation {
     pname = "amnezia-extracted";
     inherit version;
@@ -27,11 +27,9 @@ let
     installPhase = ''
       runHook preInstall
 
-      # Целевая директория в store.
       mkdir -p $out/share/amnezia
       cd $out/share/amnezia
 
-      # Делаем .run исполняемым и распаковываем.
       chmod +x $src
       $src --target $out/share/amnezia --noexec
 
@@ -42,12 +40,12 @@ let
 in
 # buildFHSEnv создаёт окружение, где бинарник видит стандартные пути
 # /usr/lib, /lib и т.д., как в обычном Linux. Это снимает необходимость
-# патчить каждую библиотеку.
+# патчить каждую библиотеку по отдельности.
 pkgs.buildFHSEnv {
   name = "amnezia-vpn";
 
-  # Пакеты, которые должны быть доступны внутри FHS-окружения.
-  # Это библиотеки, нужные Qt-приложению, и утилиты для работы VPN.
+  # Пакеты, доступные внутри FHS-окружения.
+  # Используем актуальные имена (без устаревшего xorg.* namespace).
   targetPkgs = pkgs: with pkgs; [
     # Qt
     qt6.qtbase
@@ -55,17 +53,17 @@ pkgs.buildFHSEnv {
     qt6.qt5compat
 
     # X11 / Wayland
-    xorg.libxcb
-    xorg.xcbutil
-    xorg.xcbutilimage
-    xorg.xcbutilkeysyms
-    xorg.xcbutilrenderutil
-    xorg.xcbutilwm
-    xorg.xcbutilcursor
-    xorg.libX11
-    xorg.libXext
-    xorg.libXinerama
-    xorg.libXrender
+    libxcb
+    libxcb-util
+    libxcb-image
+    libxcb-keysyms
+    libxcb-render-util
+    libxcb-wm
+    libxcb-cursor
+    libx11
+    libxext
+    libxinerama
+    libxrender
     libxkbcommon
     libGL
     libglvnd
@@ -89,5 +87,6 @@ pkgs.buildFHSEnv {
   ];
 
   # Что запускать при старте FHS-обёртки.
+  # Если AmneziaVPN не в корне, поправьте путь (см. проверку ниже).
   runScript = "${amnezia-extracted}/share/amnezia/AmneziaVPN";
 }
