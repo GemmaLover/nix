@@ -3,16 +3,11 @@
 let
   version = "5.0.3.0";
 
-  # Официальный .run — это ELF-исполняемый установщик (BitRock),
-  # а не архив. Его нельзя распаковать, только запустить.
   amnezia-run = pkgs.fetchurl {
     url = "https://github.com/amnezia-vpn/amnezia-client/releases/download/${version}/AmneziaVPN_${version}_linux_x64.run";
     hash = "sha256-AzXyZD9YxNdJS+TG1HWCV0+n5aRjRQ6aR7DFwu2nl8I=";
   };
 
-  # Обёртка, которая при первом запуске устанавливает AmneziaVPN
-  # в пользовательскую директорию, а затем запускает бинарник.
-  # Установщик BitRock поддерживает --mode unattended --prefix.
   amnezia-wrapper = pkgs.writeShellScript "amnezia-vpn-wrapper" ''
     set -euo pipefail
 
@@ -24,16 +19,12 @@ let
       echo "Запускаю установщик. Целевая директория: $INSTALL_DIR"
       mkdir -p "$INSTALL_DIR"
 
-      # Копируем .run в writable-директорию, потому что /nix/store
-      # read-only и chmod +x там не работает.
+      # Копируем .run в writable-директорию, потому что /nix/store read-only.
       TMPDIR=$(mktemp -d)
       trap 'rm -rf "$TMPDIR"' EXIT
       cp ${amnezia-run} "$TMPDIR/amnezia.run"
       chmod +x "$TMPDIR/amnezia.run"
 
-      # --mode unattended: тихая установка без GUI.
-      # --unattendedmodeui none: не показывать прогресс-бар.
-      # --prefix: куда устанавливать.
       "$TMPDIR/amnezia.run" \
         --mode unattended \
         --unattendedmodeui none \
@@ -55,7 +46,15 @@ pkgs.buildFHSEnv {
   name = "amnezia-vpn";
 
   # Библиотеки и утилиты, доступные внутри FHS-окружения.
+  # Критически важны glibc и zlib — без них ELF-установщик
+  # BitRock не запустится (cannot open libz.so.1, no ld-linux).
   targetPkgs = pkgs: with pkgs; [
+    # Базовые библиотеки для ELF-интерпретатора и линковки.
+    glibc
+    zlib
+    stdenv.cc.cc.lib       # libstdc++, libgcc_s
+    libxcrypt              # libcrypt
+
     # Qt
     qt6.qtbase
     qt6.qtwayland
@@ -94,7 +93,7 @@ pkgs.buildFHSEnv {
     procps
     coreutils
 
-    # Утилиты, нужные установщику BitRock
+    # Утилиты, нужные установщику
     bash
     findutils
     gnugrep
