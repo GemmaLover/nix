@@ -3,25 +3,27 @@
 let
   version = "5.0.3.0";
 
-  # Скачиваем официальный .run файл с GitHub.
   amnezia-run = pkgs.fetchurl {
     url = "https://github.com/amnezia-vpn/amnezia-client/releases/download/${version}/AmneziaVPN_${version}_linux_x64.run";
     hash = "sha256-AzXyZD9YxNdJS+TG1HWCV0+n5aRjRQ6aR7DFwu2nl8I=";
   };
 
-  # Распаковываем .run как обычный архив (7z, tar.gz и т.д.),
-  # не выполняя встроенный установочный скрипт.
   amnezia-extracted = pkgs.stdenv.mkDerivation {
     pname = "amnezia-extracted";
     inherit version;
 
     src = amnezia-run;
 
-    # .run — не стандартный архив, распаковываем вручную.
     dontUnpack = true;
 
-    # 7z и libarchive нужны для извлечения встроенного архива.
-    nativeBuildInputs = [ pkgs.p7zip pkgs.libarchive ];
+    # Инструменты для извлечения архива из .run файла.
+    nativeBuildInputs = with pkgs; [
+      gnutar
+      gzip
+      gnugrep
+      coreutils
+      p7zip
+    ];
 
     installPhase = ''
       runHook preInstall
@@ -29,12 +31,20 @@ let
       mkdir -p $out/share/amnezia
       cd $out/share/amnezia
 
-      # Пытаемся извлечь 7z-архив, который обычно встроен в .run.
-      # Флаг -y отвечает "да" на все запросы (перезапись и т.п.).
-      # Если 7z не справится, пробуем bsdtar (libarchive) — он
-      # автоматически определяет формат.
-      7z x -y "$src" -o"$out/share/amnezia" || \
-        bsdtar -xf "$src" -C "$out/share/amnezia"
+      # Ищем строку с маркером __ARCHIVE_BELOW__, после которой
+      # начинается встроенный архив.
+      ARCHIVE_LINE=$(grep -n '^__ARCHIVE_BELOW__$' $src | cut -d: -f1)
+
+      if [ -z "$ARCHIVE_LINE" ]; then
+        echo "Маркер __ARCHIVE_BELOW__ не найден. Пробуем 7z..."
+        7z x -y "$src" -o"$out/share/amnezia" || \
+          bsdtar -xf "$src" -C "$out/share/amnezia"
+      else
+        echo "Маркер найден на строке $ARCHIVE_LINE. Извлекаем архив..."
+        # Извлекаем всё, что идёт после маркера, и распаковываем как tar.gz.
+        # Если архив не gzip, попробуем без -z.
+        tail -n +$((ARCHIVE_LINE + 1)) "$src" | tar -xzf - -C "$out/share/amnezia"
+      fi
 
       runHook postInstall
     '';
@@ -45,12 +55,10 @@ pkgs.buildFHSEnv {
   name = "amnezia-vpn";
 
   targetPkgs = pkgs: with pkgs; [
-    # Qt
     qt6.qtbase
     qt6.qtwayland
     qt6.qt5compat
 
-    # X11 / Wayland
     libxcb
     libxcb-util
     libxcb-image
@@ -67,12 +75,10 @@ pkgs.buildFHSEnv {
     libglvnd
     wayland
 
-    # Звук и секреты
     libpulseaudio
     alsa-lib
     libsecret
 
-    # Сетевые утилиты, нужные Amnezia для настройки VPN.
     iproute2
     iptables
     iputils
@@ -84,7 +90,7 @@ pkgs.buildFHSEnv {
     coreutils
   ];
 
-  # Путь к бинарнику может отличаться после распаковки.
-  # Если AmneziaVPN лежит в подпапке, поправьте путь (см. проверку ниже).
+  # Путь к бинарнику может отличаться. После сборки проверьте:
+  # find /nix/store/*amnezia-extracted*/ -name AmneziaVPN
   runScript = "${amnezia-extracted}/share/amnezia/AmneziaVPN";
 }
