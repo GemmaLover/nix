@@ -39,7 +39,11 @@
     python3
     python3Packages.pip
 
+    # Node.js для DeepSeek Harness
+    nodejs_22
+    pnpm
+
     # Утилиты
-    wl-clipboard  # Буфер обмена для Wayland (нужен для Waydroid)
+    wl-clipboard  # Буфер обмена для Wayland
   ];
 }
