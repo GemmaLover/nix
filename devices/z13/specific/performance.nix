@@ -160,7 +160,7 @@ in
     description = "Sync z13ctl TDP/fan curves with power-profiles-daemon";
     wantedBy = [ "multi-user.target" ];
     after = [ "power-profiles-daemon.service" ];
-    requires = [ "power-profiles-daemon.service" ];
+    wants = [ "power-profiles-daemon.service" ];
 
     serviceConfig = {
       Type = "simple";
