@@ -1,29 +1,23 @@
 { config, pkgs, ... }:
 
 let
-  # === Общие переменные для всех скриптов Unsloth ===
-  # Только те, что используются везде: имя контейнера, образ, volume.
-  unslothVars = ''
-    CONTAINER_NAME="unsloth"
-    IMAGE="docker.io/unsloth/unsloth:latest"
-    DATA_VOLUME="unsloth-data"
-  '';
+  # =====================================================================
+  # Unsloth — контейнер для тонкой настройки и инференса LLM на AMD GPU.
+  # Скрипты разделены по назначению: install / start / stop / remove.
+  # Каждый скрипт получает только те переменные, которые использует —
+  # это требование shellcheck (SC2034: unused variable).
+  # =====================================================================
 
-  # === Переменные, специфичные для install ===
-  # HOST_PROJECTS нужен только при создании контейнера — он определяет,
-  # какую папку с хоста пробросить внутрь.
-  unslothInstallVars = ''
-    HOST_PROJECTS="''${HOME}/projects"
-  '';
-
-  # === Установка контейнера (одноразово) ===
+  # --- Установка (одноразово) ---
   unslothInstall = pkgs.writeShellApplication {
     name = "unsloth-install";
     runtimeInputs = [ pkgs.podman ];
     text = ''
       set -euo pipefail
-      ${unslothVars}
-      ${unslothInstallVars}
+      CONTAINER_NAME="unsloth"
+      IMAGE="docker.io/unsloth/unsloth:latest"
+      DATA_VOLUME="unsloth-data"
+      HOST_PROJECTS="''${HOME}/projects"
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' уже существует."
@@ -69,13 +63,13 @@ let
     '';
   };
 
-  # === Запуск уже созданного контейнера ===
+  # --- Запуск ---
   unslothStart = pkgs.writeShellApplication {
     name = "unsloth-start";
     runtimeInputs = [ pkgs.podman pkgs.curl pkgs.xdg-utils ];
     text = ''
       set -euo pipefail
-      ${unslothVars}
+      CONTAINER_NAME="unsloth"
 
       if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' не найден." >&2
@@ -105,13 +99,13 @@ let
     '';
   };
 
-  # === Остановка контейнера (данные сохраняются) ===
+  # --- Остановка ---
   unslothStop = pkgs.writeShellApplication {
     name = "unsloth-stop";
     runtimeInputs = [ pkgs.podman ];
     text = ''
       set -euo pipefail
-      ${unslothVars}
+      CONTAINER_NAME="unsloth"
 
       if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' не найден — нечего останавливать."
@@ -129,13 +123,15 @@ let
     '';
   };
 
-  # === Удаление контейнера (с подтверждениями для volume и образа) ===
+  # --- Удаление (с подтверждениями для volume и образа) ---
   unslothRemove = pkgs.writeShellApplication {
     name = "unsloth-remove";
     runtimeInputs = [ pkgs.podman ];
     text = ''
       set -euo pipefail
-      ${unslothVars}
+      CONTAINER_NAME="unsloth"
+      DATA_VOLUME="unsloth-data"
+      IMAGE="docker.io/unsloth/unsloth:latest"
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Удаляю контейнер '$CONTAINER_NAME'..."
@@ -170,7 +166,6 @@ let
 
 in
 {
-  # === Пользовательские команды ===
   home.packages = [
     unslothInstall
     unslothStart
@@ -178,7 +173,6 @@ in
     unslothRemove
   ];
 
-  # === Ярлыки в меню приложений ===
   xdg.desktopEntries = {
     unsloth-start = {
       name = "Unsloth Start";
