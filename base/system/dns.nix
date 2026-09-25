@@ -4,7 +4,7 @@
   # === Шифрование DNS через DNSCrypt-proxy2 ===
   # В NixOS 26.05 старый модуль services.dnscrypt-proxy удалён,
   # используется современный services.dnscrypt-proxy2.
-  services.dnscrypt-proxy2 = {
+  services.dnscrypt-proxy = {
     enable = true;
 
     settings = {
@@ -51,5 +51,5 @@
   services.resolved.enable = false;
 
   # StateDirectory для кэша dnscrypt-proxy2.
-  systemd.services.dnscrypt-proxy2.serviceConfig.StateDirectory = "dnscrypt-proxy";
+  systemd.services.dnscrypt-proxy.serviceConfig.StateDirectory = "dnscrypt-proxy";
 }
