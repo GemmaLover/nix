@@ -15,46 +15,49 @@ let
   # Ограничения железа GZ302EA:
   #   - PL1 (sustained TDP): максимум 93W с флагом --force.
   #     Без --force ядро ограничивает PL1 до 75W.
+  #   - При PL1 > 75W z13ctl ТРЕБУЕТ кривую с минимум 80% на всех
+  #     точках — иначе отказывается применять настройки. Поэтому
+  #     для performance мы не задаём кривую, а отдаём её z13ctl
+  #     (флаг skip-fan-curve).
   #   - Fan curve: ровно 8 точек "temp:pct%", температуры по возрастанию,
-  #     скорости не убывают. Или fancurve --reset для заводской кривой.
+  #     скорости не убывают.
   # =====================================================================
 
-  # z13ctl-plus — локальный пакет из pkgs/.
   z13ctl-plus = pkgs.callPackage ../../../pkgs/z13ctl-plus { };
 
   # ---------------------------------------------------------------------
-  # ПРОФИЛЬ "POWER SAVE" — соответствует power-saver в PPD
+  # ПРОФИЛЬ "POWER SAVE" (PPD: power-saver)
   # ---------------------------------------------------------------------
   eco = {
     tdp = 10;
     force = false;
-    # Очень тихая кривая: вентиляторы стоят до 60°C, 100% только к 90°C.
+    # Тихая кривая: вентиляторы стоят до 60°C, 100% только к 90°C.
     fan-curve = "55:0%,60:0%,65:8%,70:18%,75:35%,80:60%,85:85%,90:100%";
   };
 
   # ---------------------------------------------------------------------
-  # ПРОФИЛЬ "BALANCED" — соответствует balanced в PPD
+  # ПРОФИЛЬ "BALANCED" (PPD: balanced)
   # ---------------------------------------------------------------------
   balanced = {
     tdp = 75;
     force = false;
-    # Заводская кривая ASUS.
+    # null → fancurve --reset (заводская кривая ASUS).
     fan-curve = null;
   };
 
   # ---------------------------------------------------------------------
-  # ПРОФИЛЬ "PERFORMANCE" — соответствует performance в PPD
+  # ПРОФИЛЬ "PERFORMANCE" (PPD: performance)
   # ---------------------------------------------------------------------
   performance = {
     tdp = 93;
     force = true;
-    # Агрессивная кривая: 100% на 75°C.
-    fan-curve = "45:0%,50:15%,55:30%,60:50%,65:70%,70:85%,75:100%,80:100%";
+    # При PL1 > 75W z13ctl сам применяет 80%+ кривую для термальной
+    # безопасности. Мы не трогаем fan-curve — иначе конфликт.
+    skip-fan-curve = true;
   };
 
   # ---------------------------------------------------------------------
-  # mkApplyProfile — shell-скрипт применения одного профиля.
-  # Через writeShellApplication, чтобы z13ctl был в PATH.
+  # mkApplyProfile — генератор скрипта применения одного профиля.
   # ---------------------------------------------------------------------
   mkApplyProfile = physicalName: p: pkgs.writeShellApplication {
     name = "z13-apply-${physicalName}";
@@ -71,15 +74,15 @@ let
         then "z13ctl tdp --set ${toString p.tdp} --force"
         else "z13ctl tdp --set ${toString p.tdp}"}
 
-      ${if p.fan-curve == null
+      # 3. Кривая вентиляторов.
+      ${if (p.skip-fan-curve or false)
         then ''
-          # 3. Заводская кривая вентиляторов.
-          z13ctl fancurve --reset
+          # Кривая управляется z13ctl автоматически, т.к. PL1 > 75W.
+          echo "[z13-profile] Fan curve: управляется z13ctl (80%+ для термобезопасности)."
         ''
-        else ''
-          # 3. Кастомная кривая вентиляторов.
-          z13ctl fancurve --set "${p.fan-curve}"
-        ''}
+        else if p.fan-curve == null
+          then "z13ctl fancurve --reset"
+          else "z13ctl fancurve --set \"${p.fan-curve}\""}
 
       echo "[z13-profile] Профиль '${physicalName}' применён."
     '';
@@ -87,9 +90,7 @@ let
 
   # ---------------------------------------------------------------------
   # ppdSyncScript — слушает изменения ActiveProfile в PPD.
-  #
-  # Реализация — polling через busctl раз в 2 секунды.
-  # Парсинг без awk — используется pure bash (awk нет в PATH сервиса).
+  # Polling раз в 2 секунды. Парсинг без awk (pure bash).
   # ---------------------------------------------------------------------
   ppdSyncScript = pkgs.writeShellApplication {
     name = "z13-ppd-sync";
@@ -102,39 +103,35 @@ let
       LAST_PROFILE=""
 
       while true; do
-        # Читаем текущий профиль PPD.
         # busctl выводит строку вида: s "power-saver"
-        # Парсим pure bash — берём содержимое между кавычками.
         RAW=$(busctl --system get-property \
           net.hadess.PowerProfiles \
           /net/hadess/PowerProfiles \
           net.hadess.PowerProfiles \
           ActiveProfile 2>/dev/null || echo "")
 
-        # RAW = 's "power-saver"'
-        # Убираем префикс до первой кавычки, потом суффикс от последней.
+        # Парсим pure bash: убираем префикс до первой кавычки,
+        # затем суффикс от последней.
         CURRENT="''${RAW#*\"}"
         CURRENT="''${CURRENT%\"*}"
 
         if [ -z "$CURRENT" ]; then
-          # PPD недоступен — ждём.
           sleep 2
           continue
         fi
 
-        # Если профиль изменился — применяем.
         if [ "$CURRENT" != "$LAST_PROFILE" ]; then
           echo "[z13-ppd-sync] PPD ActiveProfile = $CURRENT"
 
           case "$CURRENT" in
             power-saver)
-              ${mkApplyProfile "quiet" eco}/bin/z13-apply-quiet
+              ${mkApplyProfile "quiet" eco}/bin/z13-apply-quiet || true
               ;;
             balanced)
-              ${mkApplyProfile "balanced" balanced}/bin/z13-apply-balanced
+              ${mkApplyProfile "balanced" balanced}/bin/z13-apply-balanced || true
               ;;
             performance)
-              ${mkApplyProfile "performance" performance}/bin/z13-apply-performance
+              ${mkApplyProfile "performance" performance}/bin/z13-apply-performance || true
               ;;
             *)
               echo "[z13-ppd-sync] Неизвестный профиль: $CURRENT"
@@ -197,7 +194,7 @@ in
   };
 
   systemd.services.z13-apply-performance = {
-    description = "Apply Z13 performance profile (93W, aggressive fans)";
+    description = "Apply Z13 performance profile (93W, z13ctl-managed fans)";
     serviceConfig = {
       Type = "oneshot";
       ExecStart = "${mkApplyProfile "performance" performance}/bin/z13-apply-performance";
