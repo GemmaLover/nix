@@ -21,7 +21,7 @@ buildGoModule rec {
   };
 
   # То же самое для vendorHash — хэша Go-зависимостей.
-  vendorHash = lib.fakeHash;
+    vendorHash = "sha256-/sxjCSPhsZZwQv7w1bKiBoBnS7jozJIbyu8S64TOe4Q=";
 
   # ... остальное содержимое файла без изменений
 }
