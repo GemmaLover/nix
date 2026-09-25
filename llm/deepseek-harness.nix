@@ -134,6 +134,7 @@ let
   };
 
   # --- Запуск ---
+  # --- Запуск ---
   dshStart = pkgs.writeShellApplication {
     name = "dsh-start";
     runtimeInputs = [
@@ -142,47 +143,58 @@ let
       pkgs.curl
       pkgs.xdg-utils
       pkgs.procps
+      pkgs.gnugrep
     ];
     text = ''
       set -euo pipefail
       REPO_DIR="''${HOME}/llm/deepseek-harness"
-      PORT=3085
-      URL="http://localhost:$PORT"
+      LOG_FILE="/tmp/dsh.log"
 
       if [ ! -d "$REPO_DIR" ]; then
         echo "Репозиторий не найден. Сначала запустите dsh-install" >&2
         exit 1
       fi
 
-      # Проверяем, не запущен ли уже.
+      # Если уже запущен — останавливаем.
       if pgrep -f "dsh web" >/dev/null 2>&1; then
-        echo "DeepSeek Harness уже запущен."
-        echo "Останавливаю предыдущий экземпляр, чтобы не было конфликта портов..."
+        echo "DeepSeek Harness уже запущен. Перезапускаю..."
         pkill -f "dsh web" 2>/dev/null || true
         sleep 2
       fi
 
       cd "$REPO_DIR"
 
-      echo "Запускаю DeepSeek Harness на порту $PORT..."
-      # Запускаем напрямую через официальный Node.js с --expose-internals.
-      # Обходим несовместимость node-addon-require-builtin с Nix-сборкой Node.js.
-      # --no-open: не открывать браузер самому — откроем позже.
+      # Очищаем старый лог, чтобы URL из прошлого запуска не сбивал с толку.
+      : > "$LOG_FILE"
+
+      echo "Запускаю DeepSeek Harness..."
+      # Запускаем через официальный Node.js с --expose-internals.
+      # --no-open — CLI не открывает браузер сам, URL печатает в stdout.
+      # Порт CLI выбирает сам (обычно 3080).
       nohup ${nodejs-official}/bin/node --expose-internals \
         apps/cli/lib/bin.js web --no-open \
-        >/tmp/dsh.log 2>&1 &
+        >"$LOG_FILE" 2>&1 &
       echo "PID: $!"
-      echo "Лог: /tmp/dsh.log"
+      echo "Лог: $LOG_FILE"
 
-      echo -n "Ожидание сервиса"
+      # Ждём появления URL в логе (макс. 90 секунд).
+      echo -n "Ожидание URL в логе"
+      URL=""
       for _ in {1..90}; do
-        if curl -fsS -o /dev/null "$URL" 2>/dev/null; then
-          echo " — готов."
+        URL=$(grep -oE 'http://[0-9.]+:[0-9]+/\?token=[A-Za-z0-9_-]+' "$LOG_FILE" | head -1 || true)
+        if [ -n "$URL" ]; then
+          echo " — найден."
           break
         fi
         echo -n "."
         sleep 1
       done
+
+      if [ -z "$URL" ]; then
+        echo " — не дождались URL за 90 секунд."
+        echo "Проверьте лог вручную: cat $LOG_FILE"
+        exit 1
+      fi
 
       echo "Открываю $URL"
       xdg-open "$URL" &
