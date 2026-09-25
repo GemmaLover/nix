@@ -3,12 +3,21 @@
 let
   # =====================================================================
   # Unsloth — контейнер для тонкой настройки и инференса LLM на AMD GPU.
-  # Скрипты разделены по назначению: install / start / stop / remove / reset-password.
+  #
+  # Скрипты:
+  #   unsloth-install           — создать контейнер (одноразово)
+  #   unsloth-start             — запустить и открыть веб-интерфейс
+  #   unsloth-stop              — остановить (volume сохраняется)
+  #   unsloth-remove            — удалить контейнер (volume и образ по выбору)
+  #   unsloth-reset-password    — сбросить пароль веб-интерфейса
+  #   unsloth-check-update      — проверить, есть ли новый образ
+  #   unsloth-update            — применить обновление
+  #
   # Каждый скрипт получает только те переменные, которые использует —
   # это требование shellcheck (SC2034: unused variable).
   #
   # Веб-интерфейс Unsloth Studio слушает 8000 внутри контейнера,
-  # наружу проброшен на 8005 (внешний порт можно менять в PORT_HOST).
+  # наружу проброшен на 8005. Внешний порт задаётся в PORT_HOST.
   # =====================================================================
 
   # --- Установка (одноразово) ---
@@ -109,6 +118,8 @@ let
       echo "  unsloth-stop             — остановить контейнер"
       echo "  unsloth-remove           — удалить контейнер"
       echo "  unsloth-reset-password   — сбросить пароль веб-интерфейса"
+      echo "  unsloth-check-update     — проверить обновление образа"
+      echo "  unsloth-update           — применить обновление"
     '';
   };
 
@@ -240,16 +251,121 @@ let
     '';
   };
 
+  # --- Проверка обновления образа (без изменений) ---
+  unslothCheckUpdate = pkgs.writeShellApplication {
+    name = "unsloth-check-update";
+    runtimeInputs = [ pkgs.podman ];
+    text = ''
+      set -euo pipefail
+      CONTAINER_NAME="unsloth"
+      IMAGE="docker.io/unsloth/unsloth-rocm:studio"
+
+      if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+        echo "Контейнер '$CONTAINER_NAME' не найден. Сначала: unsloth-install"
+        exit 1
+      fi
+
+      OLD_ID=$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME")
+      echo "Текущий образ (у контейнера): $OLD_ID"
+      echo -n "Проверяю реестр... "
+      podman pull --quiet "$IMAGE" >/dev/null
+      NEW_ID=$(podman image inspect --format '{{.Id}}' "$IMAGE")
+      echo "готово."
+      echo "Свежий образ (в реестре):     $NEW_ID"
+
+      if [ "$OLD_ID" = "$NEW_ID" ]; then
+        echo
+        echo "Обновление не требуется — установлена последняя версия."
+      else
+        echo
+        echo "Доступно обновление."
+        echo "Применить: unsloth-update"
+      fi
+    '';
+  };
+
+  # --- Обновление образа и пересоздание контейнера ---
+  unslothUpdate = pkgs.writeShellApplication {
+    name = "unsloth-update";
+    runtimeInputs = [ pkgs.podman ];
+    text = ''
+      set -euo pipefail
+      CONTAINER_NAME="unsloth"
+      IMAGE="docker.io/unsloth/unsloth-rocm:studio"
+      DATA_VOLUME="unsloth-data"
+      HOST_PROJECTS="''${HOME}/projects"
+      PORT_HOST=8005
+      PORT_CONTAINER=8000
+
+      if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+        echo "Контейнер '$CONTAINER_NAME' не найден. Сначала: unsloth-install"
+        exit 1
+      fi
+
+      # Запоминаем старый образ, чтобы понять, изменился ли он.
+      OLD_ID=$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME")
+      echo "Текущий образ: $OLD_ID"
+
+      # Скачиваем свежий образ. Если тег не изменился, pull завершится
+      # быстро (все слои уже есть локально).
+      echo "Проверяю реестр..."
+      podman pull --quiet "$IMAGE" >/dev/null
+      NEW_ID=$(podman image inspect --format '{{.Id}}' "$IMAGE")
+      echo "Свежий образ:  $NEW_ID"
+
+      if [ "$OLD_ID" = "$NEW_ID" ]; then
+        echo
+        echo "Обновление не требуется — установлена последняя версия."
+        exit 0
+      fi
+
+      echo
+      echo "Доступно обновление: $OLD_ID -> $NEW_ID"
+      read -r -p "Применить обновление сейчас? Контейнер будет пересоздан, volume сохранится. [y/N] " answer
+      if [[ "''${answer,,}" != "y" ]]; then
+        echo "Отменено."
+        exit 0
+      fi
+
+      # Останавливаем и удаляем старый контейнер. Volume НЕ трогаем.
+      echo "Останавливаю и удаляю старый контейнер..."
+      podman rm -f "$CONTAINER_NAME"
+
+      # Пересоздаём контейнер с теми же параметрами, что в unsloth-install.
+      echo "Создаю новый контейнер..."
+      podman create \
+        --name "$CONTAINER_NAME" \
+        --device /dev/kfd \
+        --device /dev/dri \
+        --group-add keep-groups \
+        --security-opt label=disable \
+        --shm-size=8g \
+        -p "$PORT_HOST:$PORT_CONTAINER" \
+        -v "$HOST_PROJECTS:/workspace/host:Z" \
+        -v "$DATA_VOLUME:/workspace/studio" \
+        -e JUPYTER_PASSWORD=unsloth \
+        "$IMAGE"
+
+      echo
+      echo "Обновление завершено."
+      echo "Запуск: unsloth-start"
+    '';
+  };
+
 in
 {
+  # === Пользовательские команды ===
   home.packages = [
     unslothInstall
     unslothStart
     unslothStop
     unslothRemove
     unslothResetPassword
+    unslothCheckUpdate
+    unslothUpdate
   ];
 
+  # === Ярлыки в меню приложений ===
   xdg.desktopEntries = {
     unsloth-start = {
       name = "Unsloth Start";
