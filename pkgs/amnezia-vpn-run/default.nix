@@ -9,8 +9,8 @@ let
     hash = "sha256-AzXyZD9YxNdJS+TG1HWCV0+n5aRjRQ6aR7DFwu2nl8I=";
   };
 
-  # Распаковываем .run в store. --noexec извлекает только файлы,
-  # не запуская установочный скрипт.
+  # Распаковываем .run как обычный архив (7z, tar.gz и т.д.),
+  # не выполняя встроенный установочный скрипт.
   amnezia-extracted = pkgs.stdenv.mkDerivation {
     pname = "amnezia-extracted";
     inherit version;
@@ -20,19 +20,21 @@ let
     # .run — не стандартный архив, распаковываем вручную.
     dontUnpack = true;
 
-    # 7z нужен, если .run использует его внутри для распаковки.
-    nativeBuildInputs = [ pkgs.p7zip ];
+    # 7z и libarchive нужны для извлечения встроенного архива.
+    nativeBuildInputs = [ pkgs.p7zip pkgs.libarchive ];
 
     installPhase = ''
       runHook preInstall
 
-      # Файлы в /nix/store read-only — копируем .run во временную
-      # директорию, чтобы сделать его исполняемым.
-      cp $src ./amnezia.run
-      chmod +x ./amnezia.run
-
       mkdir -p $out/share/amnezia
-      ./amnezia.run --target $out/share/amnezia --noexec
+      cd $out/share/amnezia
+
+      # Пытаемся извлечь 7z-архив, который обычно встроен в .run.
+      # Флаг -y отвечает "да" на все запросы (перезапись и т.п.).
+      # Если 7z не справится, пробуем bsdtar (libarchive) — он
+      # автоматически определяет формат.
+      7z x -y "$src" -o"$out/share/amnezia" || \
+        bsdtar -xf "$src" -C "$out/share/amnezia"
 
       runHook postInstall
     '';
@@ -82,5 +84,7 @@ pkgs.buildFHSEnv {
     coreutils
   ];
 
+  # Путь к бинарнику может отличаться после распаковки.
+  # Если AmneziaVPN лежит в подпапке, поправьте путь (см. проверку ниже).
   runScript = "${amnezia-extracted}/share/amnezia/AmneziaVPN";
 }
