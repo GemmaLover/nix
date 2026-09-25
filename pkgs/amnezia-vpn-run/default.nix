@@ -130,6 +130,9 @@ pkgs.buildFHSEnv {
     gzip
     xz
     file
+
+    dbus
+    dbus.lib
   ];
 
   runScript = amnezia-wrapper;
