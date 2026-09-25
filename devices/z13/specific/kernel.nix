@@ -12,6 +12,7 @@
   boot.kernelParams = [
     "amdgpu.gttsize=113777"
     "ttm.pages_limit=29126912"
+    "amdgpu.vpe_idle_timeout=2000"
   ];
 
   # === Модули ядра ===

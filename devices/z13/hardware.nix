@@ -36,6 +36,14 @@
     };
   };
 
+  # === Гибернация (resume с LUKS) ===
+  # Указываем устройство, с которого система будет читать образ памяти
+  # после гибернации. Это расшифрованный swap на LUKS.
+  boot.resumeDevice = "/dev/mapper/luks-c4892993-c483-4bc4-afeb-0549d71d2959";
+
+  # Включаем поддержку гибернации в NixOS.
+  powerManagement.enable = true;
+
   fileSystems."/boot" = {
     device = "/dev/disk/by-uuid/B652-F5CD";
     fsType = "vfat";
