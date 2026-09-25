@@ -8,7 +8,7 @@
     ./specific/asus-tools.nix      # asusctl, z13-tablet-kit, z13ctl-plus
     ./specific/z13-tools.nix
     ./specific/gpu-amd.nix
-    ./perfromance.nix
+    ./specific/performance.nix
 
     # === Базовые модули для всех устройств ===
     ../../base/system/boot.nix
