@@ -18,9 +18,19 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # plasma-manager — декларативное управление настройками KDE Plasma.
+    # Нужен для настройки PowerDevil (авто-переключение профилей
+    # при смене питания), темы, раскладки и т.д.
+    # У проекта нет веток release-XX.XX — используется trunk (Plasma 6).
+    plasma-manager = {
+      url = "github:nix-community/plasma-manager/trunk";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, disko, ... }@inputs: {
+  outputs = { self, nixpkgs, home-manager, disko, plasma-manager, ... }@inputs: {
     nixosConfigurations = {
       # === Устройство: ASUS Z13 ===
       z13 = nixpkgs.lib.nixosSystem {
@@ -32,7 +42,14 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.users.lexi = import ./devices/z13/home.nix;
+            home-manager.users.lexi = {
+              imports = [
+                # Модуль plasma-manager для декларативной настройки KDE.
+                plasma-manager.homeManagerModules.plasma-manager
+                # Основной конфиг пользователя lexi.
+                ./devices/z13/home.nix
+              ];
+            };
           }
         ];
       };

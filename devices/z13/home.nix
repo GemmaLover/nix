@@ -7,6 +7,7 @@
     ./home-services.nix
     ./home-caffeine.nix
     ../../llm/home.nix
+    ./plasma-power.nix
   ];
 
   # Домашняя директория пользователя.
