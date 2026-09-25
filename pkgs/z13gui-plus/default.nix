@@ -25,6 +25,7 @@ buildGoModule rec {
   buildInputs = [
     gtk4
     libadwaita
+    gtk4-layer-shell
   ];
 
   nativeBuildInputs = [
