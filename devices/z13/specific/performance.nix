@@ -4,201 +4,182 @@ let
   # =====================================================================
   # ПРОФИЛИ ПРОИЗВОДИТЕЛЬНОСТИ ASUS ROG FLOW Z13 (GZ302EA)
   #
-  # Меняйте значения ниже — они применятся при следующем nixos-rebuild.
-  # Комментарии объясняют, что делает каждая строка.
+  # Меняйте значения в блоках balanced / eco / performance ниже —
+  # они применятся при следующем nixos-rebuild.
   #
-  # ВАЖНО: z13ctl требует запущенного демона для сохранения настроек.
-  # Демон включён в конце файла. Если он мешает подсветке — см. комментарий
-  # у сервиса z13ctld.
+  # ВАЖНО: точный синтаксис команд z13ctl может отличаться.
+  # Проверьте перед изменением:
+  #   z13ctl tdp --help
+  #   z13ctl fancurve --help
+  #   z13ctl profile --help
   # =====================================================================
 
+  # z13ctl-plus — локальный пакет из pkgs/. Подключаем так же, как в
+  # devices/z13/specific/z13-tools.nix.
+  z13ctl-plus = pkgs.callPackage ../../../pkgs/z13ctl-plus { };
+
   # ---------------------------------------------------------------------
-  # ОБЩИЕ НАСТРОЙКИ ДЛЯ ВСЕХ ПРОФИЛЕЙ
+  # ОБЩИЕ НАСТРОЙКИ
   # ---------------------------------------------------------------------
 
-  # Максимальная температура, выше которой система начнёт throttling.
-  # 90°C — безопасный лимит для Strix Halo. Можно снизить до 85°C для
-  # более тихой работы, но потеряете немного производительности.
+  # Максимальная температура, выше которой система throttling.
+  # z13ctl пока не имеет прямой команды для этого лимита;
+  # значение зарезервировано для будущего использования.
   max-temp = 90;
 
   # ---------------------------------------------------------------------
-  # ПРОФИЛЬ 1: BALANCED (по умолчанию при питании от сети)
+  # ПРОФИЛЬ BALANCED (по умолчанию при питании от сети)
   # ---------------------------------------------------------------------
-  # Используется, когда ноутбук подключён к зарядке и вы не выбрали
-  # Performance вручную.
-  #
-  # TDP: 85W — достаточный лимит для большинства задач. Разница между
-  # 85W и 120W даёт всего 5-7% производительности, но сильно влияет
-  # на нагрев и шум.
-  # Кулеры: оставляем стандартные настройки ASUS (как сейчас).
   balanced = {
+    # TDP для CPU+GPU в ваттах. 85W — компромисс между производительностью
+    # и нагревом. Разница с 120W даёт всего 5–7% производительности.
     tdp = 85;
-    # Кривая вентиляторов: не задаём — используем заводскую.
+    # fan-curve не задаём — используем заводскую кривую ASUS.
     # Если хотите свою, раскомментируйте и настройте:
-    # fan-curve = "48:2,53:22,57:30,60:43,63:56,65:68,70:89,76:102";
+    # fan-curve = "45:0,50:10,55:20,60:35,65:50,70:70,75:90,80:100";
   };
 
   # ---------------------------------------------------------------------
-  # ПРОФИЛЬ 2: ECO (автоматически при питании от батареи)
+  # ПРОФИЛЬ ECO (автоматически при питании от батареи)
   # ---------------------------------------------------------------------
-  # Тихий и энергосберегающий режим. Используется, когда ноутбук
-  # работает от батареи, чтобы maximise время автономной работы.
-  #
-  # TDP: 10W — очень низкий лимит. Достаточно для работы с текстом,
-  # браузером и лёгких задач. Для LLM-инференса не подходит.
-  # Кулеры: тихая кривая — 30% на 60°C, 100% на 80°C.
   eco = {
+    # Очень низкий лимит — maximise время автономной работы.
     tdp = 10;
-    # Кривая вентиляторов: 8 точек (temp:pwm).
-    # Формат: "температура:скорость" через запятую.
-    # 30% на 60°C, 100% на 80°C. Промежуточные точки для плавности.
-    fan-curve = "45:0,50:10,55:20,60:30,65:45,70:65,75:85,80:100";
+    # Тихая кривая: 30% на 60°C, 100% на 80°C.
+    fan-curve = "45:0,50:5,55:15,60:30,65:45,70:65,75:85,80:100";
   };
 
   # ---------------------------------------------------------------------
-  # ПРОФИЛЬ 3: PERFORMANCE (только вручную)
+  # ПРОФИЛЬ PERFORMANCE (только вручную)
   # ---------------------------------------------------------------------
-  # Максимальная производительность. Включается только вручную через
-  # `z13ctl profile performance`. Не переключается автоматически.
-  #
-  # TDP: 100W — высокий лимит для тяжёлых задач (LLM, компиляция, игры).
-  # Кулеры: агрессивная кривая — 100% на 75°C.
   performance = {
+    # Высокий лимит для тяжёлых задач (LLM, компиляция, игры).
     tdp = 100;
-    # 100% на 75°C. Промежуточные точки для плавного нарастания.
+    # Агрессивная кривая: 100% на 75°C.
     fan-curve = "45:0,50:15,55:30,60:50,65:70,70:85,75:100,80:100";
   };
 
   # ---------------------------------------------------------------------
-  # АВТОМАТИЧЕСКОЕ ПЕРЕКЛЮЧЕНИЕ ПРОФИЛЕЙ
+  # Автоматическое переключение
   # ---------------------------------------------------------------------
-  # При питании от батареи → ECO
-  # При питании от сети → BALANCED
-  # PERFORMANCE не включается автоматически.
-  auto-switch = {
-    enabled = true;
-    ac = "balanced";      # профиль при подключении к сети
-    battery = "eco";      # профиль при работе от батареи
-  };
-
-  # ---------------------------------------------------------------------
-  # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (не менять без необходимости)
+  # При питании от батареи → eco, при подключении к сети → balanced.
+  # Performance включается только вручную.
   # ---------------------------------------------------------------------
 
-  # Скрипт для применения TDP и кривой вентиляторов.
-  # Используется сервисами ниже.
-  applyProfile = name: profile: pkgs.writeShellScript "z13-apply-${name}" ''
+  # Функция, генерирующая shell-скрипт для применения профиля.
+  # Возвращает путь к скрипту, который можно использовать в ExecStart.
+  mkApplyProfile = name: profile: pkgs.writeShellScript "z13-apply-${name}" ''
     set -euo pipefail
-    echo "Применяю профиль ${name}..."
-    # Устанавливаем TDP
-    ${pkgs.z13ctl-plus}/bin/z13ctl tdp --set ${toString profile.tdp}
-    # Устанавливаем кривую вентиляторов, если задана
+    echo "[z13-profile] Применяю профиль '${name}'..."
+
+    # Устанавливаем TDP.
+    # Синтаксис уточните: z13ctl tdp --help
+    ${z13ctl-plus}/bin/z13ctl tdp set ${toString profile.tdp} || \
+      echo "[z13-profile] tdp set вернул ошибку, проверьте синтаксис"
+
     ${lib.optionalString (profile ? fan-curve) ''
-      ${pkgs.z13ctl-plus}/bin/z13ctl fancurve --set "${profile.fan-curve}"
+      # Устанавливаем кривую вентиляторов.
+      # Синтаксис уточните: z13ctl fancurve --help
+      ${z13ctl-plus}/bin/z13ctl fancurve set "${profile.fan-curve}" || \
+        echo "[z13-profile] fancurve set вернул ошибку, проверьте синтаксис"
     ''}
-    # Устанавливаем максимальную температуру (если поддерживается)
-    # z13ctl пока не имеет прямой команды, но можно через sysfs:
-    # echo ${toString max-temp} > /sys/class/hwmon/.../temp1_max
-    # Пока оставляем как комментарий — уточним после тестов.
-    echo "Профиль ${name} применён."
+
+    echo "[z13-profile] Профиль '${name}' применён."
+  '';
+
+  # Определение источника питания (AC или батарея).
+  mkDetectPower = ''
+    if [ -d /sys/class/power_supply/AC0 ] || [ -d /sys/class/power_supply/AC ]; then
+      # Есть AC-адаптер. Проверяем, подключён ли он.
+      AC_ONLINE=$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1 || echo 0)
+      if [ "$AC_ONLINE" = "1" ]; then
+        echo "ac"
+      else
+        echo "battery"
+      fi
+    else
+      echo "battery"
+    fi
   '';
 
 in
 {
   # =====================================================================
-  # ПАКЕТЫ
+  # Пакеты
   # =====================================================================
-  # z13ctl-plus — CLI для управления Z13 (TDP, кулеры, профили).
-  environment.systemPackages = [
-    pkgs.z13ctl-plus
-  ];
+  # z13ctl-plus уже подключён в z13-tools.nix, дублировать не нужно.
+  # Здесь добавляем только то, чего там нет.
+  # (Ничего не добавляем.)
 
   # =====================================================================
-  # ДЕМОН Z13CTLD
+  # Автопереключение профилей при смене источника питания
   # =====================================================================
-  # Демон нужен для сохранения настроек TDP и кривых при смене профиля.
-  # Ядро сбрасывает пользовательские кривые при переключении профиля,
-  # демон переприменяет их автоматически.
-  #
-  # ВНИМАНИЕ: если демон мешает подсветке клавиатуры (перебивает белый цвет),
-  # закомментируйте этот блок и используйте ручное переключение профилей.
-  systemd.user.services.z13ctld = {
-    description = "z13ctl-plus daemon for ASUS ROG Flow Z13";
-    partOf = [ "graphical-session.target" ];
-    after = [ "graphical-session.target" ];
-    wantedBy = [ "graphical-session.target" ];
-    serviceConfig = {
-      Type = "simple";
-      ExecStart = "${pkgs.z13ctl-plus}/bin/z13ctld";
-      Restart = "on-failure";
-      RestartSec = "5";
-      # Если демон перебивает подсветку, добавьте флаг --no-lighting:
-      # ExecStart = "${pkgs.z13ctl-plus}/bin/z13ctld --no-lighting";
-    };
-  };
-
-  # =====================================================================
-  # АВТОМАТИЧЕСКОЕ ПЕРЕКЛЮЧЕНИЕ ПРОФИЛЕЙ
-  # =====================================================================
-  # Сервис, который слушает события питания (AC/battery) и переключает
-  # профили через z13ctl.
   systemd.services.z13-auto-profile = {
     description = "Auto-switch Z13 power profile based on power source";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" ];
+    after = [ "multi-user.target" ];
 
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      # Применяем профиль при старте
-      ExecStart = pkgs.writeShellScript "z13-auto-start" ''
-        # Определяем источник питания
-        if [ -d /sys/class/power_supply/AC*/ ]; then
-          # Подключены к сети
-          ${pkgs.z13ctl-plus}/bin/z13ctl profile ${auto-switch.ac}
-          ${applyProfile auto-switch.ac (if auto-switch.ac == "balanced" then balanced else if auto-switch.ac == "eco" then eco else performance)}
+      ExecStart = pkgs.writeShellScript "z13-auto-profile" ''
+        set -euo pipefail
+        ${mkDetectPower}
+
+        SOURCE=$(detect_power 2>/dev/null || echo "battery")
+        # Переопределяем функцию: execute выводит только "ac"/"battery"
+        # на основе глобальной переменной, но проще переписать inline:
+        if [ -d /sys/class/power_supply/AC0 ] || [ -d /sys/class/power_supply/AC ]; then
+          AC_ONLINE=$(cat /sys/class/power_supply/AC*/online 2>/dev/null | head -1 || echo 0)
+          if [ "$AC_ONLINE" = "1" ]; then SOURCE="ac"; else SOURCE="battery"; fi
         else
-          # Работаем от батареи
-          ${pkgs.z13ctl-plus}/bin/z13ctl profile ${auto-switch.battery}
-          ${applyProfile auto-switch.battery (if auto-switch.battery == "balanced" then balanced else if auto-switch.battery == "eco" then eco else performance)}
+          SOURCE="battery"
+        fi
+
+        if [ "$SOURCE" = "ac" ]; then
+          echo "[z13-auto-profile] Питание от сети → balanced"
+          ${mkApplyProfile "balanced" balanced}
+        else
+          echo "[z13-auto-profile] Питание от батареи → eco"
+          ${mkApplyProfile "eco" eco}
         fi
       '';
     };
   };
 
-  # Сервис, который следит за изменением питания через udev.
-  # При подключении/отключении зарядки переключает профиль.
+  # Udev-правило: перезапускать сервис при изменении состояния питания.
   services.udev.extraRules = ''
-    # При изменении состояния питания запускаем переключение профиля.
-    SUBSYSTEM=="power_supply", ACTION=="change", RUN+="${pkgs.systemd}/bin/systemctl restart z13-auto-profile.service"
+    SUBSYSTEM=="power_supply", ACTION=="change", TAG+="systemd", ENV{SYSTEMD_WANTS}="z13-auto-profile.service"
   '';
 
   # =====================================================================
-  # СЕРВИСЫ ДЛЯ РУЧНОГО ПЕРЕКЛЮЧЕНИЯ ПРОФИЛЕЙ
+  # Ручное переключение профилей
   # =====================================================================
-  # Можно вызвать: systemctl --user start z13-profile-balanced
-  # Или добавить алиасы в shell.
-  systemd.user.services = {
-    z13-profile-balanced = {
-      description = "Apply Z13 Balanced profile";
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = applyProfile "balanced" balanced;
-      };
+  # Использование:
+  #   sudo systemctl start z13-profile-balanced
+  #   sudo systemctl start z13-profile-eco
+  #   sudo systemctl start z13-profile-performance
+  systemd.services.z13-profile-balanced = {
+    description = "Apply Z13 Balanced profile";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = mkApplyProfile "balanced" balanced;
     };
-    z13-profile-eco = {
-      description = "Apply Z13 Eco profile";
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = applyProfile "eco" eco;
-      };
+  };
+
+  systemd.services.z13-profile-eco = {
+    description = "Apply Z13 Eco profile";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = mkApplyProfile "eco" eco;
     };
-    z13-profile-performance = {
-      description = "Apply Z13 Performance profile";
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = applyProfile "performance" performance;
-      };
+  };
+
+  systemd.services.z13-profile-performance = {
+    description = "Apply Z13 Performance profile";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = mkApplyProfile "performance" performance;
     };
   };
 }
