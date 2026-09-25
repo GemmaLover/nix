@@ -6,6 +6,7 @@
   imports = [
     ./home-services.nix
     ./home-caffeine.nix
+    ../../llm/home.nix
   ];
 
   # Домашняя директория пользователя.

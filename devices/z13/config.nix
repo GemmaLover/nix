@@ -7,6 +7,7 @@
     ./specific/kernel.nix          # Параметры ядра (amdgpu.gttsize, ttm.pages_limit)
     ./specific/asus-tools.nix      # asusctl, z13-tablet-kit, z13ctl-plus
     ./specific/z13-tools.nix
+    ./specific/gpu-amd.nix
 
     # === Базовые модули для всех устройств ===
     ../../base/system/boot.nix
@@ -30,7 +31,7 @@
 
     # === Разделы ===
     ../../dev/dev.nix
-    ../../llm/llm.nix
+    ../../llm/system.nix
     # ../../games/games.nix   # TODO: Добавить позже
   ];
 

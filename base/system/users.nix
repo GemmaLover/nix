@@ -15,11 +15,17 @@
       "wheel"
       "kvm"
       "libvirt"
+      "video"
+      "render"
     ];
     # Пакеты, установленные только для этого пользователя
     packages = with pkgs; [
       kdePackages.kate   # Текстовый редактор Kate (от KDE)
     ];
+
+    #Диапазоны UID/GID для rootless Podman.
+    # Без них контейнеры не смогут запуститься.
+    autoSubUidGidRange = true;
   };
 
   # === sudo ===
