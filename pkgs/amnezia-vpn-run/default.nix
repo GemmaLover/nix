@@ -3,62 +3,59 @@
 let
   version = "5.0.3.0";
 
+  # Официальный .run — это ELF-исполняемый установщик (BitRock),
+  # а не архив. Его нельзя распаковать, только запустить.
   amnezia-run = pkgs.fetchurl {
     url = "https://github.com/amnezia-vpn/amnezia-client/releases/download/${version}/AmneziaVPN_${version}_linux_x64.run";
     hash = "sha256-AzXyZD9YxNdJS+TG1HWCV0+n5aRjRQ6aR7DFwu2nl8I=";
   };
 
-  amnezia-extracted = pkgs.stdenv.mkDerivation {
-    pname = "amnezia-extracted";
-    inherit version;
+  # Обёртка, которая при первом запуске устанавливает AmneziaVPN
+  # в пользовательскую директорию, а затем запускает бинарник.
+  # Установщик BitRock поддерживает --mode unattended --prefix.
+  amnezia-wrapper = pkgs.writeShellScript "amnezia-vpn-wrapper" ''
+    set -euo pipefail
 
-    src = amnezia-run;
+    INSTALL_DIR="$HOME/.local/share/amnezia"
+    BIN="$INSTALL_DIR/AmneziaVPN"
 
-    dontUnpack = true;
+    if [ ! -x "$BIN" ]; then
+      echo "=== AmneziaVPN не установлен ==="
+      echo "Запускаю установщик. Целевая директория: $INSTALL_DIR"
+      mkdir -p "$INSTALL_DIR"
 
-    # Инструменты для извлечения архива из .run файла.
-    nativeBuildInputs = with pkgs; [
-      gnutar
-      gzip
-      gnugrep
-      coreutils
-      p7zip
-    ];
+      # --mode unattended: тихая установка без GUI.
+      # --prefix: куда устанавливать.
+      # --unattendedmodeui none: не показывать прогресс-бар.
+      ${amnezia-run} \
+        --mode unattended \
+        --unattendedmodeui none \
+        --prefix "$INSTALL_DIR" || true
 
-    installPhase = ''
-      runHook preInstall
-
-      mkdir -p $out/share/amnezia
-      cd $out/share/amnezia
-
-      # Ищем строку с маркером __ARCHIVE_BELOW__, после которой
-      # начинается встроенный архив.
-      ARCHIVE_LINE=$(grep -n '^__ARCHIVE_BELOW__$' $src | cut -d: -f1)
-
-      if [ -z "$ARCHIVE_LINE" ]; then
-        echo "Маркер __ARCHIVE_BELOW__ не найден. Пробуем 7z..."
-        7z x -y "$src" -o"$out/share/amnezia" || \
-          bsdtar -xf "$src" -C "$out/share/amnezia"
-      else
-        echo "Маркер найден на строке $ARCHIVE_LINE. Извлекаем архив..."
-        # Извлекаем всё, что идёт после маркера, и распаковываем как tar.gz.
-        # Если архив не gzip, попробуем без -z.
-        tail -n +$((ARCHIVE_LINE + 1)) "$src" | tar -xzf - -C "$out/share/amnezia"
+      if [ ! -x "$BIN" ]; then
+        echo "Автоматическая установка не удалась."
+        echo "Попробуйте запустить вручную:"
+        echo "  ${amnezia-run}"
+        echo "и укажите путь установки: $INSTALL_DIR"
+        exit 1
       fi
+    fi
 
-      runHook postInstall
-    '';
-  };
+    exec "$BIN" "$@"
+  '';
 
 in
 pkgs.buildFHSEnv {
   name = "amnezia-vpn";
 
+  # Библиотеки и утилиты, доступные внутри FHS-окружения.
   targetPkgs = pkgs: with pkgs; [
+    # Qt
     qt6.qtbase
     qt6.qtwayland
     qt6.qt5compat
 
+    # X11 / Wayland
     libxcb
     libxcb-util
     libxcb-image
@@ -75,10 +72,12 @@ pkgs.buildFHSEnv {
     libglvnd
     wayland
 
+    # Звук и секреты
     libpulseaudio
     alsa-lib
     libsecret
 
+    # Сетевые утилиты для работы VPN
     iproute2
     iptables
     iputils
@@ -88,9 +87,16 @@ pkgs.buildFHSEnv {
     gawk
     procps
     coreutils
+
+    # Утилиты, нужные установщику BitRock
+    bash
+    findutils
+    gnugrep
+    gnused
+    gnutar
+    gzip
+    xz
   ];
 
-  # Путь к бинарнику может отличаться. После сборки проверьте:
-  # find /nix/store/*amnezia-extracted*/ -name AmneziaVPN
-  runScript = "${amnezia-extracted}/share/amnezia/AmneziaVPN";
+  runScript = amnezia-wrapper;
 }
