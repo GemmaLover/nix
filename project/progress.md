@@ -98,12 +98,18 @@
 - [x] `kernel.nix` — boot.kernelPackages = linuxPackages_latest
 - [x] `asus-tools.nix` — asusctl + services.asusd (без asusd-user)
 - [x] `asus-tools.nix` — /etc/asusd через tmpfiles
-- [ ] `z13-tablet-kit` — не установлен
-- [ ] `z13ctl-plus` — не установлен
-- [ ] `z13gui-plus` — не установлен
-- [ ] Скрипт-деинсталлятор для z13-утилит
 - [x] Скрипт отключения подсветки через 15 секунд простоя (через swayidle + systemd user services)
 - [x] Статичная белая подсветка без пульсации (asusctl aura effect static -c ffffff, leds set low)
+- [x] Параметры ядра (`amdgpu.gttsize=113777`, `ttm.pages_limit=29126912`)
+- [x] `asusd` (системный демон ASUS) + asusctl
+- [x] Скрипт отключения подсветки через 15 секунд простоя (swayidle)
+- [x] Статичная белая подсветка (`asusctl aura effect static -c ffffff`, `leds set low`)
+- [x] `z13ctl-plus` — CLI упакован, работает
+- [x] `z13gui-plus` — упакован (GUI не запускается, оставлен на будущее)
+- [x] `z13-tablet-kit` — упакован, но udev-правила ОТКЛЮЧЕНЫ (правило `99-disable-asus-touchpad.rules` отключало тачпад)
+- [x] `z13ctl-perms.service` — права на sysfs для CLI
+- [x] Скрипт-деинсталлятор `z13-uninstall`
+- [!] `z13ctld` (демон) — ОТКЛЮЧЁН: перебивает подсветку. Включать только при необходимости (кнопка Armoury Crate, автоповорот экрана, z13gui)
 
 ## 10. Другие устройства
 
