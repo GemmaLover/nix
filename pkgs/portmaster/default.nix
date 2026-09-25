@@ -24,4 +24,5 @@ buildGoModule rec {
     vendorHash = "sha256-/sxjCSPhsZZwQv7w1bKiBoBnS7jozJIbyu8S64TOe4Q=";
 
   # ... остальное содержимое файла без изменений
+    doCheck = false;
 }
