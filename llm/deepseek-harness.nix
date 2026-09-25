@@ -23,7 +23,7 @@ let
 
   # Официальный Node.js с nodejs.org — для совместимости с нативным аддоном
   # node-addon-require-builtin, который не работает с Nix-сборкой Node.js.
-  nodejs-official = pkgs.callPackage ../../pkgs/nodejs-official { };
+  nodejs-official = pkgs.callPackage ../pkgs/nodejs-official { };
 
   # --- Установка (одноразово) ---
   dshInstall = pkgs.writeShellApplication {
