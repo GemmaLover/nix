@@ -65,4 +65,6 @@
       # Например, user.name и user.email
     };
   };
+
+    programs.amnezia-vpn.enable = true;
 }
