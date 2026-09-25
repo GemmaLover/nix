@@ -24,9 +24,9 @@
   # systemd умеет правильно упорядочивать разблокировку шифрованных
   # устройств и resume из swap. Без этого возможны зависания при
   # пробуждении и долгая загрузка.
-  boot.initrd.systemd.enable = true;
+  # boot.initrd.systemd.enable = true;
 
   # === Гибернация ===
   # Включает сервисы управления питанием, необходимые для hibernate.
-  powerManagement.enable = true;
+  # powerManagement.enable = true;
 }
