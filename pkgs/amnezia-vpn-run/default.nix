@@ -8,55 +8,25 @@ let
     hash = "sha256-AzXyZD9YxNdJS+TG1HWCV0+n5aRjRQ6aR7DFwu2nl8I=";
   };
 
-  amnezia-wrapper = pkgs.writeShellScript "amnezia-vpn-wrapper" ''
-    set -euo pipefail
-
-    INSTALL_DIR="$HOME/.local/share/amnezia"
-    BIN="$INSTALL_DIR/AmneziaVPN"
-
-    if [ ! -x "$BIN" ]; then
-      echo "=== AmneziaVPN не установлен ==="
-      echo "Запускаю установщик. Целевая директория: $INSTALL_DIR"
-      mkdir -p "$INSTALL_DIR"
-
-      # Копируем .run в writable-директорию, потому что /nix/store read-only.
-      TMPDIR=$(mktemp -d)
-      trap 'rm -rf "$TMPDIR"' EXIT
-      cp ${amnezia-run} "$TMPDIR/amnezia.run"
-      chmod +x "$TMPDIR/amnezia.run"
-
-      "$TMPDIR/amnezia.run" \
-        --mode unattended \
-        --unattendedmodeui none \
-        --prefix "$INSTALL_DIR" || true
-
-      if [ ! -x "$BIN" ]; then
-        echo "Автоматическая установка не удалась."
-        echo "Попробуйте запустить вручную:"
-        echo "  $TMPDIR/amnezia.run --prefix $INSTALL_DIR"
-        exit 1
-      fi
-    fi
-
-    exec "$BIN" "$@"
-  '';
-
-in
-pkgs.buildFHSEnv {
-  name = "amnezia-vpn";
-
-  # Библиотеки и утилиты, доступные внутри FHS-окружения.
-  # Критически важны glibc и zlib — без них ELF-установщик
-  # BitRock не запустится (cannot open libz.so.1, no ld-linux).
-    targetPkgs = pkgs: with pkgs; [
-    # Базовые системные библиотеки
+  # Полный набор библиотек, которые могут понадобиться установщику
+  # BitRock и самому приложению Amnezia. Включает всё, на чём
+  # пользователь уже ловил ошибки: zlib, freetype, dbus, zstd, и т.д.
+  runtimeLibs = with pkgs; [
+    # Базовые системные
     glibc
     zlib
-    stdenv.cc.cc.lib
-    libxcrypt
+    zstd
+    xz
+    bzip2
     openssl
+    libxcrypt
+    stdenv.cc.cc.lib    # libstdc++, libgcc_s
 
-    # Шрифты и текст
+    # D-Bus
+    dbus
+    dbus.lib
+
+    # Шрифты и изображения
     freetype
     fontconfig
     expat
@@ -64,8 +34,6 @@ pkgs.buildFHSEnv {
     libjpeg
     giflib
     libtiff
-
-    # Графика
     cairo
     pango
     gdk-pixbuf
@@ -109,8 +77,52 @@ pkgs.buildFHSEnv {
     libpulseaudio
     alsa-lib
     libsecret
+  ];
 
-    # Сетевые утилиты
+  # Формируем LD_LIBRARY_PATH из всех runtimeLibs.
+  # Это гарантирует, что динамический линкер найдёт .so файлы,
+  # даже если FHS-окружение их не пробрасывает автоматически.
+  libPath = pkgs.lib.makeLibraryPath runtimeLibs;
+
+  amnezia-wrapper = pkgs.writeShellScript "amnezia-vpn-wrapper" ''
+    set -euo pipefail
+
+    INSTALL_DIR="$HOME/.local/share/amnezia"
+    BIN="$INSTALL_DIR/AmneziaVPN"
+
+    # Явно указываем, где искать библиотеки.
+    export LD_LIBRARY_PATH="${libPath}:''${LD_LIBRARY_PATH:-}"
+
+    if [ ! -x "$BIN" ]; then
+      echo "=== AmneziaVPN не установлен ==="
+      echo "Запускаю установщик. Целевая директория: $INSTALL_DIR"
+      mkdir -p "$INSTALL_DIR"
+
+      TMPDIR=$(mktemp -d)
+      trap 'rm -rf "$TMPDIR"' EXIT
+      cp ${amnezia-run} "$TMPDIR/amnezia.run"
+      chmod +x "$TMPDIR/amnezia.run"
+
+      "$TMPDIR/amnezia.run" \
+        --mode unattended \
+        --unattendedmodeui none \
+        --prefix "$INSTALL_DIR" || true
+
+      if [ ! -x "$BIN" ]; then
+        echo "Автоматическая установка не удалась."
+        exit 1
+      fi
+    fi
+
+    exec "$BIN" "$@"
+  '';
+
+in
+pkgs.buildFHSEnv {
+  name = "amnezia-vpn";
+
+  # В FHS кладём те же библиотеки, плюс утилиты для установки и VPN.
+  targetPkgs = pkgs: runtimeLibs ++ (with pkgs; [
     iproute2
     iptables
     iputils
@@ -120,8 +132,6 @@ pkgs.buildFHSEnv {
     gawk
     procps
     coreutils
-
-    # Утилиты установщика
     bash
     findutils
     gnugrep
@@ -130,10 +140,7 @@ pkgs.buildFHSEnv {
     gzip
     xz
     file
-
-    dbus
-    dbus.lib
-  ];
+  ]);
 
   runScript = amnezia-wrapper;
 }
