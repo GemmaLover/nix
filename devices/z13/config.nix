@@ -29,7 +29,7 @@
     # === Программы ===
     ../../base/tools/base.nix
     ../../base/tools/flatpak.nix
-    ../../base/tools/portmaster.nix
+   # ../../base/tools/portmaster.nix
 
     # === Разделы ===
     ../../dev/dev.nix

@@ -6,7 +6,7 @@
     # Обновления безопасности до 2026-12-31.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
-    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+#     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     # Home Manager — декларативное управление пользовательскими конфигами.
     # Версия release-26.05 соответствует nixpkgs 26.05.
