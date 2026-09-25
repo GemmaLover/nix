@@ -48,12 +48,31 @@ pkgs.buildFHSEnv {
   # Библиотеки и утилиты, доступные внутри FHS-окружения.
   # Критически важны glibc и zlib — без них ELF-установщик
   # BitRock не запустится (cannot open libz.so.1, no ld-linux).
-  targetPkgs = pkgs: with pkgs; [
-    # Базовые библиотеки для ELF-интерпретатора и линковки.
+    targetPkgs = pkgs: with pkgs; [
+    # Базовые системные библиотеки
     glibc
     zlib
-    stdenv.cc.cc.lib       # libstdc++, libgcc_s
-    libxcrypt              # libcrypt
+    stdenv.cc.cc.lib
+    libxcrypt
+    openssl
+
+    # Шрифты и текст
+    freetype
+    fontconfig
+    expat
+    libpng
+    libjpeg
+    giflib
+    libtiff
+
+    # Графика
+    cairo
+    pango
+    gdk-pixbuf
+    harfbuzz
+    atk
+    gtk2
+    gtk3
 
     # Qt
     qt6.qtbase
@@ -72,9 +91,18 @@ pkgs.buildFHSEnv {
     libxext
     libxinerama
     libxrender
+    libxfixes
+    libxi
+    libxtst
+    libxcursor
+    libxrandr
+    libxcomposite
+    libxdamage
+    libxscrnsaver
     libxkbcommon
     libGL
     libglvnd
+    libGLU
     wayland
 
     # Звук и секреты
@@ -82,7 +110,7 @@ pkgs.buildFHSEnv {
     alsa-lib
     libsecret
 
-    # Сетевые утилиты для работы VPN
+    # Сетевые утилиты
     iproute2
     iptables
     iputils
@@ -93,7 +121,7 @@ pkgs.buildFHSEnv {
     procps
     coreutils
 
-    # Утилиты, нужные установщику
+    # Утилиты установщика
     bash
     findutils
     gnugrep
@@ -101,6 +129,7 @@ pkgs.buildFHSEnv {
     gnutar
     gzip
     xz
+    file
   ];
 
   runScript = amnezia-wrapper;
