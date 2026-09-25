@@ -6,6 +6,7 @@
 , libadwaita
 , gobject-introspection
 , wrapGAppsHook4
+, gtk4-layer-shell
 }:
 
 buildGoModule rec {
