@@ -5,6 +5,10 @@
   services.dnscrypt-proxy = {
     enable = true;
 
+    # Переводим dnscrypt-proxy на порт 5353, чтобы он не конфликтовал
+    # с Portmaster, который занимает стандартный порт 53.
+    localPort = 5353;
+
     settings = {
       # Слушаем только на localhost.
       listen_addresses = [ "127.0.0.1:53" "[::1]:53" ];
