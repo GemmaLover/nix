@@ -22,7 +22,7 @@ stdenv.mkDerivation rec {
   src = fetchurl {
     url = "https://nodejs.org/dist/v${version}/node-v${version}-linux-x64.tar.xz";
     # Хеш-заглушка: при первой сборке Nix выдаст правильный хеш.
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash = "sha256-30UK+JJhEV75+eODDD7rLMkhO2PHILGvYjy13L4uAt4=";
   };
 
   # Не собираем из исходников — используем готовые бинарники.
