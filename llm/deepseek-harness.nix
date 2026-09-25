@@ -21,15 +21,16 @@ let
   # cordis.yml) сохраняются через git stash.
   # =====================================================================
 
-  # --- Общие переменные для всех скриптов (дублируются в каждом, чтобы
-  #     shellcheck не ругался на неиспользуемые переменные). ---
+  # Официальный Node.js с nodejs.org — для совместимости с нативным аддоном
+  # node-addon-require-builtin, который не работает с Nix-сборкой Node.js.
+  nodejs-official = pkgs.callPackage ../../pkgs/nodejs-official { };
 
   # --- Установка (одноразово) ---
   dshInstall = pkgs.writeShellApplication {
     name = "dsh-install";
-        runtimeInputs = [
+    runtimeInputs = [
       pkgs.git
-      pkgs.nodejs_22
+      nodejs-official
       pkgs.pnpm
       # Инструменты для сборки нативных модулей Node.js (node-gyp).
       # Без них node-gyp не может найти компилятор C (cc).
@@ -73,7 +74,13 @@ let
   # --- Запуск ---
   dshStart = pkgs.writeShellApplication {
     name = "dsh-start";
-    runtimeInputs = [ pkgs.nodejs_22 pkgs.pnpm pkgs.curl pkgs.xdg-utils pkgs.procps ];
+    runtimeInputs = [
+      nodejs-official
+      pkgs.pnpm
+      pkgs.curl
+      pkgs.xdg-utils
+      pkgs.procps
+    ];
     text = ''
       set -euo pipefail
       REPO_DIR="''${HOME}/llm/deepseek-harness"
@@ -96,13 +103,9 @@ let
       cd "$REPO_DIR"
 
       echo "Запускаю DeepSeek Harness на порту $PORT..."
-      # --no-open: не пытаться открыть браузер самому — откроем позже.
-      # --port: задаём порт явно.
-      # Логи пишем в /tmp/dsh.log.
-            # Запускаем напрямую через node с --expose-internals.
+      # Запускаем напрямую через официальный Node.js с --expose-internals.
       # Обходим несовместимость node-addon-require-builtin с Nix-сборкой Node.js.
-      # Порт указываем через переменную окружения, т.к. CLI может не поддерживать --port.
-      nohup ${pkgs.nodejs_22}/bin/node --expose-internals \
+      nohup ${nodejs-official}/bin/node --expose-internals \
         apps/cli/lib/bin.js web --no-open \
         >/tmp/dsh.log 2>&1 &
       echo "PID: $!"
@@ -218,7 +221,14 @@ let
   # --- Обновление с сохранением локальных изменений ---
   dshUpdate = pkgs.writeShellApplication {
     name = "dsh-update";
-    runtimeInputs = [ pkgs.git pkgs.nodejs_22 pkgs.pnpm ];
+    runtimeInputs = [
+      pkgs.git
+      nodejs-official
+      pkgs.pnpm
+      pkgs.gcc
+      pkgs.gnumake
+      pkgs.python3
+    ];
     text = ''
       set -euo pipefail
       REPO_DIR="''${HOME}/llm/deepseek-harness"
