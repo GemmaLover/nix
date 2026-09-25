@@ -4,14 +4,14 @@
   inputs = {
     # Актуальный стабильный релиз NixOS 26.05 «Yarara».
     # Обновления безопасности до 2026-12-31.
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-
-#     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+#     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     # Home Manager — декларативное управление пользовательскими конфигами.
     # Версия release-26.05 соответствует nixpkgs 26.05.
     home-manager = {
-      url = "github:nix-community/home-manager/release-26.05";
+#       url = "github:nix-community/home-manager/release-26.05";
+            url = "github:nix-community/home-manager/master";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -37,7 +37,7 @@
       # === Устройство: ASUS Z13 ===
       z13 = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
-        specialArgs = { inherit inputs; };
+              specialArgs = { inherit inputs; };
         modules = [
           disko.nixosModules.disko
           home-manager.nixosModules.home-manager
