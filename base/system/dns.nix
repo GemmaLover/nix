@@ -2,15 +2,15 @@
 
 {
   # === Шифрование DNS через DNSCrypt-proxy2 ===
-  services.dnscrypt-proxy = {
+  # В NixOS 26.05 старый модуль services.dnscrypt-proxy удалён,
+  # используется современный services.dnscrypt-proxy2.
+  services.dnscrypt-proxy2 = {
     enable = true;
 
-    # Переводим dnscrypt-proxy на порт 5353, чтобы он не конфликтовал
-    # с Portmaster, который занимает стандартный порт 53.
-    localPort = 5353;
-
     settings = {
-      # Слушаем только на localhost.
+      # Слушаем только на localhost, порт 5353.
+      # Порт 53 занят Portmaster'ом, поэтому dnscrypt-proxy
+      # работает на 5353 и отдаёт ответы Portmaster'у.
       listen_addresses = [ "127.0.0.1:5353" "[::1]:5353" ];
 
       # === Явный список резолверов ===
@@ -44,10 +44,12 @@
   };
 
   # === Системный DNS ===
+  # Система направляет запросы на 127.0.0.1:53 — это Portmaster.
+  # Portmaster, в свою очередь, форвардит их в dnscrypt-proxy на 5353.
   networking.nameservers = [ "127.0.0.1" "::1" ];
   networking.networkmanager.dns = "none";
   services.resolved.enable = false;
 
-  # StateDirectory для кэша.
-  systemd.services.dnscrypt-proxy.serviceConfig.StateDirectory = "dnscrypt-proxy";
+  # StateDirectory для кэша dnscrypt-proxy2.
+  systemd.services.dnscrypt-proxy2.serviceConfig.StateDirectory = "dnscrypt-proxy";
 }
