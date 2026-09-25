@@ -49,7 +49,7 @@ let
   # ПРОФИЛЬ "PERFORMANCE" (PPD: performance)
   # ---------------------------------------------------------------------
   performance = {
-    tdp = 93;
+    tdp = 90;
     force = true;
     # При PL1 > 75W z13ctl сам применяет 80%+ кривую для термальной
     # безопасности. Мы не трогаем fan-curve — иначе конфликт.
@@ -186,7 +186,7 @@ in
   };
 
   systemd.services.z13-apply-balanced = {
-    description = "Apply Z13 balanced profile (75W, factory fans)";
+    description = "Apply Z13 balanced profile (80W, factory fans)";
     serviceConfig = {
       Type = "oneshot";
       ExecStart = "${mkApplyProfile "balanced" balanced}/bin/z13-apply-balanced";
@@ -194,7 +194,7 @@ in
   };
 
   systemd.services.z13-apply-performance = {
-    description = "Apply Z13 performance profile (93W, z13ctl-managed fans)";
+    description = "Apply Z13 performance profile (90W, z13ctl-managed fans)";
     serviceConfig = {
       Type = "oneshot";
       ExecStart = "${mkApplyProfile "performance" performance}/bin/z13-apply-performance";
