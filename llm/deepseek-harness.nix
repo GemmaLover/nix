@@ -99,7 +99,12 @@ let
       # --no-open: не пытаться открыть браузер самому — откроем позже.
       # --port: задаём порт явно.
       # Логи пишем в /tmp/dsh.log.
-      nohup pnpm dsh web --expose-internals --no-open --port "$PORT" >/tmp/dsh.log 2>&1 &
+            # Запускаем напрямую через node с --expose-internals.
+      # Обходим несовместимость node-addon-require-builtin с Nix-сборкой Node.js.
+      # Порт указываем через переменную окружения, т.к. CLI может не поддерживать --port.
+      nohup ${pkgs.nodejs_22}/bin/node --expose-internals \
+        apps/cli/lib/bin.js web --no-open \
+        >/tmp/dsh.log 2>&1 &
       echo "PID: $!"
       echo "Лог: /tmp/dsh.log"
 
