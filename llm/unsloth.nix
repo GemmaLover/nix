@@ -16,6 +16,10 @@ let
   # Каждый скрипт получает только те переменные, которые использует —
   # это требование shellcheck (SC2034: unused variable).
   #
+  # ВАЖНО: везде используем `podman inspect --format '{{.State.Status}}'`
+  # вместо `podman container running` — в rootless-режиме последний
+  # возвращает устаревший статус (false для реально работающего контейнера).
+  #
   # Веб-интерфейс Unsloth Studio слушает 8000 внутри контейнера,
   # наружу проброшен на 8005. Внешний порт задаётся в PORT_HOST.
   # =====================================================================
@@ -154,7 +158,10 @@ let
         exit 1
       fi
 
-      if podman container running "$CONTAINER_NAME" 2>/dev/null; then
+      # Читаем реальный статус через inspect.
+      # podman container running в rootless иногда врёт.
+      STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+      if [ "$STATUS" = "running" ]; then
         echo "Контейнер уже запущен."
       else
         echo "Запускаю контейнер..."
@@ -177,9 +184,12 @@ let
   };
 
   # --- Остановка ---
+  # ВАЖНО: не используем `podman container running` — в rootless-режиме
+  # он иногда возвращает устаревший статус (false для реально
+  # работающего контейнера). Читаем статус через inspect.
   unslothStop = pkgs.writeShellApplication {
     name = "unsloth-stop";
-    runtimeInputs = [ pkgs.podman ];
+    runtimeInputs = [ pkgs.podman pkgs.procps pkgs.coreutils ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="unsloth"
@@ -189,21 +199,39 @@ let
         exit 0
       fi
 
-      if ! podman container running "$CONTAINER_NAME" 2>/dev/null; then
-        echo "Контейнер уже остановлен."
-        exit 0
-      fi
+      # Реальный статус — через inspect.
+      STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
 
-      echo "Останавливаю контейнер..."
-      podman stop "$CONTAINER_NAME"
+      case "$STATUS" in
+        running|paused|restarting)
+          echo "Контейнер в состоянии '$STATUS' — останавливаю..."
+          podman stop -t 30 "$CONTAINER_NAME" 2>/dev/null || {
+            echo "SIGTERM не сработал, убиваю принудительно (SIGKILL)..."
+            podman kill "$CONTAINER_NAME" 2>/dev/null || true
+            sleep 2
+            STILL=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Running}}' 2>/dev/null || echo "false")
+            if [ "$STILL" = "true" ]; then
+              echo "Всё ещё жив — удаляю принудительно..."
+              podman rm -f "$CONTAINER_NAME" || true
+            fi
+          }
+          ;;
+        exited|stopped|created)
+          echo "Контейнер уже в состоянии '$STATUS'."
+          ;;
+        *)
+          echo "Неизвестный статус: $STATUS"
+          ;;
+      esac
+
       echo "Готово."
     '';
   };
 
-    # --- Удаление (с подтверждениями для volume, моделей и образа) ---
+  # --- Удаление (с подтверждениями для volume, моделей и образа) ---
   unslothRemove = pkgs.writeShellApplication {
     name = "unsloth-remove";
-    runtimeInputs = [ pkgs.podman pkgs.coreutils ];
+    runtimeInputs = [ pkgs.podman pkgs.coreutils pkgs.procps ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="unsloth"
@@ -259,6 +287,7 @@ let
       echo "Готово."
     '';
   };
+
   # --- Сброс пароля Unsloth Studio ---
   unslothResetPassword = pkgs.writeShellApplication {
     name = "unsloth-reset-password";
@@ -267,8 +296,16 @@ let
       set -euo pipefail
       CONTAINER_NAME="unsloth"
 
-      if ! podman container running "$CONTAINER_NAME" 2>/dev/null; then
-        echo "Контейнер '$CONTAINER_NAME' не запущен."
+      if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+        echo "Контейнер '$CONTAINER_NAME' не найден."
+        echo "Запустите его: unsloth-start"
+        exit 1
+      fi
+
+      # Реальный статус — через inspect.
+      STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+      if [ "$STATUS" != "running" ]; then
+        echo "Контейнер '$CONTAINER_NAME' не запущен (статус: $STATUS)."
         echo "Запустите его: unsloth-start"
         exit 1
       fi
@@ -327,6 +364,8 @@ let
       IMAGE="docker.io/unsloth/unsloth-rocm:studio"
       DATA_VOLUME="unsloth-data"
       HOST_PROJECTS="''${HOME}/projects"
+      # Папка для моделей HuggingFace на хосте (та же, что в install).
+      HF_CACHE="''${HOME}/llm/models"
       PORT_HOST=8005
       PORT_CONTAINER=8000
 
@@ -365,6 +404,7 @@ let
       podman rm -f "$CONTAINER_NAME"
 
       # Пересоздаём контейнер с теми же параметрами, что в unsloth-install.
+      # Не забываем про HF_CACHE — иначе модели будут качаться в контейнер.
       echo "Создаю новый контейнер..."
       podman create \
         --name "$CONTAINER_NAME" \
@@ -376,7 +416,9 @@ let
         -p "$PORT_HOST:$PORT_CONTAINER" \
         -v "$HOST_PROJECTS:/workspace/host:Z" \
         -v "$DATA_VOLUME:/workspace/studio" \
+        -v "$HF_CACHE:/workspace/.cache/huggingface:Z" \
         -e JUPYTER_PASSWORD=unsloth \
+        -e HF_HOME=/workspace/.cache/huggingface \
         "$IMAGE"
 
       echo
