@@ -24,6 +24,9 @@
       # Экран гаснет через 20 минут (1200 секунд).
       turnOffDisplay.idleTimeout = 1200;
 
+            # При закрытии крышки от сети — ничего не делать.
+      whenLaptopLidClosed = "doNothing";
+
       # Автосон отключён: action = "nothing", idleTimeout = null.
       # Значение 0 недопустимо (диапазон 60..600000 или null).
       autoSuspend = {
@@ -39,6 +42,10 @@
       # Экран гаснет через 1 минуту (60 секунд).
       turnOffDisplay.idleTimeout = 60;
 
+            # При закрытии крышки от батареи — заблокировать пользователя.
+      # Экран выключится сразу после блокировки (см. turnOffDisplay ниже).
+      whenLaptopLidClosed = "lockScreen";
+
       # Уход в гибернацию через 5 минут (300 секунд).
       autoSuspend = {
         action = "hibernate";
@@ -49,7 +56,22 @@
     # Профиль при низком заряде батареи.
     lowBattery = {
       powerProfile = "powerSaving";
+
+            # При закрытии крышки от батареи — заблокировать пользователя.
+      # Экран выключится сразу после блокировки (см. turnOffDisplay ниже).
+      whenLaptopLidClosed = "lockScreen";
     };
+
+        # --- Немедленное выключение экрана при блокировке ---
+    # KDE имеет баг: при выборе «lockScreen» при закрытии крышки
+    # подсветка не гаснет. Эта настройка заставляет экран гаснуть
+    # сразу после блокировки.
+    turnOffDisplay.idleTimeoutWhenLocked = "immediately";
+
+        # Не подавлять действие при подключённом внешнем мониторе
+    # (если хотите, чтобы при закрытии крышки с внешним монитором
+    #  действие всё равно срабатывало).
+    # inhibitLidActionWhenExternalMonitorConnected = false;
 
     # Пороги батареи.
     batteryLevels = {
