@@ -47,6 +47,13 @@
     HandleLidSwitchDocked = "ignore";
   };
 
+  hardware.bluetooth = {
+  enable = true;
+  powerOnBoot = true;  # Автоматически включать адаптер при загрузке
+};
+
+  hardware.enableRedistributableFirmware = true;
+
   # Хостнейм для z13
   networking.hostName = "z13";
 
