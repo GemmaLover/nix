@@ -9,11 +9,12 @@ let
   # systemd-сервис portmaster.service.
   #
   # Эти скрипты дают удобные команды для запуска/остановки/перезапуска
-  # ядра без ручного ввода systemctl, а также ярлык в меню KDE.
+  # ядра без ручного ввода systemctl, а также ярлыки в меню KDE.
   #
-  # ВАЖНО: portmaster.service — системный (не user). Поэтому
-  # команды требуют root. В ярлыке используется pkexec, чтобы KDE
-  # запрашивал пароль через графический диалог polkit.
+  # ВАЖНО: portmaster.service — системный юнит. Чтобы пользователь
+  # lexi мог им управлять без пароля, ниже добавлено polkit-правило
+  # (security.polkit.extraConfig). Поэтому в скриптах НЕТ ни sudo,
+  # ни pkexec — systemctl вызывается напрямую.
   # =====================================================================
 
   # --- Запуск ядра ---
@@ -38,7 +39,7 @@ let
       fi
 
       echo "Запускаю Portmaster..."
-      sudo systemctl start portmaster.service
+      systemctl start portmaster.service
 
       # Ждём, пока сервис поднимется.
       for _ in {1..15}; do
@@ -50,7 +51,7 @@ let
       done
 
       echo "Portmaster не запустился за 15 секунд." >&2
-      sudo systemctl status portmaster.service --no-pager || true
+      systemctl status portmaster.service --no-pager || true
       exit 1
     '';
   };
@@ -69,7 +70,7 @@ let
       fi
 
       echo "Останавливаю Portmaster..."
-      sudo systemctl stop portmaster.service
+      systemctl stop portmaster.service
       echo "Готово."
     '';
   };
@@ -82,7 +83,7 @@ let
       set -euo pipefail
 
       echo "Перезапускаю Portmaster..."
-      sudo systemctl restart portmaster.service
+      systemctl restart portmaster.service
 
       for _ in {1..15}; do
         if systemctl is-active --quiet portmaster.service; then
@@ -93,7 +94,7 @@ let
       done
 
       echo "Portmaster не поднялся за 15 секунд." >&2
-      sudo systemctl status portmaster.service --no-pager || true
+      systemctl status portmaster.service --no-pager || true
       exit 1
     '';
   };
@@ -120,45 +121,62 @@ let
     '';
   };
 
-  # --- Ярлык для запуска через pkexec (запрос пароля в KDE-диалоге) ---
-  # pkexec — из пакета polkit. В KDE графический диалог ввода пароля
-  # предоставляет polkit-kde-agent (обычно уже запущен в сессии Plasma).
-  portmasterStartGui = pkgs.writeShellScriptBin "portmaster-start-gui" ''
-    exec ${pkgs.polkit}/bin/pkexec ${portmasterStart}/bin/portmaster-start-core
-  '';
-
-  portmasterStopGui = pkgs.writeShellScriptBin "portmaster-stop-gui" ''
-    exec ${pkgs.polkit}/bin/pkexec ${portmasterStop}/bin/portmaster-stop-core
-  '';
-
 in
 {
   # === Команды в PATH ===
+  # Все команды вызывают systemctl напрямую, без sudo и pkexec.
+  # Polkit-правило ниже разрешает lexi управлять portmaster.service
+  # без запроса пароля.
   home.packages = [
     portmasterStart
     portmasterStop
     portmasterRestart
     portmasterStatus
-    portmasterStartGui
-    portmasterStopGui
   ];
 
+  # =====================================================================
+  # Polkit-правило: разрешить пользователю lexi управлять
+  # systemd-юнитом portmaster.service без ввода пароля.
+  #
+  # Без этого systemctl start/stop из ярлыков KDE требовал бы
+  # root-пароль и не работал бы в графической сессии.
+  # =====================================================================
+  security.polkit.extraConfig = ''
+    polkit.addRule(function(action, subject) {
+      if (action.id == "org.freedesktop.systemd1.manage-units" &&
+          action.lookup("unit") == "portmaster.service" &&
+          subject.user == "lexi") {
+        return polkit.Result.YES;
+      }
+    });
+  '';
+
   # === Ярлыки в меню приложений KDE ===
+  # terminal = true — при запуске откроется окно терминала,
+  # чтобы видеть вывод команд и любые ошибки.
   xdg.desktopEntries = {
     portmaster-start = {
       name = "Portmaster Start";
       genericName = "Start Portmaster core";
-      exec = "portmaster-start-gui";
+      exec = "portmaster-start-core";
       icon = "security-high";
-      terminal = false;
+      terminal = true;
       categories = [ "System" "Security" ];
     };
     portmaster-stop = {
       name = "Portmaster Stop";
       genericName = "Stop Portmaster core";
-      exec = "portmaster-stop-gui";
+      exec = "portmaster-stop-core";
       icon = "process-stop";
-      terminal = false;
+      terminal = true;
+      categories = [ "System" "Security" ];
+    };
+    portmaster-status = {
+      name = "Portmaster Status";
+      genericName = "Show Portmaster core status";
+      exec = "portmaster-status";
+      icon = "dialog-information";
+      terminal = true;
       categories = [ "System" "Security" ];
     };
   };
