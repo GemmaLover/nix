@@ -53,7 +53,7 @@
     HandleLidSwitch = "hibernate";
     HandleLidSwitchExternalPower = "lock";
     HandleLidSwitchDocked = "ignore";
-
+LidSwitchIgnoreInhibited = "no";
     # Задержка 5 секунд, чтобы KDE успел сохранить сессию
     # перед уходом в гибернацию (на случай, если у вас всё же
     # сработает гибернация через logind).
