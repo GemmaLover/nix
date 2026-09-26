@@ -7,6 +7,8 @@
 #     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+nix-flatpak.url = "github:gmodena/nix-flatpak/?ref=v0.7.0";
+
     # Home Manager — декларативное управление пользовательскими конфигами.
     # Версия release-26.05 соответствует nixpkgs 26.05.
     home-manager = {

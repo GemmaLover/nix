@@ -33,18 +33,18 @@
 
     # --- Приложения ---
     firefox        # Веб-браузер
-    libreoffice    # Офисный пакет
+#     libreoffice    # Офисный пакет
     vlc            # Медиаплеер
     keepassxc      # Менеджер паролей
-    qbittorrent    # Торрент-клиент
+#     qbittorrent    # Торрент-клиент
     obs-studio     # Запись экрана и стриминг
     kdePackages.kleopatra  # Управление PGP-ключами
     krita          # Графический редактор
-    librewolf      # Приватный браузер на базе Firefox
-    brave          # Браузер с блокировкой рекламы
+#     librewolf      # Приватный браузер на базе Firefox
+#     brave          # Браузер с блокировкой рекламы
     putty          # SSH/Telnet клиент
-    zenmap         # GUI для nmap
-    parabolic      # Скачивание видео (ранее известен как Nickvision)
+#     zenmap         # GUI для nmap
+#     parabolic      # Скачивание видео (ранее известен как Nickvision)
 
 
 # AIMP — нативный аудиоплеер для Linux (GTK3, без Wine).
