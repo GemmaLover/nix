@@ -4,8 +4,8 @@ let
   # =====================================================================
   # Gufo — движок инференса для AMD Strix Halo (gfx1151).
   #
-  # Даёт до 70.56 tok/s на Qwen3.8 27B с DFlash2 спекулятивным декодированием.
-  # Использует готовый Podman-образ, модели скачиваются отдельно через hf.
+  # Использует Qwen3.8-27B с квантом UD-Q6_K_XL и DFlash2 драфтером.
+  # Модели скачиваются через Hugging Face CLI.
   #
   # Скрипты:
   #   gufo-install  — скачать модели и создать контейнер
@@ -53,11 +53,11 @@ let
       echo "=== Скачивание моделей ==="
       mkdir -p "$MODELS_DIR"
 
-      # Qwen3.8-27B (основная модель, Q8_K_XL)
-      if [ ! -f "$MODELS_DIR/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q8_K_XL.gguf" ]; then
-        echo "Скачиваю Qwen3.8-27B-UD-Q8_K_XL.gguf (~27 ГБ)..."
+      # Qwen3.8-27B (основная модель, Q6_K_XL)
+      if [ ! -f "$MODELS_DIR/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf" ]; then
+        echo "Скачиваю Qwen3.8-27B-UD-Q6_K_XL.gguf (~24 ГБ)..."
         hf download unsloth/Qwen3.8-27B-GGUF \
-          Qwen3.8-27B-UD-Q8_K_XL.gguf \
+          Qwen3.8-27B-UD-Q6_K_XL.gguf \
           --revision 4ca720788d1e01f1bff70c033e0d0028fd02e502 \
           --repo-type model \
           --local-dir "$MODELS_DIR/Qwen3.8-27B-GGUF"
@@ -91,7 +91,7 @@ let
         -v "$MODELS_DIR:/models:ro" \
         "$IMAGE" \
         gufo serve --host 0.0.0.0 --port "$PORT_CONTAINER" llm \
-          --model /models/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q8_K_XL.gguf \
+          --model /models/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf \
           --speculative dflash2 \
           --dflash-model /models/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q4_K_M.gguf
 
