@@ -12,6 +12,7 @@ let
   #   gufo-start    — запустить сервер и открыть веб-интерфейс
   #   gufo-stop     — остановить контейнер
   #   gufo-remove   — удалить контейнер (модели по подтверждению)
+  #   gufo-status   — проверить состояние моделей и контейнера
   #
   # Требования:
   #   - Пользователь в группах video и render (доступ к /dev/kfd, /dev/dri)
@@ -53,32 +54,51 @@ let
       echo "=== Скачивание моделей ==="
       mkdir -p "$MODELS_DIR"
 
-      # Qwen3.8-27B (основная модель, Q6_K_XL)
-      if [ ! -f "$MODELS_DIR/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf" ]; then
-        echo "Скачиваю Qwen3.8-27B-UD-Q6_K_XL.gguf (~24 ГБ)..."
+      # --- Qwen3.8-27B (основная модель, Q6_K_XL) ---
+      # Проверяем и наличие файла, и отсутствие .incomplete
+      # (hf оставляет этот файл при прерванной загрузке).
+      MODEL_MAIN="$MODELS_DIR/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf"
+      if [ -f "$MODEL_MAIN" ] && [ ! -f "$MODEL_MAIN.incomplete" ]; then
+        SIZE=$(du -h "$MODEL_MAIN" | cut -f1)
+        echo "Модель Qwen3.8-27B уже скачана ($SIZE)."
+      else
+        if [ -f "$MODEL_MAIN.incomplete" ]; then
+          echo "Найден незавершённый файл — докачиваю с места обрыва."
+        else
+          echo "Скачиваю Qwen3.8-27B-UD-Q6_K_XL.gguf (~24 ГБ)..."
+        fi
         hf download unsloth/Qwen3.8-27B-GGUF \
           Qwen3.8-27B-UD-Q6_K_XL.gguf \
           --revision 4ca720788d1e01f1bff70c033e0d0028fd02e502 \
           --repo-type model \
           --local-dir "$MODELS_DIR/Qwen3.8-27B-GGUF"
-      else
-        echo "Модель Qwen3.8-27B уже скачана."
       fi
 
-      # DFlash2 драфтер (Q4_K_M)
-      if [ ! -f "$MODELS_DIR/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q4_K_M.gguf" ]; then
-        echo "Скачиваю DFlash2 драфтер (~4 ГБ)..."
+      # --- DFlash2 драфтер (Q4_K_M) ---
+      MODEL_DRAFT="$MODELS_DIR/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q4_K_M.gguf"
+      if [ -f "$MODEL_DRAFT" ] && [ ! -f "$MODEL_DRAFT.incomplete" ]; then
+        SIZE=$(du -h "$MODEL_DRAFT" | cut -f1)
+        echo "DFlash2 драфтер уже скачан ($SIZE)."
+      else
+        if [ -f "$MODEL_DRAFT.incomplete" ]; then
+          echo "Найден незавершённый файл — докачиваю с места обрыва."
+        else
+          echo "Скачиваю DFlash2 драфтер (~4 ГБ)..."
+        fi
         hf download z-lab/Qwen3.8-27B-DFlash2-GGUF \
           Qwen3.8-27B-DFlash2-Q4_K_M.gguf \
           --revision 2d9571f8ce46e151f61c6499c99dee6079e1d610 \
           --repo-type model \
           --local-dir "$MODELS_DIR/Qwen3.8-27B-DFlash2-GGUF"
-      else
-        echo "DFlash2 драфтер уже скачан."
       fi
 
       echo
       echo "=== Создание Podman-контейнера ==="
+      # --userns=keep-id — сохраняет UID/GID пользователя внутри контейнера.
+      # --group-add keep-groups — сохраняет группы хоста (для /dev/kfd).
+      # --ulimit memlock=-1 — снимает лимит на блокировку памяти (нужно для ROCm).
+      # -v ...:/models:ro — монтируем папку с моделями только для чтения.
+      # Порт: 8887 на хосте → 8080 внутри контейнера.
       podman create \
         --name "$CONTAINER_NAME" \
         --userns=keep-id:uid=1000,gid=1000 \
@@ -101,6 +121,7 @@ let
       echo "Запуск:     gufo-start"
       echo "Остановка:  gufo-stop"
       echo "Удаление:   gufo-remove"
+      echo "Статус:     gufo-status"
       echo "Порт на хосте: $PORT_HOST"
     '';
   };
@@ -184,6 +205,8 @@ let
         echo "Контейнер '$CONTAINER_NAME' уже отсутствует."
       fi
 
+      # Папку с моделями удаляем только по явному подтверждению.
+      # Показываем её размер, чтобы понимать, что теряем.
       if [ -d "$MODELS_DIR" ]; then
         SIZE=$(du -sh "$MODELS_DIR" 2>/dev/null | cut -f1 || echo "?")
         read -r -p "Удалить папку моделей '$MODELS_DIR' ($SIZE)? [y/N] " answer
@@ -211,6 +234,58 @@ let
     '';
   };
 
+  # --- Статус ---
+  gufoStatus = pkgs.writeShellApplication {
+    name = "gufo-status";
+    runtimeInputs = [ pkgs.podman pkgs.coreutils ];
+    text = ''
+      set -euo pipefail
+      CONTAINER_NAME="${CONTAINER_NAME}"
+      IMAGE="${IMAGE}"
+      MODELS_DIR="${MODELS_DIR}"
+
+      echo "=== Модели ==="
+      if [ -d "$MODELS_DIR" ]; then
+        du -sh "$MODELS_DIR" 2>/dev/null || true
+        echo
+        find "$MODELS_DIR" -name "*.gguf" -type f -exec ls -lh {} \; 2>/dev/null | \
+          awk '{print "  " $9 " (" $5 ")"}'
+        echo
+        INCOMPLETE=$(find "$MODELS_DIR" -name "*.incomplete" -type f 2>/dev/null | wc -l)
+        if [ "$INCOMPLETE" -gt 0 ]; then
+          echo "ВНИМАНИЕ: найдено $INCOMPLETE незавершённых загрузок:"
+          find "$MODELS_DIR" -name "*.incomplete" -type f -exec ls -lh {} \; 2>/dev/null
+        else
+          echo "Незавершённых загрузок нет."
+        fi
+      else
+        echo "Папка '$MODELS_DIR' не существует. Модели не скачаны."
+      fi
+
+      echo
+      echo "=== Контейнер ==="
+      if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+        if podman container running "$CONTAINER_NAME" 2>/dev/null; then
+          echo "  '$CONTAINER_NAME' — запущен"
+        else
+          echo "  '$CONTAINER_NAME' — остановлен"
+        fi
+      else
+        echo "  Контейнер '$CONTAINER_NAME' не создан"
+      fi
+
+      echo
+      echo "=== Образ ==="
+      if podman image exists "$IMAGE" 2>/dev/null; then
+        SIZE=$(podman image inspect "$IMAGE" --format '{{.Size}}' 2>/dev/null | \
+          awk '{printf "%.1f ГБ", $1/1024/1024/1024}')
+        echo "  '$IMAGE' — есть локально ($SIZE)"
+      else
+        echo "  Образ '$IMAGE' не скачан"
+      fi
+    '';
+  };
+
 in
 {
   home.packages = [
@@ -218,6 +293,7 @@ in
     gufoStart
     gufoStop
     gufoRemove
+    gufoStatus
   ];
 
   xdg.desktopEntries = {
