@@ -134,23 +134,6 @@ in
     portmasterStatus
   ];
 
-  # =====================================================================
-  # Polkit-правило: разрешить пользователю lexi управлять
-  # systemd-юнитом portmaster.service без ввода пароля.
-  #
-  # Без этого systemctl start/stop из ярлыков KDE требовал бы
-  # root-пароль и не работал бы в графической сессии.
-  # =====================================================================
-  security.polkit.extraConfig = ''
-    polkit.addRule(function(action, subject) {
-      if (action.id == "org.freedesktop.systemd1.manage-units" &&
-          action.lookup("unit") == "portmaster.service" &&
-          subject.user == "lexi") {
-        return polkit.Result.YES;
-      }
-    });
-  '';
-
   # === Ярлыки в меню приложений KDE ===
   # terminal = true — при запуске откроется окно терминала,
   # чтобы видеть вывод команд и любые ошибки.
