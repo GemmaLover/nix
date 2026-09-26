@@ -15,6 +15,7 @@
   # asusctl CLI для ручного управления (подсветка, профили, лимиты заряда).
   environment.systemPackages = with pkgs; [
     asusctl
+     (pkgs.callPackage ../../../pkgs/z13-fnlock { })
   ];
 
   # === Директория конфигурации ===
@@ -24,17 +25,22 @@
     "d /etc/asusd 0755 root root -"
   ];
 
-# Установить fn-lock в режим "F1-F12 primary" при старте.
-  # В asusctl 6.5+ fn-lock управляется через подсистему armoury
-  # (firmware-attributes), а не отдельной командой.
+  # Установить Fn-Lock в режим "F1-F12 primary" при старте.
+  # Отправляет HID feature report напрямую в N-Key клавиатуру,
+  # потому что asusctl на GZ302EA не поддерживает fn_lock.
   systemd.services.asus-fnlock = {
-    description = "Set ASUS fn-lock to F1-F12 primary";
+    description = "Set ASUS Fn-Lock to F1-F12 primary (HID report)";
     wantedBy = [ "multi-user.target" ];
-    after = [ "asusd.service" ];
+    after = [ "systemd-udev-settle.service" ];
+    requires = [ "systemd-udev-settle.service" ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.asusctl}/bin/asusctl armoury set fn_lock 1";
+      # Сервису нужен доступ к /dev/hidraw*, поэтому запускаем от root.
+      # Скрипт сам находит N-Key устройство.
+      ExecStart = "${pkgs.callPackage ../../../pkgs/z13-fnlock { }}/bin/z13-fnlock on";
       RemainAfterExit = true;
+      # Если клавиатура отключена — сервис не должен падать.
+      SuccessExitStatus = [ 1 ];
     };
   };
 }
