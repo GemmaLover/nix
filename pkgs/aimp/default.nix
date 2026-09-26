@@ -52,11 +52,35 @@ stdenv.mkDerivation rec {
 
   installPhase = ''
     runHook preInstall
+
     mkdir -p $out
-    cp -r . $out/
+    # Копируем корневые директории из архива: opt, usr (если есть).
+    cp -r opt $out/
+    [ -d usr ] && cp -r usr $out/ || true
+
+    # Создаём симлинк на реальный бинарник в opt/aimp.
+    # В .pkg.tar.zst от AIMP он лежит в /opt/aimp/AIMP.
     mkdir -p $out/bin
-    ln -sf $out/usr/bin/aimp $out/bin/aimp
+    if [ -x $out/opt/aimp/AIMP ]; then
+      ln -s $out/opt/aimp/AIMP $out/bin/aimp
+    elif [ -x $out/opt/aimp/aimp ]; then
+      ln -s $out/opt/aimp/aimp $out/bin/aimp
+    else
+      echo "Не найден бинарник AIMP в opt/aimp/"
+      ls -la $out/opt/aimp/ || true
+      exit 1
+    fi
+
     runHook postInstall
+  '';
+
+  # Правим .desktop, если он есть в архиве: путь к бинарнику.
+  postFixup = ''
+    if [ -f $out/share/applications/aimp.desktop ]; then
+      substituteInPlace $out/share/applications/aimp.desktop \
+        --replace "/opt/aimp/AIMP" "$out/bin/aimp" \
+        --replace "/usr/bin/aimp" "$out/bin/aimp" || true
+    fi
   '';
 
   meta = with lib; {
