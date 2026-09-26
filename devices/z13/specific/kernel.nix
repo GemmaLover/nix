@@ -21,7 +21,7 @@ let
       modDirVersion = version;
       src = pkgs.fetchurl {
         url = "mirror://kernel/linux/kernel/v7.x/linux-${version}.tar.xz";
-        sha256 = lib.fakeHash;
+        sha256 = "sha256-EujVqXPRrXxaXGmILkAisTHtcV23AD/c12Dd+MPlGUE=";
       };
     };
   });
