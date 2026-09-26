@@ -15,6 +15,7 @@
 , hicolor-icon-theme
 , libx11                  # было xorg.libX11
 , zstd
+, curl
 }:
 
 stdenv.mkDerivation rec {
@@ -44,6 +45,7 @@ stdenv.mkDerivation rec {
     opus-tools
     hicolor-icon-theme
     libx11                # и здесь
+    curl
   ];
 
   unpackPhase = ''
