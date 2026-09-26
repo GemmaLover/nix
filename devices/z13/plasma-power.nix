@@ -59,20 +59,36 @@
     };
   };
 
-    programs.plasma.input = {
-    touchpads = [
-      {
-        # Отключать тачпад, пока нажата клавиша на клавиатуре.
-        # plasma-manager пишет это в ~/.config/kcminputrc,
-        # который KDE на Wayland читает в первую очередь.
-        disableWhileTyping = true;
+  # =====================================================================
+  # Настройки ввода (тачпад) через plasma-manager.
+  #
+  # KDE на Wayland игнорирует services.libinput.touchpad.disableWhileTyping,
+  # потому что управляет настройками ввода сам. plasma-manager пишет
+  # нужные значения в ~/.config/kcminputrc — оттуда KDE их читает.
+  #
+  # vendorId и productId — обязательные поля. По ним KDE идентифицирует
+  # конкретное устройство. Без них plasma-manager падает с ошибкой
+  # "vendorId is not of type string".
+  #
+  # Значения взяты из `udevadm info` для GZ302EA-Keyboard Touchpad:
+  #   ID_VENDOR_ID=0b05  (ASUSTeK)
+  #   ID_MODEL_ID=1a30   (GZ302EA-Keyboard)
+  # =====================================================================
+  programs.plasma.input.touchpads = [
+    {
+      vendorId = "0x0b05";
+      productId = "0x1a30";
+      name = "ASUSTeK Computer Inc. GZ302EA-Keyboard Touchpad";
 
-        # Остальные настройки можно задать здесь же.
-        tapToClick = true;
-        naturalScroll = true;
-        # Прокрутка двумя пальцами.
-        scrollMethod = "twoFinger";
-      }
-    ];
-  };
+      # Отключать тачпад, пока нажата клавиша на клавиатуре.
+      # Это главная настройка, из-за которой всё делалось.
+      disableWhileTyping = true;
+
+      # Остальные настройки.
+      tapToClick = true;
+      naturalScroll = true;
+      # Прокрутка двумя пальцами.
+      scrollMethod = "twoFinger";
+    }
+  ];
 }
