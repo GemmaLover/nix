@@ -7,9 +7,9 @@ writeScriptBin "z13-fnlock" ''
   Отправляет HID feature report напрямую в /dev/hidraw* клавиатуры
   (Vendor 0x0B05, Product 0x1A30).
 
-  Формат отчёта (из hid-asus.c, функция asus_kbd_set_fn_lock):
-    FnLock = 1 (F1-F12 primary)  -> 5A-D0-4E-01
-    FnLock = 0 (media primary)   -> 5A-D0-4E-00
+  Семантика байта (проверено эмпирически на GZ302EA):
+    F1-F12 primary  -> 5A-D0-4E-00
+    media primary   -> 5A-D0-4E-01
   """
   import argparse
   import fcntl
@@ -30,20 +30,21 @@ writeScriptBin "z13-fnlock" ''
               content = uevent.read_text()
           except OSError:
               continue
-          # Ищем клавиатуру ASUS: Vendor 0b05, Product 1a30.
+          # Клавиатура ASUS: Vendor 0b05, Product 1a30.
           if "00000B05" in content and "00001A30" in content:
               devices.append(f"/dev/{hidraw.name}")
       return devices
 
   def set_fnlock(enabled: bool) -> int:
+      """enabled=True  -> F1-F12 primary.
+         enabled=False -> media primary."""
       devices = find_keyboard_hidraws()
       if not devices:
           print("Клавиатура ASUS (0b05:1a30) не найдена", file=sys.stderr)
           return 1
 
-      # Отчёт: report id 0x5a + payload.
-      # !!enabled даёт 1 для true, 0 для false.
-      report = bytes([0x5a, 0xd0, 0x4e, 0x01 if enabled else 0x00])
+      # F1-F12 primary → 0x00, media primary → 0x01.
+      report = bytes([0x5a, 0xd0, 0x4e, 0x00 if enabled else 0x01])
 
       success = False
       for device in devices:
@@ -63,8 +64,8 @@ writeScriptBin "z13-fnlock" ''
       if not success:
           return 1
 
-      state = "включён (F1-F12 primary)" if enabled else "выключен (media primary)"
-      print(f"Fn-Lock {state}")
+      state = "F1-F12 primary" if enabled else "media primary"
+      print(f"Fn-Lock: {state}")
       return 0
 
   def main() -> int:
