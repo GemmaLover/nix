@@ -155,12 +155,25 @@ in
 
   # =====================================================================
   # Сервис синхронизации PPD → z13ctl.
+  #
+  # Привязка к graphical.target вместо multi-user.target — это
+  # разрывает циклическую зависимость systemd. Причина цикла:
+  # z13-ppd-sync хотел стартовать в multi-user.target, но ждал
+  # power-profiles-daemon, а PPD сам является частью multi-user.target.
+  # Получалась петля: multi-user → z13-ppd-sync → PPD → multi-user.
+  #
+  # graphical.target стартует позже multi-user, поэтому цикла нет.
+  # Логически это тоже правильнее: профили переключаются через
+  # виджет KDE, а не до логина пользователя.
   # =====================================================================
   systemd.services.z13-ppd-sync = {
     description = "Sync z13ctl TDP/fan curves with power-profiles-daemon";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "power-profiles-daemon.service" ];
+
+    # Мягкая привязка к графической сессии.
+    wantedBy = [ "graphical.target" ];
+    after = [ "graphical.target" "power-profiles-daemon.service" ];
     wants = [ "power-profiles-daemon.service" ];
+    partOf = [ "graphical.target" ];
 
     serviceConfig = {
       Type = "simple";
