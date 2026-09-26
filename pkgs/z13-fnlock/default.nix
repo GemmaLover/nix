@@ -7,9 +7,11 @@ writeScriptBin "z13-fnlock" ''
   """Переключает Fn-Lock на ASUS ROG Flow Z13 (N-Key клавиатура).
 
   Отправляет HID feature report напрямую в /dev/hidraw* устройство
-  N-Key клавиатуры. Формат из патчей ядра:
-    enable  (F1-F12 primary):  0x5a 0xd0 0x4e 0x01
-    disable (media primary):   0x5a 0xd0 0x4e 0x00
+  N-Key клавиатуры (Vendor 0x0B05, Product 0x18C6).
+
+  Формат отчёта (согласно G-Helper issue #4701 для GZ302EA):
+    FnLock = 1 (F1-F12 primary)  -> 5A-D0-4E-00
+    FnLock = 0 (media primary)   -> 5A-D0-4E-01
   """
   import argparse
   import fcntl
@@ -41,7 +43,10 @@ writeScriptBin "z13-fnlock" ''
           return 1
 
       # Feature report: report id + payload.
-      report = bytes([0x5a, 0xd0, 0x4e, 0x01 if enabled else 0x00])
+      # Согласно issue #4701 G-Helper для GZ302EA:
+      #   FnLock = 1 (F1-F12 primary)  -> 5A-D0-4E-00
+      #   FnLock = 0 (media primary)   -> 5A-D0-4E-01
+      report = bytes([0x5a, 0xd0, 0x4e, 0x00 if enabled else 0x01])
 
       try:
           fd = os.open(device, os.O_RDWR)

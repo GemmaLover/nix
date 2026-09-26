@@ -31,12 +31,12 @@
   systemd.services.asus-fnlock = {
     description = "Set ASUS Fn-Lock to F1-F12 primary (HID report)";
     wantedBy = [ "multi-user.target" ];
-    after = [ "systemd-udev-settle.service" ];
-    requires = [ "systemd-udev-settle.service" ];
+    # Запускать после загрузки системы — hidraw-устройства уже созданы.
+    after = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
-      # Сервису нужен доступ к /dev/hidraw*, поэтому запускаем от root.
-      # Скрипт сам находит N-Key устройство.
+      # Небольшая задержка на случай, если hidraw ещё не готов.
+      ExecStartPre = "${pkgs.coreutils}/bin/sleep 3";
       ExecStart = "${pkgs.callPackage ../../../pkgs/z13-fnlock { }}/bin/z13-fnlock on";
       RemainAfterExit = true;
       # Если клавиатура отключена — сервис не должен падать.
