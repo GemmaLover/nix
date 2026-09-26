@@ -46,6 +46,7 @@
 #     zenmap         # GUI для nmap
 #     parabolic      # Скачивание видео (ранее известен как Nickvision)
 
+  android-tools
 
 # AIMP — нативный аудиоплеер для Linux (GTK3, без Wine).
   (pkgs.callPackage ../../pkgs/aimp { })
