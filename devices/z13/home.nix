@@ -9,6 +9,7 @@
     ../../llm/home.nix
     ./plasma-power.nix
     ../../base/tools/portmaster-ui.nix
+        ../../base/tools/portmaster-control.nix
   ];
 
   # Домашняя директория пользователя.
