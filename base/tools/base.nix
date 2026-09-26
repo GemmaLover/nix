@@ -48,6 +48,9 @@
 
 #     (pkgs.callPackage ../../pkgs/amnezia-vpn-run { })
 
+# AIMP — нативный аудиоплеер для Linux (GTK3, без Wine).
+  (pkgs.callPackage ../../pkgs/aimp { })
+
     # --- Утилиты ---
     tree           # Дерево каталогов
     file           # Определение типа файла
