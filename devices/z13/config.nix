@@ -9,7 +9,7 @@
     ./specific/z13-tools.nix
     ./specific/gpu-amd.nix
     ./specific/performance.nix
-    ./specific/lid-handler.nix
+    ./specific/lid-daemon.nix
 
     # === Базовые модули для всех устройств ===
     ../../base/system/boot.nix
