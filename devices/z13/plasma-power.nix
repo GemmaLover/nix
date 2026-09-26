@@ -58,4 +58,21 @@
       criticalAction = "hibernate";  # Действие при критическом уровне.
     };
   };
+
+    programs.plasma.input = {
+    touchpads = [
+      {
+        # Отключать тачпад, пока нажата клавиша на клавиатуре.
+        # plasma-manager пишет это в ~/.config/kcminputrc,
+        # который KDE на Wayland читает в первую очередь.
+        disableWhileTyping = true;
+
+        # Остальные настройки можно задать здесь же.
+        tapToClick = true;
+        naturalScroll = true;
+        # Прокрутка двумя пальцами.
+        scrollMethod = "twoFinger";
+      }
+    ];
+  };
 }
