@@ -10,6 +10,8 @@ let
   #   - Все запросы использовать с --ipv4 и 127.0.0.1, потому что
   #     passt (Podman rootless network) глючит с IPv6.
   #   - API-ключ передаётся через --api-key.
+  #   - gufo-stop использует podman inspect, а не container running:
+  #     в rootless-режиме последний возвращает устаревший статус.
   #
   # API Base URL для DSH/Open WebUI:  http://127.0.0.1:8887/v1
   # =====================================================================
@@ -48,6 +50,7 @@ let
       echo "=== Скачивание моделей ==="
       mkdir -p "$MODELS_DIR"
 
+      # --- Qwen3.8-27B (основная модель, Q6_K_XL) ---
       MODEL_MAIN="$MODELS_DIR/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf"
       if [ -f "$MODEL_MAIN" ] && [ ! -f "$MODEL_MAIN.incomplete" ]; then
         SIZE=$(du -h "$MODEL_MAIN" | cut -f1)
@@ -65,6 +68,7 @@ let
           --local-dir "$MODELS_DIR/Qwen3.8-27B-GGUF"
       fi
 
+      # --- DFlash2 драфтер (Q4_K_M) ---
       MODEL_DRAFT="$MODELS_DIR/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q4_K_M.gguf"
       if [ -f "$MODEL_DRAFT" ] && [ ! -f "$MODEL_DRAFT.incomplete" ]; then
         SIZE=$(du -h "$MODEL_DRAFT" | cut -f1)
@@ -84,6 +88,12 @@ let
 
       echo
       echo "=== Создание Podman-контейнера ==="
+      # --userns=keep-id — сохраняет UID/GID пользователя внутри контейнера.
+      # --group-add keep-groups — сохраняет группы хоста (для /dev/kfd).
+      # --ulimit memlock=-1 — снимает лимит на блокировку памяти (нужно для ROCm).
+      # -v ...:/models:ro — монтируем папку с моделями только для чтения.
+      # --api-key — Bearer-авторизация.
+      # Порт: 8887 на хосте → 8080 внутри контейнера.
       podman create \
         --name "$CONTAINER_NAME" \
         --userns=keep-id:uid=1000,gid=1000 \
@@ -127,7 +137,9 @@ let
         exit 1
       fi
 
-      if podman container running "$CONTAINER_NAME" 2>/dev/null; then
+      # Проверяем реальный статус через inspect (container running в rootless врёт).
+      STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+      if [ "$STATUS" = "running" ]; then
         echo "Контейнер уже запущен."
       else
         echo "Запускаю контейнер..."
@@ -138,7 +150,7 @@ let
       READY=0
       for _ in {1..180}; do
         # --ipv4 обязательно: passt ломается на IPv6.
-        # Используем /v1/models — это единственный «health»-эндпоинт.
+        # /v1/models — единственный «health»-эндпоинт.
         if curl --ipv4 -fsS -o /dev/null \
              -H "Authorization: Bearer $API_KEY" \
              "$API_BASE/models" 2>/dev/null; then
@@ -174,29 +186,59 @@ let
   };
 
   # --- Остановка ---
+  # ВАЖНО: не используем `podman container running` — в rootless-режиме
+  # он иногда возвращает устаревший статус (false для реально
+  # работающего контейнера). Читаем статус через inspect.
   gufoStop = pkgs.writeShellApplication {
     name = "gufo-stop";
-    runtimeInputs = [ pkgs.podman pkgs.procps ];
+    runtimeInputs = [ pkgs.podman pkgs.procps pkgs.coreutils ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="${CONTAINER_NAME}"
 
       if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
-        echo "Контейнер '$CONTAINER_NAME' не найден."
+        echo "Контейнер '$CONTAINER_NAME' не существует."
+        # На всякий случай убьём осиротевшие процессы.
+        if pgrep -f "gufo serve" >/dev/null 2>&1; then
+          echo "Найдены orphan-процессы gufo, убиваю..."
+          pkill -9 -f "gufo serve" || true
+        fi
         exit 0
       fi
 
-      if ! podman container running "$CONTAINER_NAME" 2>/dev/null; then
-        echo "Контейнер уже остановлен."
-        exit 0
+      # Реальный статус — через inspect.
+      STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+
+      case "$STATUS" in
+        running|paused|restarting)
+          echo "Контейнер в состоянии '$STATUS' — останавливаю..."
+          podman stop -t 30 "$CONTAINER_NAME" 2>/dev/null || {
+            echo "SIGTERM не сработал, убиваю принудительно (SIGKILL)..."
+            podman kill "$CONTAINER_NAME" 2>/dev/null || true
+            sleep 2
+            STILL=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Running}}' 2>/dev/null || echo "false")
+            if [ "$STILL" = "true" ]; then
+              echo "Всё ещё жив — удаляю принудительно..."
+              podman rm -f "$CONTAINER_NAME" || true
+            fi
+          }
+          ;;
+        exited|stopped|created)
+          echo "Контейнер уже в состоянии '$STATUS'."
+          ;;
+        *)
+          echo "Неизвестный статус: $STATUS"
+          ;;
+      esac
+
+      # Финальная зачистка orphan-процессов (на случай, если
+      # podman оставил что-то висеть).
+      sleep 1
+      if pgrep -f "gufo serve" >/dev/null 2>&1; then
+        echo "Обнаружены orphan-процессы gufo, убиваю..."
+        pkill -9 -f "gufo serve" || true
       fi
 
-      echo "Останавливаю контейнер (таймаут 30 секунд)..."
-      podman stop -t 30 "$CONTAINER_NAME" || {
-        echo "Контейнер не остановился штатно, убиваю принудительно..."
-        podman kill "$CONTAINER_NAME" 2>/dev/null || true
-        podman wait "$CONTAINER_NAME" 2>/dev/null || true
-      }
       echo "Готово."
     '';
   };
@@ -204,7 +246,7 @@ let
   # --- Удаление ---
   gufoRemove = pkgs.writeShellApplication {
     name = "gufo-remove";
-    runtimeInputs = [ pkgs.podman pkgs.coreutils ];
+    runtimeInputs = [ pkgs.podman pkgs.coreutils pkgs.procps ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="${CONTAINER_NAME}"
@@ -216,6 +258,11 @@ let
         podman rm -f "$CONTAINER_NAME"
       else
         echo "Контейнер '$CONTAINER_NAME' уже отсутствует."
+      fi
+
+      # Зачистка orphan-процессов.
+      if pgrep -f "gufo serve" >/dev/null 2>&1; then
+        pkill -9 -f "gufo serve" || true
       fi
 
       if [ -d "$MODELS_DIR" ]; then
@@ -269,10 +316,12 @@ let
       echo
       echo "=== Контейнер ==="
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
-        if podman container running "$CONTAINER_NAME" 2>/dev/null; then
-          echo "  '$CONTAINER_NAME' — запущен"
-        else
-          echo "  '$CONTAINER_NAME' — остановлен"
+        # Читаем статус через inspect, чтобы не получить устаревшее значение.
+        STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        echo "  '$CONTAINER_NAME' — $STATUS"
+        if [ "$STATUS" = "running" ]; then
+          PID=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Pid}}' 2>/dev/null || echo "?")
+          echo "  PID процесса внутри контейнера: $PID"
         fi
       else
         echo "  Контейнер '$CONTAINER_NAME' не создан"
