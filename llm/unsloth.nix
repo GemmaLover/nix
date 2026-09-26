@@ -30,6 +30,10 @@ let
       IMAGE="docker.io/unsloth/unsloth-rocm:studio"
       DATA_VOLUME="unsloth-data"
       HOST_PROJECTS="''${HOME}/projects"
+      # Папка для моделей HuggingFace на хосте.
+      # Монтируется в контейнер как /workspace/.cache/huggingface,
+      # чтобы модели оставались на диске даже после удаления контейнера.
+      HF_CACHE="''${HOME}/llm/models"
       PORT_HOST=8005
       PORT_CONTAINER=8000
 
@@ -56,9 +60,18 @@ let
         echo "Создан volume '$DATA_VOLUME'."
       fi
 
+      # Создаём папку для моделей, если её ещё нет.
+      mkdir -p "$HF_CACHE"
+      echo "Кэш моделей HuggingFace: $HF_CACHE"
+
       # --shm-size=8g: ROCm/PyTorch требуют большую shared memory,
       #                иначе падают при работе с моделями.
       # Внутренний порт 8000 пробрасываем на внешний 8005.
+      #
+      # Монтирования:
+      #   ~/projects       → /workspace/host       (проекты пользователя)
+      #   volume unsloth-data → /workspace/studio   (данные Studio)
+      #   ~/llm/models     → /workspace/.cache/huggingface (кэш моделей)
       podman create \
         --name "$CONTAINER_NAME" \
         --device /dev/kfd \
@@ -69,7 +82,9 @@ let
         -p "$PORT_HOST:$PORT_CONTAINER" \
         -v "$HOST_PROJECTS:/workspace/host:Z" \
         -v "$DATA_VOLUME:/workspace/studio" \
+        -v "$HF_CACHE:/workspace/.cache/huggingface:Z" \
         -e JUPYTER_PASSWORD=unsloth \
+        -e HF_HOME=/workspace/.cache/huggingface \
         "$IMAGE"
 
       echo
@@ -185,15 +200,19 @@ let
     '';
   };
 
-  # --- Удаление (с подтверждениями для volume и образа) ---
+    # --- Удаление (с подтверждениями для volume, моделей и образа) ---
   unslothRemove = pkgs.writeShellApplication {
     name = "unsloth-remove";
-    runtimeInputs = [ pkgs.podman ];
+    runtimeInputs = [ pkgs.podman pkgs.coreutils ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="unsloth"
       DATA_VOLUME="unsloth-data"
       IMAGE="docker.io/unsloth/unsloth-rocm:studio"
+      # Папка с моделями HuggingFace на хосте. Монтируется в контейнер
+      # как /workspace/.cache/huggingface. Не удаляем её без явного
+      # подтверждения — там могут быть десятки гигабайт моделей.
+      HF_CACHE="''${HOME}/llm/models"
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Удаляю контейнер '$CONTAINER_NAME'..."
@@ -203,13 +222,28 @@ let
       fi
 
       if podman volume exists "$DATA_VOLUME" 2>/dev/null; then
-        read -r -p "Удалить volume '$DATA_VOLUME' (модели и настройки)? [y/N] " answer
+        read -r -p "Удалить volume '$DATA_VOLUME' (настройки Unsloth Studio)? [y/N] " answer
         if [[ "''${answer,,}" == "y" ]]; then
           podman volume rm "$DATA_VOLUME"
           echo "Volume удалён."
         else
           echo "Volume сохранён."
         fi
+      fi
+
+      # Папку с моделями удаляем только по явному подтверждению.
+      # Показываем её размер, чтобы понимать, что теряем.
+      if [ -d "$HF_CACHE" ]; then
+        SIZE=$(du -sh "$HF_CACHE" 2>/dev/null | cut -f1 || echo "?")
+        read -r -p "Удалить папку моделей '$HF_CACHE' ($SIZE)? [y/N] " answer
+        if [[ "''${answer,,}" == "y" ]]; then
+          rm -rf "$HF_CACHE"
+          echo "Папка моделей удалена."
+        else
+          echo "Папка моделей сохранена."
+        fi
+      else
+        echo "Папка моделей '$HF_CACHE' не найдена — нечего удалять."
       fi
 
       if podman image exists "$IMAGE" 2>/dev/null; then
@@ -225,7 +259,6 @@ let
       echo "Готово."
     '';
   };
-
   # --- Сброс пароля Unsloth Studio ---
   unslothResetPassword = pkgs.writeShellApplication {
     name = "unsloth-reset-password";
