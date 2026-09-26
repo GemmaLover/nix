@@ -34,6 +34,10 @@
     };
   };
 
+   environment.systemPackages = with pkgs; [
+    kdePackages.bluedevil
+  ];
+
   # === Квирк (Quirk) для ASUS Z13 ===
   # Это специальное правило для libinput, которое сообщает системе,
   # что клавиатура является внутренней. Это необходимо для корректной
