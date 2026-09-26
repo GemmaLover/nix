@@ -19,6 +19,14 @@
   programs.plasma.powerdevil = {
     # Профиль при питании от сети.
     AC = {
+     # Экран гаснет через 20 минут (1200 секунд).
+      turnOffDisplay.idleTimeout = 1200;
+      # Сон отключён.
+      autoSuspend = {
+        action = "nothing";
+        idleTimeout = 0;
+      };
+
       powerProfile = "balanced";
       # Остальные настройки (яркость, засыпание) — оставляем по умолчанию.
     };
@@ -26,6 +34,15 @@
     # Профиль при питании от батареи.
     battery = {
       powerProfile = "powerSaving";
+
+       # Экран гаснет через 1 минуту (60 секунд).
+      turnOffDisplay.idleTimeout = 60;
+
+
+      autoSuspend = {
+        action = "hibernate";
+        idleTimeout = 300;
+      };
     };
 
     # Профиль при низком заряде батареи.
@@ -40,4 +57,7 @@
       criticalAction = "hibernate";  # Действие при критическом уровне.
     };
   };
+
+
+
 }

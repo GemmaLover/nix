@@ -14,9 +14,10 @@
     "ttm.pages_limit=29126912"
     "amdgpu.vpe_idle_timeout=2000"
     "amd_iommu=off"
+    "asus_wmi.fnlock_default=1"
   ];
 
   # === Модули ядра ===
   # Загружаем модуль для AMD KVM (виртуализация)
-  boot.kernelModules = [ "kvm-amd" ];
+  boot.kernelModules = [ "kvm-amd" "asus_wmi"];
 }
