@@ -46,7 +46,6 @@
     zenmap         # GUI для nmap
     parabolic      # Скачивание видео (ранее известен как Nickvision)
 
-#     (pkgs.callPackage ../../pkgs/amnezia-vpn-run { })
 
 # AIMP — нативный аудиоплеер для Linux (GTK3, без Wine).
   (pkgs.callPackage ../../pkgs/aimp { })
