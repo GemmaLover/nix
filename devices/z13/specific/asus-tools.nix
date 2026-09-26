@@ -24,14 +24,16 @@
     "d /etc/asusd 0755 root root -"
   ];
 
-    # Установить fn-lock в режим "F1-F12 primary" при старте.
+# Установить fn-lock в режим "F1-F12 primary" при старте.
+  # В asusctl 6.5+ fn-lock управляется через подсистему armoury
+  # (firmware-attributes), а не отдельной командой.
   systemd.services.asus-fnlock = {
     description = "Set ASUS fn-lock to F1-F12 primary";
     wantedBy = [ "multi-user.target" ];
     after = [ "asusd.service" ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.asusctl}/bin/asusctl fn-lock -s true";
+      ExecStart = "${pkgs.asusctl}/bin/asusctl armoury set fn_lock 1";
       RemainAfterExit = true;
     };
   };
