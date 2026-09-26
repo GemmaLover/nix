@@ -53,7 +53,15 @@
     HandleLidSwitch = "hibernate";
     HandleLidSwitchExternalPower = "lock";
     HandleLidSwitchDocked = "ignore";
-LidSwitchIgnoreInhibited = "no";
+    # Игнорировать ингибитор handle-lid-switch, который держит PowerDevil.
+    #
+    # ВАЖНО: семантика systemd здесь инвертирована по отношению к названию.
+    #   yes = logind ИГНОРИРУЕТ ингибитор и выполняет действие
+    #   no  = logind УВАЖАЕТ ингибитор и ничего не делает
+    #
+    # Поэтому ставим yes, чтобы logind обрабатывал крышку сам,
+    # несмотря на ингибитор PowerDevil.
+    LidSwitchIgnoreInhibited = "yes";
     # Задержка 5 секунд, чтобы KDE успел сохранить сессию
     # перед уходом в гибернацию (на случай, если у вас всё же
     # сработает гибернация через logind).
