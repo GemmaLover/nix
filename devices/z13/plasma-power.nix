@@ -11,7 +11,9 @@
   #   - с доком    → ignore
   #
   # PowerDevil от обработки крышки отключён сервисом powerdevil-lid-fix,
-  # который записывает LidAction=0 во все профили powerdevilrc.
+  # который записывает LidAction=0 во все профили powerdevilrc и
+  # принудительно выставляет TurnOffDisplayIdleTimeoutWhenLockedSec=1,
+  # чтобы экран гас после блокировки.
   #
   # PowerDevil продолжает управлять профилями производительности:
   #   KDE PowerDevil → PPD → z13-ppd-sync → z13ctl
@@ -24,7 +26,6 @@
 
       # Экран гаснет через 20 минут простоя.
       # idleTimeoutWhenLocked = "immediately" — при блокировке
-      # (в том числе при закрытии крышки через logind)
       # подсветка гаснет сразу.
       turnOffDisplay = {
         idleTimeout = 1200;
@@ -132,12 +133,19 @@
   ];
 
   # =====================================================================
-  # Отключаем обработку крышки в PowerDevil.
+  # Отключаем обработку крышки в PowerDevil и принудительно
+  # выставляем выключение экрана при блокировке.
   #
-  # plasma-manager не записывает LidAction в powerdevilrc, из-за чего
-  # PowerDevil использует дефолтные значения и конфликтует с logind.
-  # Этот сервис запускается после PowerDevil и явно ставит LidAction=0
-  # для всех профилей — так PowerDevil не трогает крышку.
+  # plasma-manager не записывает LidAction и
+  # TurnOffDisplayIdleTimeoutWhenLockedSec в powerdevilrc, из-за чего:
+  #   1. PowerDevil использует дефолтные значения и конфликтует с logind.
+  #   2. Экран не гаснет после блокировки (баг Plasma 6 на Wayland).
+  #
+  # Этот сервис запускается после PowerDevil и явно ставит:
+  #   - LidAction=0 — PowerDevil не трогает крышку.
+  #   - TurnOffDisplayIdleTimeoutWhenLockedSec=1 — экран гаснет
+  #     через 1 секунду после блокировки. Значение 0 в некоторых
+  #     версиях Plasma 6 игнорируется, поэтому 1 — безопасный минимум.
   #
   # Значения LidAction (из исходников PowerDevil):
   #   0 = ничего
@@ -148,7 +156,7 @@
   # =====================================================================
   systemd.user.services.powerdevil-lid-fix = {
     Unit = {
-      Description = "Disable PowerDevil lid handling (logind takes over)";
+      Description = "Disable PowerDevil lid handling; force screen off on lock";
       After = [ "graphical-session.target" "plasma-powerdevil.service" ];
       PartOf = [ "graphical-session.target" ];
     };
@@ -169,6 +177,14 @@
         "$KWRITE" --file "$CONF" --group AC         --group SuspendAndShutdown --key LidAction 0
         "$KWRITE" --file "$CONF" --group Battery    --group SuspendAndShutdown --key LidAction 0
         "$KWRITE" --file "$CONF" --group LowBattery --group SuspendAndShutdown --key LidAction 0
+
+        # Выключение экрана через 1 секунду после блокировки.
+        # Без этой записи Plasma 6 оставляет экран включённым при
+        # блокировке (известный баг), даже если idleTimeoutWhenLocked
+        # задан в plasma-manager.
+        "$KWRITE" --file "$CONF" --group AC         --group Display --key TurnOffDisplayIdleTimeoutWhenLockedSec 1
+        "$KWRITE" --file "$CONF" --group Battery    --group Display --key TurnOffDisplayIdleTimeoutWhenLockedSec 1
+        "$KWRITE" --file "$CONF" --group LowBattery --group Display --key TurnOffDisplayIdleTimeoutWhenLockedSec 1
 
         # Перезапуск PowerDevil, чтобы он перечитал powerdevilrc.
         ${pkgs.systemd}/bin/systemctl --user restart plasma-powerdevil.service || true
