@@ -25,17 +25,22 @@
     AC = {
       powerProfile = "balanced";
 
-      # Экран гаснет через 20 минут (1200 секунд).
+
+
+      # При закрытии крышки от сети — заблокировать экран.
+      # Экран и подсветка клавиатуры выключатся сразу (см. ниже).
+      whenLaptopLidClosed = "lockScreen";
+
+
+            # Экран гаснет через 20 минут (1200 секунд).
       # idleTimeoutWhenLocked = "immediately" — при блокировке экран
       # выключается сразу (лечит баг KDE, когда подсветка не гаснет
       # при блокировке пользователя).
-      turnOffDisplay = {
+
+       turnOffDisplay = {
         idleTimeout = 1200;
         idleTimeoutWhenLocked = "immediately";
       };
-
-      # При закрытии крышки от сети — ничего не делать.
-      whenLaptopLidClosed = "doNothing";
 
       # Автосон отключён: action = "nothing", idleTimeout = null.
       # Значение 0 недопустимо (диапазон 60..600000 или null).
