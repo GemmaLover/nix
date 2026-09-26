@@ -20,6 +20,13 @@
     };
   };
 
+  # Portmaster-core создаёт config.json с правами 0600 (root-only).
+  # GUI работает от пользователя lexi и не может его прочитать.
+  # ExecStartPost делает файл читаемым для всех после старта сервиса.
+  systemd.services.portmaster.serviceConfig.ExecStartPost = [
+    "${pkgs.coreutils}/bin/chmod 644 /var/lib/portmaster/config.json"
+  ];
+
   # Portmaster должен стартовать после сети и после dnscrypt-proxy,
   # чтобы сразу найти upstream.
   systemd.services.portmaster = {
