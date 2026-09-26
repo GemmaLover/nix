@@ -42,6 +42,9 @@
       "org.nickvision.tubeconverter"       # official: Parabolic (загрузка видео/аудио)
 
 
+        "org.meshtastic.meshtasticd"        # Демон (серверная часть)
+  "org.meshtastic.MeshtasticDesktop"  # Графический клиент
+
       # --- Утилиты ---
       "com.github.tchx84.Flatseal"         # official: GUI для управления правами Flatpak
     ];
