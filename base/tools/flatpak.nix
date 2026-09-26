@@ -20,4 +20,11 @@
   # flatpak install flathub com.amnezia.AmneziaVPN
   # flatpak install flathub com.protonvpn.ProtonVPN
   # flatpak install flathub com.google.AndroidStudio
+
+   # GNOME Software — графический магазин приложений с поддержкой Flatpak.
+  # В KDE будет доступен из меню приложений как «GNOME Software».
+  # Позволяет искать и устанавливать Flatpak-пакеты через GUI.
+  environment.systemPackages = with pkgs; [
+    gnome-software
+  ];
 }
