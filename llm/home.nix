@@ -6,5 +6,6 @@
     ./deepseek-harness.nix
     ./cockpit.nix
     ./cockpit-toolboxes.nix
+    ./gufo.nix
   ];
 }
