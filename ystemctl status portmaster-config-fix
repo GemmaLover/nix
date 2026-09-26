@@ -1,0 +1,18 @@
+[0;1;32m●[0m portmaster.service - Portmaster by Safing
+     Loaded: loaded (]8;;file://z13/etc/systemd/system/portmaster.service\/etc/systemd/system/portmaster.service]8;;\; [0;1;32menabled[0m; preset: ignored)
+     Active: [0;1;32mactive (running)[0m since Sat 2026-09-26 03:09:41 MSK; 6s ago
+ Invocation: 0b86b8b2666f4e15813b3b2983b85910
+       Docs: ]8;;https://safing.io\https://safing.io]8;;\
+             ]8;;https://docs.safing.io\https://docs.safing.io]8;;\
+    Process: 13789 ExecStartPre=/nix/store/7146vjjz7l9ysmpqa875r3s22q704853-unit-script-portmaster-pre-start/bin/portmaster-pre-start (code=exited, status=0/SUCCESS)
+   Main PID: 13809 (portmaster-core)
+         IP: 620B in, 1.4K out
+         IO: 0B read, 8K written
+      Tasks: 24[0;38:5:245m (limit: 153487)[0m
+     Memory: 74.8M (low: 2G, peak: 105.1M)
+        CPU: 378ms
+     CGroup: /system.slice/portmaster.service
+             └─[0;38:5:245m13809 /nix/store/hcks6kc82cp852xjmpwa6rlqhjh31y5n-portmaster-2.2.3/lib/portmaster/portmaster-core --bin-dir=/nix/store/hcks6kc82cp852xjmpwa6rlqhjh31y5n-portmaster-2.2.3/lib/portmaster --data-dir=/var/lib/portmaster --log-dir=/var/lib/portmaster/logs[0m
+
+Sep 26 03:09:41 z13 systemd[1]: Starting Portmaster by Safing...
+Sep 26 03:09:41 z13 systemd[1]: Started Portmaster by Safing.
