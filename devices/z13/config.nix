@@ -37,6 +37,12 @@
     # ../../games/games.nix   # TODO: Добавить позже
   ];
 
+    services.logind.settings.Login = {
+    HandleLidSwitch = "ignore";
+    HandleLidSwitchExternalPower = "ignore";
+    HandleLidSwitchDocked = "ignore";
+  };
+
   # Хостнейм для z13
   networking.hostName = "z13";
 
