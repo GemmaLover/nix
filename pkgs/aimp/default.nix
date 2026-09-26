@@ -23,7 +23,7 @@ stdenv.mkDerivation rec {
 
   src = fetchurl {
     url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3086beta6-1-x86_64.pkg.tar.zst";
-    hash = lib.fakeHash;
+    hash = "sha256-K/Yb/I1HIqlkh08zCoWqMDr61iLpgxiGr7lm5lAmd3c=";
   };
 
   nativeBuildInputs = [
