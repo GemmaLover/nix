@@ -70,14 +70,10 @@ stdenv.mkDerivation rec {
     cp -r opt $out/
     [ -d usr ] && cp -r usr $out/ || true
 
-    # AIMP динамически подгружает libcurl.so.4 через dlopen().
-    # autoPatchelfHook видит только DT_NEEDED, dlopen-библиотеки — нет.
-    # Кладём симлинк рядом с бинарником — некоторые приложения ищут
-    # библиотеки в своей директории в первую очередь.
-    ln -sf ${curl}/lib/libcurl.so.4 $out/opt/aimp/libcurl.so.4
-
     # Обёртка на чистом shell. makeWrapper конфликтует с wrapGAppsHook3
     # (тот перезаписывает LD_LIBRARY_PATH), поэтому пишем скрипт сами.
+    # AIMP подгружает libcurl.so.4 через dlopen() — autoPatchelfHook
+    # такие библиотеки не видит. LD_LIBRARY_PATH решает проблему.
     mkdir -p $out/bin
     cat > $out/bin/aimp <<EOF
 #!/bin/sh
