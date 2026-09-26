@@ -9,6 +9,7 @@
     ./specific/z13-tools.nix
     ./specific/gpu-amd.nix
     ./specific/performance.nix
+    ./specific/lid-handler.nix
 
     # === Базовые модули для всех устройств ===
     ../../base/system/boot.nix
@@ -36,36 +37,14 @@
     ../../llm/system.nix
     # ../../games/games.nix   # TODO: Добавить позже
   ];
-
   # =====================================================================
-  # Обработка закрытия крышки через systemd-logind.
-  #
-  # KDE (PowerDevil) конфликтует с logind, из-за чего на AC закрытие
-  # крышки игнорируется, а на Battery запускается гибернация без
-  # блокировки экрана.
-  #
-  # Пользуемся встроенной логикой logind:
-  #   HandleLidSwitch              — на батарее → hibernation
-  #   HandleLidSwitchExternalPower — от сети → lock (блокировка через D-Bus)
-  #   HandleLidSwitchDocked        — с док-станцией → ignore
+  # Крышка теперь обрабатывается udev-правилом (см. specific/lid-handler.nix).
+  # logind не должен вмешиваться, иначе будет двойное срабатывание.
   # =====================================================================
   services.logind.settings.Login = {
-    HandleLidSwitch = "hibernate";
-    HandleLidSwitchExternalPower = "lock";
+    HandleLidSwitch = "ignore";
+    HandleLidSwitchExternalPower = "ignore";
     HandleLidSwitchDocked = "ignore";
-    # Игнорировать ингибитор handle-lid-switch, который держит PowerDevil.
-    #
-    # ВАЖНО: семантика systemd здесь инвертирована по отношению к названию.
-    #   yes = logind ИГНОРИРУЕТ ингибитор и выполняет действие
-    #   no  = logind УВАЖАЕТ ингибитор и ничего не делает
-    #
-    # Поэтому ставим yes, чтобы logind обрабатывал крышку сам,
-    # несмотря на ингибитор PowerDevil.
-    LidSwitchIgnoreInhibited = "yes";
-    # Задержка 5 секунд, чтобы KDE успел сохранить сессию
-    # перед уходом в гибернацию (на случай, если у вас всё же
-    # сработает гибернация через logind).
-    HoldoffTimeoutSec = 5;
   };
 
   # Хостнейм для z13
