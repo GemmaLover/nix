@@ -37,10 +37,27 @@
     # ../../games/games.nix   # TODO: Добавить позже
   ];
 
-    services.logind.settings.Login = {
-    HandleLidSwitch = "ignore";
-    HandleLidSwitchExternalPower = "ignore";
+  # =====================================================================
+  # Обработка закрытия крышки через systemd-logind.
+  #
+  # KDE (PowerDevil) конфликтует с logind, из-за чего на AC закрытие
+  # крышки игнорируется, а на Battery запускается гибернация без
+  # блокировки экрана.
+  #
+  # Пользуемся встроенной логикой logind:
+  #   HandleLidSwitch              — на батарее → hibernation
+  #   HandleLidSwitchExternalPower — от сети → lock (блокировка через D-Bus)
+  #   HandleLidSwitchDocked        — с док-станцией → ignore
+  # =====================================================================
+  services.logind.settings.Login = {
+    HandleLidSwitch = "hibernate";
+    HandleLidSwitchExternalPower = "lock";
     HandleLidSwitchDocked = "ignore";
+
+    # Задержка 5 секунд, чтобы KDE успел сохранить сессию
+    # перед уходом в гибернацию (на случай, если у вас всё же
+    # сработает гибернация через logind).
+    HoldoffTimeoutSec = 5;
   };
 
   # Хостнейм для z13

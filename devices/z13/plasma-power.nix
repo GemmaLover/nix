@@ -2,78 +2,46 @@
 
 {
   # =====================================================================
-  # Автоматическое переключение профилей PowerDevil (KDE) при смене питания.
+  # Настройки Plasma: питание, блокировка, тачпад.
   #
-  # PowerDevil передаёт выбранный профиль в power-profiles-daemon (PPD).
-  # Наш сервис z13-ppd-sync слушает PPD и применяет TDP + кулеры через z13ctl.
+  # Обработка закрытия крышки полностью передана systemd-logind
+  # (см. services.logind в devices/z13/config.nix):
+  #   - от батареи → hibernate
+  #   - от сети    → lock (kscreenlocker показывает экран блокировки)
+  #   - с доком    → ignore
   #
-  # Цепочка:
+  # PowerDevil от обработки крышки отключён сервисом powerdevil-lid-fix,
+  # который записывает LidAction=0 во все профили powerdevilrc.
+  #
+  # PowerDevil продолжает управлять профилями производительности:
   #   KDE PowerDevil → PPD → z13-ppd-sync → z13ctl
-  #
-  # Значения powerProfile:
-  #   performance   → PPD "performance"
-  #   balanced      → PPD "balanced"
-  #   powerSaving   → PPD "power-saver"
-  #
-  # ВАЖНО: turnOffDisplay — это ПРОФИЛЬНАЯ опция (внутри AC/battery/lowBattery),
-  # а не глобальная. Если вынести её на верхний уровень, NixOS выдаёт warning
-  # "option has been renamed to programs.plasma.powerdevil.AC.turnOffDisplay".
   # =====================================================================
 
   programs.plasma.powerdevil = {
-    # Профиль при питании от сети.
+    # --- Профиль при питании от сети (AC) ---
     AC = {
       powerProfile = "balanced";
 
-
-
-      # При закрытии крышки от сети — заблокировать экран.
-      # Экран и подсветка клавиатуры выключатся сразу (см. ниже).
-      whenLaptopLidClosed = "lockScreen";
-
-
-            # Экран гаснет через 20 минут (1200 секунд).
-      # idleTimeoutWhenLocked = "immediately" — при блокировке экран
-      # выключается сразу (лечит баг KDE, когда подсветка не гаснет
-      # при блокировке пользователя).
-
-       turnOffDisplay = {
+      # Экран гаснет через 20 минут простоя.
+      # idleTimeoutWhenLocked = "immediately" — при блокировке
+      # (в том числе при закрытии крышки через logind)
+      # подсветка гаснет сразу.
+      turnOffDisplay = {
         idleTimeout = 1200;
         idleTimeoutWhenLocked = "immediately";
       };
 
-      # Автосон отключён: action = "nothing", idleTimeout = null.
-      # Значение 0 недопустимо (диапазон 60..600000 или null).
+      # Автосон отключён.
+      # Значение 0 недопустимо (диапазон 60..600000 или null),
+      # поэтому idleTimeout = null.
       autoSuspend = {
         action = "nothing";
         idleTimeout = null;
       };
     };
 
-    # Профиль при питании от батареи.
+    # --- Профиль при питании от батареи (Battery) ---
     battery = {
-      powerProfile = "powerSaving";
-
-      # Экран гаснет через 1 минуту (60 секунд).
-      # При блокировке (в том числе после закрытия крышки) — сразу.
-      turnOffDisplay = {
-        idleTimeout = 60;
-        idleTimeoutWhenLocked = "immediately";
-      };
-
-      # При закрытии крышки от батареи — заблокировать пользователя.
-      # Экран выключится сразу после блокировки (idleTimeoutWhenLocked).
-      whenLaptopLidClosed = "lockScreen";
-
-      # Уход в гибернацию через 5 минут (300 секунд).
-      autoSuspend = {
-        action = "hibernate";
-        idleTimeout = 300;
-      };
-    };
-
-    # Профиль при низком заряде батареи.
-    lowBattery = {
       powerProfile = "powerSaving";
 
       # Экран гаснет через 1 минуту, при блокировке — сразу.
@@ -82,22 +50,53 @@
         idleTimeoutWhenLocked = "immediately";
       };
 
-      # При закрытии крышки — заблокировать пользователя.
-      whenLaptopLidClosed = "lockScreen";
+      # Автосон: гибернация через 5 минут простоя.
+      # При закрытии крышки logind сам запустит hibernate.
+      autoSuspend = {
+        action = "hibernate";
+        idleTimeout = 300;
+      };
+    };
+
+    # --- Профиль при низком заряде (LowBattery) ---
+    lowBattery = {
+      powerProfile = "powerSaving";
+
+      turnOffDisplay = {
+        idleTimeout = 60;
+        idleTimeoutWhenLocked = "immediately";
+      };
     };
 
     # Не подавлять действие при подключённом внешнем мониторе.
-    # По умолчанию true: если к ноутбуку подключён внешний монитор,
-    # закрытие крышки игнорируется. Раскомментировать и поставить false,
-    # если хотите, чтобы блокировка срабатывала и с внешним монитором.
+    # По умолчанию true: с внешним монитором закрытие крышки
+    # игнорируется. Раскомментировать и поставить false,
+    # если хотите, чтобы logind всё равно реагировал на крышку.
     # inhibitLidActionWhenExternalMonitorConnected = false;
 
     # Пороги батареи.
     batteryLevels = {
-      lowLevel = 20;        # Считать батарею низкой при 20%.
-      criticalLevel = 5;    # Критический уровень — 5%.
-      criticalAction = "hibernate";  # Действие при критическом уровне.
+      lowLevel = 20;                # Считать батарею низкой при 20%.
+      criticalLevel = 5;            # Критический уровень — 5%.
+      criticalAction = "hibernate"; # Действие при критическом уровне.
     };
+  };
+
+  # =====================================================================
+  # Блокировка экрана после пробуждения из гибернации.
+  #
+  # logind отправляет D-Bus-сигнал Lock при закрытии крышки от сети
+  # и перед уходом в гибернацию. KDE (kscreenlocker) ловит его
+  # и показывает экран блокировки.
+  #
+  # LockOnResume=true — KDE также покажет экран блокировки
+  # после выхода из гибернации, даже если Lock не пришёл.
+  # =====================================================================
+  programs.plasma.configFile.kscreenlockerrc.Daemon = {
+    Autolock = true;
+    LockOnResume = true;
+    # Таймаут автоблокировки (5 минут).
+    Timeout = 5;
   };
 
   # =====================================================================
@@ -117,8 +116,7 @@
   # =====================================================================
   programs.plasma.input.touchpads = [
     {
-      # plasma-manager требует hex-код БЕЗ префикса "0x" —
-      # ровно 4 hex-цифры.
+      # plasma-manager требует hex-код БЕЗ префикса "0x" — ровно 4 hex-цифры.
       vendorId = "0b05";
       productId = "1a30";
       name = "ASUSTeK Computer Inc. GZ302EA-Keyboard Touchpad";
@@ -134,11 +132,12 @@
   ];
 
   # =====================================================================
-  # Обходной путь: plasma-manager не пишет LidAction для battery,
-  # поэтому применяем его отдельным systemd user-сервисом.
+  # Отключаем обработку крышки в PowerDevil.
   #
-  # Сервис запускается ПОСЛЕ Plasma PowerDevil, чтобы его значения
-  # не были перезаписаны дефолтами PowerDevil.
+  # plasma-manager не записывает LidAction в powerdevilrc, из-за чего
+  # PowerDevil использует дефолтные значения и конфликтует с logind.
+  # Этот сервис запускается после PowerDevil и явно ставит LidAction=0
+  # для всех профилей — так PowerDevil не трогает крышку.
   #
   # Значения LidAction (из исходников PowerDevil):
   #   0 = ничего
@@ -149,7 +148,7 @@
   # =====================================================================
   systemd.user.services.powerdevil-lid-fix = {
     Unit = {
-      Description = "Force LidAction in powerdevilrc (battery = lockScreen)";
+      Description = "Disable PowerDevil lid handling (logind takes over)";
       After = [ "graphical-session.target" "plasma-powerdevil.service" ];
       PartOf = [ "graphical-session.target" ];
     };
@@ -162,23 +161,60 @@
         CONF="$HOME/.config/powerdevilrc"
         KWRITE="${pkgs.kdePackages.kconfig}/bin/kwriteconfig6"
 
-        # Убедиться, что файл существует.
         mkdir -p "$(dirname "$CONF")"
         touch "$CONF"
 
-       # AC: заблокировать экран.
-"$KWRITE" --file "$CONF" --group AC --group SuspendAndShutdown --key LidAction 8
+        # LidAction=0 (ничего) для всех профилей.
+        # Обработка крышки полностью передана systemd-logind.
+        "$KWRITE" --file "$CONF" --group AC         --group SuspendAndShutdown --key LidAction 0
+        "$KWRITE" --file "$CONF" --group Battery    --group SuspendAndShutdown --key LidAction 0
+        "$KWRITE" --file "$CONF" --group LowBattery --group SuspendAndShutdown --key LidAction 0
 
-        # Battery: заблокировать экран.
-        "$KWRITE" --file "$CONF" --group Battery --group SuspendAndShutdown --key LidAction 8
-
-        # LowBattery: заблокировать экран.
-        "$KWRITE" --file "$CONF" --group LowBattery --group SuspendAndShutdown --key LidAction 8
-
-        # Перезапустить PowerDevil, чтобы он перечитал конфиг.
+        # Перезапуск PowerDevil, чтобы он перечитал powerdevilrc.
         ${pkgs.systemd}/bin/systemctl --user restart plasma-powerdevil.service || true
       '';
       RemainAfterExit = true;
+    };
+    Install.WantedBy = [ "graphical-session.target" ];
+  };
+
+  # =====================================================================
+  # Отключать подсветку клавиатуры, когда экран заблокирован.
+  #
+  # KDE при блокировке не трогает подсветку клавиатуры — это
+  # отдельная подсистема (asusctl). Сервис слушает D-Bus-сигнал
+  # org.kde.screensaver.ActiveChanged и вызывает asusctl.
+  # =====================================================================
+  systemd.user.services.kbd-backlight-lock-sync = {
+    Unit = {
+      Description = "Turn keyboard backlight off when screen is locked";
+      After = [ "graphical-session.target" ];
+      PartOf = [ "graphical-session.target" ];
+    };
+    Service = {
+      Type = "simple";
+      ExecStart = pkgs.writeShellScript "kbd-backlight-lock-sync" ''
+        set -euo pipefail
+        # dbus-monitor читает сигналы kscreenlocker.
+        # Каждый ActiveChanged приходит строкой "boolean true" (locked)
+        # или "boolean false" (unlocked).
+        ${pkgs.dbus}/bin/dbus-monitor --session \
+          "type='signal',interface='org.kde.screensaver',member='ActiveChanged'" \
+        | while read -r line; do
+            case "$line" in
+              *"boolean true"*)
+                # Заблокировано — гасим подсветку.
+                ${pkgs.asusctl}/bin/asusctl -k off 2>/dev/null || true
+                ;;
+              *"boolean false"*)
+                # Разблокировано — низкая яркость.
+                ${pkgs.asusctl}/bin/asusctl -k low 2>/dev/null || true
+                ;;
+            esac
+          done
+      '';
+      Restart = "on-failure";
+      RestartSec = "5";
     };
     Install.WantedBy = [ "graphical-session.target" ];
   };
