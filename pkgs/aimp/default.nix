@@ -2,7 +2,7 @@
 , stdenv
 , fetchurl
 , autoPatchelfHook
-, wrapGAppsHook3
+, makeWrapper
 , patchelf
 , gtk3
 , gdk-pixbuf
@@ -18,30 +18,33 @@
 , zstd
 , curl
 , openssl
+, glib
+, at-spi2-core
+, fontconfig
+, freetype
+, zlib
 }:
 
 stdenv.mkDerivation rec {
   pname = "aimp";
   version = "6.00.3086beta6";
 
-  # Официальный пакет AIMP 6 для Linux (Arch Linux .pkg.tar.zst).
   src = fetchurl {
     url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3086beta6-1-x86_64.pkg.tar.zst";
     hash = "sha256-K/Yb/I1HIqlkh08zCoWqMDr61iLpgxiGr7lm5lAmd3c=";
   };
 
-  # autoPatchelfHook — правит RPATH прямых ELF-зависимостей.
-  # wrapGAppsHook3 — готовит GTK-приложение к запуску в NixOS.
-  # patchelf — для добавления DT_RPATH вручную (см. postFixup).
-  # zstd — распаковка .pkg.tar.zst.
+  # ВАЖНО: убрали wrapGAppsHook3 — он создаёт свою обёртку поверх нашей
+  # и перезаписывает $out/bin/aimp, из-за чего shell-скрипт с
+  # LD_LIBRARY_PATH пропадает. Вместо него используем makeWrapper
+  # в postFixup (после fixupPhase).
   nativeBuildInputs = [
     autoPatchelfHook
-    wrapGAppsHook3
+    makeWrapper
     patchelf
     zstd
   ];
 
-  # Прямые ELF-зависимости (видны через ldd).
   buildInputs = [
     gtk3
     gdk-pixbuf
@@ -56,9 +59,13 @@ stdenv.mkDerivation rec {
     libx11
     curl
     openssl
+    glib
+    at-spi2-core
+    fontconfig
+    freetype
+    zlib
   ];
 
-  # .pkg.tar.zst — tar-архив, сжатый zstd.
   unpackPhase = ''
     tar --use-compress-program=${zstd}/bin/unzstd -xf $src
   '';
@@ -70,33 +77,29 @@ stdenv.mkDerivation rec {
     cp -r opt $out/
     [ -d usr ] && cp -r usr $out/ || true
 
-    # Обёртка на чистом shell. makeWrapper конфликтует с wrapGAppsHook3
-    # (тот перезаписывает LD_LIBRARY_PATH), поэтому пишем скрипт сами.
-    # AIMP подгружает libcurl.so.4 через dlopen() — autoPatchelfHook
-    # такие библиотеки не видит. LD_LIBRARY_PATH решает проблему.
-    mkdir -p $out/bin
-    cat > $out/bin/aimp <<EOF
-#!/bin/sh
-# Обёртка AIMP для NixOS. Выставляет LD_LIBRARY_PATH для dlopen-библиотек,
-# которые autoPatchelfHook не может пропатчить (libcurl.so.4 и др.).
-export LD_LIBRARY_PATH="${lib.makeLibraryPath [ curl openssl ]}"
-exec "$out/opt/aimp/AIMP" "\$@"
-EOF
-    chmod +x $out/bin/aimp
-
     runHook postInstall
   '';
 
   postFixup = ''
-    # Ключевой фикс: добавляем DT_RPATH (не DT_RUNPATH) в сам бинарник AIMP.
-    # Через dlopen из подгруженного .so glibc игнорирует LD_LIBRARY_PATH
-    # и смотрит только DT_RPATH. autoPatchelfHook ставит RUNPATH, а нам
-    # нужен именно RPATH — поэтому --force-rpath.
+    # Шаг 1: жёстко прописываем DT_RPATH (не DT_RUNPATH) в сам бинарник AIMP.
+    # dlopen из подгруженного .so игнорирует LD_LIBRARY_PATH — работает
+    # только DT_RPATH, который мы ставим через --force-rpath.
     patchelf --force-rpath \
-      --add-rpath "${lib.makeLibraryPath [ curl openssl ]}" \
+      --set-rpath "${lib.makeLibraryPath [ curl openssl ]}" \
       $out/opt/aimp/AIMP
 
-    # Правим .desktop-файл, чтобы AIMP появился в меню KDE с правильным Exec.
+    # Шаг 2: shell-обёртка через makeWrapper. Делается в postFixup,
+    # чтобы autoPatchelfHook больше не трогал $out/bin/aimp.
+    # Переменные GTK выставлены вручную — их раньше давал wrapGAppsHook3.
+    mkdir -p $out/bin
+    makeWrapper $out/opt/aimp/AIMP $out/bin/aimp \
+      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ curl openssl ]}" \
+      --prefix XDG_DATA_DIRS : "${hicolor-icon-theme}/share" \
+      --prefix XDG_DATA_DIRS : "${gtk3}/share/gsettings-schemas/${gtk3.name}" \
+      --prefix GIO_EXTRA_MODULES : "${glib}/lib/gio/modules" \
+      --set GDK_PIXBUF_MODULE_FILE "${gdk-pixbuf}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+
+    # Шаг 3: правим .desktop-файл: путь к бинарнику.
     if [ -f $out/share/applications/aimp.desktop ]; then
       substituteInPlace $out/share/applications/aimp.desktop \
         --replace "/opt/aimp/AIMP" "$out/bin/aimp" \
