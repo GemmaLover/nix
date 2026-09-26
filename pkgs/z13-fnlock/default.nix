@@ -1,17 +1,15 @@
 { lib, writeScriptBin, python3 }:
 
-# Обёртка через writeScriptBin — самый простой способ
-# положить python-скрипт в store как исполняемый файл.
 writeScriptBin "z13-fnlock" ''
   #!${python3}/bin/python3
   """Переключает Fn-Lock на ASUS ROG Flow Z13 (N-Key клавиатура).
 
-  Отправляет HID feature report напрямую в /dev/hidraw* устройство
-  N-Key клавиатуры (Vendor 0x0B05, Product 0x18C6).
+  Отправляет HID feature report напрямую в /dev/hidraw* клавиатуры
+  (Vendor 0x0B05, Product 0x1A30).
 
-  Формат отчёта (согласно G-Helper issue #4701 для GZ302EA):
-    FnLock = 1 (F1-F12 primary)  -> 5A-D0-4E-00
-    FnLock = 0 (media primary)   -> 5A-D0-4E-01
+  Формат отчёта (из hid-asus.c, функция asus_kbd_set_fn_lock):
+    FnLock = 1 (F1-F12 primary)  -> 5A-D0-4E-01
+    FnLock = 0 (media primary)   -> 5A-D0-4E-00
   """
   import argparse
   import fcntl
@@ -20,47 +18,50 @@ writeScriptBin "z13-fnlock" ''
   from pathlib import Path
 
   # HIDIOCSFEATURE ioctl из linux/hidraw.h.
-  # _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x06, len)
   def hidio_csfeature(length: int) -> int:
       return (3 << 30) | (length << 16) | (ord('H') << 8) | 0x06
 
-  def find_nkey_hidraw():
-      """Ищем hidraw-устройство N-Key клавиатуры по имени."""
+  def find_keyboard_hidraws():
+      """Ищем hidraw-устройства клавиатуры ASUS (product 0x1a30)."""
+      devices = []
       for hidraw in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
           uevent = hidraw / "device" / "uevent"
           try:
               content = uevent.read_text()
           except OSError:
               continue
-          if "N-KEY" in content.upper() or "NKEY" in content.upper():
-              return f"/dev/{hidraw.name}"
-      return None
+          # Ищем клавиатуру ASUS: Vendor 0b05, Product 1a30.
+          if "00000B05" in content and "00001A30" in content:
+              devices.append(f"/dev/{hidraw.name}")
+      return devices
 
   def set_fnlock(enabled: bool) -> int:
-      device = find_nkey_hidraw()
-      if not device:
-          print("N-Key hidraw не найден", file=sys.stderr)
+      devices = find_keyboard_hidraws()
+      if not devices:
+          print("Клавиатура ASUS (0b05:1a30) не найдена", file=sys.stderr)
           return 1
 
-      # Feature report: report id + payload.
-      # Согласно issue #4701 G-Helper для GZ302EA:
-      #   FnLock = 1 (F1-F12 primary)  -> 5A-D0-4E-00
-      #   FnLock = 0 (media primary)   -> 5A-D0-4E-01
-      report = bytes([0x5a, 0xd0, 0x4e, 0x00 if enabled else 0x01])
+      # Отчёт: report id 0x5a + payload.
+      # !!enabled даёт 1 для true, 0 для false.
+      report = bytes([0x5a, 0xd0, 0x4e, 0x01 if enabled else 0x00])
 
-      try:
-          fd = os.open(device, os.O_RDWR)
-      except PermissionError:
-          print(f"Нет доступа к {device}. Запустите через sudo.", file=sys.stderr)
-          return 1
+      success = False
+      for device in devices:
+          try:
+              fd = os.open(device, os.O_RDWR)
+          except PermissionError:
+              print(f"Нет доступа к {device}", file=sys.stderr)
+              continue
+          try:
+              fcntl.ioctl(fd, hidio_csfeature(len(report)), report)
+              success = True
+          except OSError as e:
+              print(f"ioctl ошибка на {device}: {e}", file=sys.stderr)
+          finally:
+              os.close(fd)
 
-      try:
-          fcntl.ioctl(fd, hidio_csfeature(len(report)), report)
-      except OSError as e:
-          print(f"ioctl ошибка: {e}", file=sys.stderr)
+      if not success:
           return 1
-      finally:
-          os.close(fd)
 
       state = "включён (F1-F12 primary)" if enabled else "выключен (media primary)"
       print(f"Fn-Lock {state}")
