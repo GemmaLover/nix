@@ -62,8 +62,8 @@
 - [x] `base.nix` — firefox, libreoffice, vlc, keepassxc, qbittorrent, obs-studio
 - [x] `base.nix` — kdePackages.kleopatra, krita, librewolf, brave, putty, zenmap, parabolic
 - [ ] `base.nix` — sublime4 (удалён: требует небезопасный openssl-1.1.1w, см. P-2)
-- [ ] `base.nix` — AIMP (не добавлен)
-- [ ] `base.nix` — Portmaster / safing.io (не добавлен)
+- [x] AIMP 6 — собран из Arch-пакета, libcurl через симлинк + wrapper
+- [x] `base.nix` — Portmaster
 - [x] `flatpak.nix` — модуль включён, Flathub подключён
 - [ ] `flatpak.nix` — приложения (Amnezia, ProtonVPN, Android Studio) не установлены декларативно
 
