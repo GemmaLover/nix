@@ -127,4 +127,54 @@
       scrollMethod = "twoFinger";
     }
   ];
+
+  # =====================================================================
+  # Обходной путь: plasma-manager не пишет LidAction для battery,
+  # поэтому применяем его отдельным systemd user-сервисом.
+  #
+  # Сервис запускается ПОСЛЕ Plasma PowerDevil, чтобы его значения
+  # не были перезаписаны дефолтами PowerDevil.
+  #
+  # Значения LidAction (из исходников PowerDevil):
+  #   0 = ничего
+  #   1 = выключение
+  #   2 = сон
+  #   4 = гибернация
+  #   8 = блокировка экрана
+  # =====================================================================
+  systemd.user.services.powerdevil-lid-fix = {
+    Unit = {
+      Description = "Force LidAction in powerdevilrc (battery = lockScreen)";
+      After = [ "graphical-session.target" "plasma-powerdevil.service" ];
+      PartOf = [ "graphical-session.target" ];
+    };
+    Service = {
+      Type = "oneshot";
+      # Небольшая задержка, чтобы PowerDevil успел записать свои дефолты.
+      ExecStartPre = "${pkgs.coreutils}/bin/sleep 5";
+      ExecStart = pkgs.writeShellScript "powerdevil-lid-fix" ''
+        set -euo pipefail
+        CONF="$HOME/.config/powerdevilrc"
+        KWRITE="${pkgs.kdePackages.kconfig}/bin/kwriteconfig6"
+
+        # Убедиться, что файл существует.
+        mkdir -p "$(dirname "$CONF")"
+        touch "$CONF"
+
+        # AC: ничего.
+        "$KWRITE" --file "$CONF" --group AC --group SuspendAndShutdown --key LidAction 0
+
+        # Battery: заблокировать экран.
+        "$KWRITE" --file "$CONF" --group Battery --group SuspendAndShutdown --key LidAction 8
+
+        # LowBattery: заблокировать экран.
+        "$KWRITE" --file "$CONF" --group LowBattery --group SuspendAndShutdown --key LidAction 8
+
+        # Перезапустить PowerDevil, чтобы он перечитал конфиг.
+        ${pkgs.systemd}/bin/systemctl --user restart plasma-powerdevil.service || true
+      '';
+      RemainAfterExit = true;
+    };
+    Install.WantedBy = [ "graphical-session.target" ];
+  };
 }
