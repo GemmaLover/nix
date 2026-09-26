@@ -166,8 +166,8 @@
         mkdir -p "$(dirname "$CONF")"
         touch "$CONF"
 
-        # AC: ничего.
-        "$KWRITE" --file "$CONF" --group AC --group SuspendAndShutdown --key LidAction 0
+       # AC: заблокировать экран.
+"$KWRITE" --file "$CONF" --group AC --group SuspendAndShutdown --key LidAction 8
 
         # Battery: заблокировать экран.
         "$KWRITE" --file "$CONF" --group Battery --group SuspendAndShutdown --key LidAction 8
