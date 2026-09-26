@@ -4,29 +4,22 @@ let
   # =====================================================================
   # Gufo — движок инференса для AMD Strix Halo (gfx1151).
   #
-  # Использует Qwen3.8-27B с квантом UD-Q6_K_XL и DFlash2 драфтером.
-  # Модели скачиваются через Hugging Face CLI.
+  # ВАЖНО:
+  #   - Gufo — OpenAI-совместимый сервер, но БЕЗ /health.
+  #     Проверка готовности — через /v1/models.
+  #   - Все запросы использовать с --ipv4 и 127.0.0.1, потому что
+  #     passt (Podman rootless network) глючит с IPv6.
+  #   - API-ключ передаётся через --api-key.
   #
-  # Скрипты:
-  #   gufo-install  — скачать модели и создать контейнер
-  #   gufo-start    — запустить сервер и открыть веб-интерфейс
-  #   gufo-stop     — остановить контейнер
-  #   gufo-remove   — удалить контейнер (модели по подтверждению)
-  #   gufo-status   — проверить состояние моделей и контейнера
-  #
-  # Требования:
-  #   - Пользователь в группах video и render (доступ к /dev/kfd, /dev/dri)
-  #   - Параметры ядра: amd_iommu=off, amdgpu.gttsize=126976,
-  #     ttm.pages_limit=32505856
+  # API Base URL для DSH/Open WebUI:  http://127.0.0.1:8887/v1
   # =====================================================================
 
   CONTAINER_NAME = "gufo-qwen27b";
   IMAGE = "ghcr.io/gufo-org/toolboxes/gufo-runtime:latest";
-  # Папка для моделей Gufo. Изолирована от Unsloth и других движков.
   MODELS_DIR = "\${HOME}/llm/models/gufo";
-  # Внешний порт на хосте. Внутри контейнера Gufo слушает 8080.
   PORT_HOST = 8887;
   PORT_CONTAINER = 8080;
+  API_KEY = "24g2rgrg24rc234cg23cg2g2tgctb249nibtbn20tbi";
 
   # --- Установка (одноразово) ---
   gufoInstall = pkgs.writeShellApplication {
@@ -44,6 +37,7 @@ let
       MODELS_DIR="${MODELS_DIR}"
       PORT_HOST=${toString PORT_HOST}
       PORT_CONTAINER=${toString PORT_CONTAINER}
+      API_KEY="${API_KEY}"
 
       if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' уже существует."
@@ -54,16 +48,13 @@ let
       echo "=== Скачивание моделей ==="
       mkdir -p "$MODELS_DIR"
 
-      # --- Qwen3.8-27B (основная модель, Q6_K_XL) ---
-      # Проверяем и наличие файла, и отсутствие .incomplete
-      # (hf оставляет этот файл при прерванной загрузке).
       MODEL_MAIN="$MODELS_DIR/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf"
       if [ -f "$MODEL_MAIN" ] && [ ! -f "$MODEL_MAIN.incomplete" ]; then
         SIZE=$(du -h "$MODEL_MAIN" | cut -f1)
         echo "Модель Qwen3.8-27B уже скачана ($SIZE)."
       else
         if [ -f "$MODEL_MAIN.incomplete" ]; then
-          echo "Найден незавершённый файл — докачиваю с места обрыва."
+          echo "Найден незавершённый файл — докачиваю."
         else
           echo "Скачиваю Qwen3.8-27B-UD-Q6_K_XL.gguf (~24 ГБ)..."
         fi
@@ -74,14 +65,13 @@ let
           --local-dir "$MODELS_DIR/Qwen3.8-27B-GGUF"
       fi
 
-      # --- DFlash2 драфтер (Q4_K_M) ---
       MODEL_DRAFT="$MODELS_DIR/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q4_K_M.gguf"
       if [ -f "$MODEL_DRAFT" ] && [ ! -f "$MODEL_DRAFT.incomplete" ]; then
         SIZE=$(du -h "$MODEL_DRAFT" | cut -f1)
         echo "DFlash2 драфтер уже скачан ($SIZE)."
       else
         if [ -f "$MODEL_DRAFT.incomplete" ]; then
-          echo "Найден незавершённый файл — докачиваю с места обрыва."
+          echo "Найден незавершённый файл — докачиваю."
         else
           echo "Скачиваю DFlash2 драфтер (~4 ГБ)..."
         fi
@@ -94,11 +84,6 @@ let
 
       echo
       echo "=== Создание Podman-контейнера ==="
-      # --userns=keep-id — сохраняет UID/GID пользователя внутри контейнера.
-      # --group-add keep-groups — сохраняет группы хоста (для /dev/kfd).
-      # --ulimit memlock=-1 — снимает лимит на блокировку памяти (нужно для ROCm).
-      # -v ...:/models:ro — монтируем папку с моделями только для чтения.
-      # Порт: 8887 на хосте → 8080 внутри контейнера.
       podman create \
         --name "$CONTAINER_NAME" \
         --userns=keep-id:uid=1000,gid=1000 \
@@ -111,18 +96,16 @@ let
         -v "$MODELS_DIR:/models:ro" \
         "$IMAGE" \
         gufo serve --host 0.0.0.0 --port "$PORT_CONTAINER" llm \
+          --api-key "$API_KEY" \
           --model /models/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q6_K_XL.gguf \
           --speculative dflash2 \
           --dflash-model /models/Qwen3.8-27B-DFlash2-GGUF/Qwen3.8-27B-DFlash2-Q4_K_M.gguf
 
       echo
       echo "Контейнер '$CONTAINER_NAME' создан."
-      echo "Модели:     $MODELS_DIR"
-      echo "Запуск:     gufo-start"
-      echo "Остановка:  gufo-stop"
-      echo "Удаление:   gufo-remove"
-      echo "Статус:     gufo-status"
-      echo "Порт на хосте: $PORT_HOST"
+      echo "API Base URL:  http://127.0.0.1:$PORT_HOST/v1"
+      echo "API Key:       $API_KEY"
+      echo "Запуск:        gufo-start"
     '';
   };
 
@@ -134,7 +117,9 @@ let
       set -euo pipefail
       CONTAINER_NAME="${CONTAINER_NAME}"
       PORT_HOST=${toString PORT_HOST}
-      URL="http://localhost:$PORT_HOST"
+      # Используем 127.0.0.1, потому что passt (Podman network) ломается на IPv6.
+      API_BASE="http://127.0.0.1:$PORT_HOST/v1"
+      API_KEY="${API_KEY}"
 
       if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
         echo "Контейнер '$CONTAINER_NAME' не найден." >&2
@@ -149,31 +134,55 @@ let
         podman start "$CONTAINER_NAME"
       fi
 
-      echo -n "Ожидание сервера Gufo"
-      for _ in {1..120}; do
-        if curl -fsS -o /dev/null "http://localhost:$PORT_HOST/health" 2>/dev/null; then
+      echo -n "Ожидание загрузки модели (это долго, до 2 минут)"
+      READY=0
+      for _ in {1..180}; do
+        # --ipv4 обязательно: passt ломается на IPv6.
+        # Используем /v1/models — это единственный «health»-эндпоинт.
+        if curl --ipv4 -fsS -o /dev/null \
+             -H "Authorization: Bearer $API_KEY" \
+             "$API_BASE/models" 2>/dev/null; then
           echo " — готов."
+          READY=1
           break
         fi
         echo -n "."
         sleep 1
       done
 
-      echo "Открываю $URL"
-      xdg-open "$URL" &
+      if [ "$READY" -eq 0 ]; then
+        echo " — не дождались. Проверьте логи:"
+        echo "  podman logs --tail 50 $CONTAINER_NAME"
+        exit 1
+      fi
+
+      echo
+      echo "=================================================="
+      echo "  Gufo готов"
+      echo "=================================================="
+      echo "  API Base URL:  $API_BASE"
+      echo "  API Key:       $API_KEY"
+      echo "  Модели:        $API_BASE/models"
+      echo
+      echo "  ВАЖНО: используйте 127.0.0.1, не localhost"
+      echo "  (passt ломается на IPv6-запросах)."
+      echo "=================================================="
+      echo
+
+      xdg-open "http://127.0.0.1:$PORT_HOST/v1/models" &
     '';
   };
 
   # --- Остановка ---
   gufoStop = pkgs.writeShellApplication {
     name = "gufo-stop";
-    runtimeInputs = [ pkgs.podman ];
+    runtimeInputs = [ pkgs.podman pkgs.procps ];
     text = ''
       set -euo pipefail
       CONTAINER_NAME="${CONTAINER_NAME}"
 
       if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
-        echo "Контейнер '$CONTAINER_NAME' не найден — нечего останавливать."
+        echo "Контейнер '$CONTAINER_NAME' не найден."
         exit 0
       fi
 
@@ -182,8 +191,12 @@ let
         exit 0
       fi
 
-      echo "Останавливаю контейнер..."
-      podman stop "$CONTAINER_NAME"
+      echo "Останавливаю контейнер (таймаут 30 секунд)..."
+      podman stop -t 30 "$CONTAINER_NAME" || {
+        echo "Контейнер не остановился штатно, убиваю принудительно..."
+        podman kill "$CONTAINER_NAME" 2>/dev/null || true
+        podman wait "$CONTAINER_NAME" 2>/dev/null || true
+      }
       echo "Готово."
     '';
   };
@@ -205,8 +218,6 @@ let
         echo "Контейнер '$CONTAINER_NAME' уже отсутствует."
       fi
 
-      # Папку с моделями удаляем только по явному подтверждению.
-      # Показываем её размер, чтобы понимать, что теряем.
       if [ -d "$MODELS_DIR" ]; then
         SIZE=$(du -sh "$MODELS_DIR" 2>/dev/null | cut -f1 || echo "?")
         read -r -p "Удалить папку моделей '$MODELS_DIR' ($SIZE)? [y/N] " answer
@@ -216,8 +227,6 @@ let
         else
           echo "Папка моделей сохранена."
         fi
-      else
-        echo "Папка моделей '$MODELS_DIR' не найдена — нечего удалять."
       fi
 
       if podman image exists "$IMAGE" 2>/dev/null; then
@@ -247,19 +256,14 @@ let
       echo "=== Модели ==="
       if [ -d "$MODELS_DIR" ]; then
         du -sh "$MODELS_DIR" 2>/dev/null || true
-        echo
         find "$MODELS_DIR" -name "*.gguf" -type f -exec ls -lh {} \; 2>/dev/null | \
           awk '{print "  " $9 " (" $5 ")"}'
-        echo
         INCOMPLETE=$(find "$MODELS_DIR" -name "*.incomplete" -type f 2>/dev/null | wc -l)
         if [ "$INCOMPLETE" -gt 0 ]; then
-          echo "ВНИМАНИЕ: найдено $INCOMPLETE незавершённых загрузок:"
-          find "$MODELS_DIR" -name "*.incomplete" -type f -exec ls -lh {} \; 2>/dev/null
-        else
-          echo "Незавершённых загрузок нет."
+          echo "ВНИМАНИЕ: найдено $INCOMPLETE незавершённых загрузок."
         fi
       else
-        echo "Папка '$MODELS_DIR' не существует. Модели не скачаны."
+        echo "Папка '$MODELS_DIR' не существует."
       fi
 
       echo
