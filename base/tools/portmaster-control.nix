@@ -121,12 +121,14 @@ let
   };
 
   # --- Ярлык для запуска через pkexec (запрос пароля в KDE-диалоге) ---
+  # pkexec — из пакета polkit. В KDE графический диалог ввода пароля
+  # предоставляет polkit-kde-agent (обычно уже запущен в сессии Plasma).
   portmasterStartGui = pkgs.writeShellScriptBin "portmaster-start-gui" ''
-    exec ${pkgs.pkexec-kde}/bin/pkexec ${portmasterStart}/bin/portmaster-start-core
+    exec ${pkgs.polkit}/bin/pkexec ${portmasterStart}/bin/portmaster-start-core
   '';
 
   portmasterStopGui = pkgs.writeShellScriptBin "portmaster-stop-gui" ''
-    exec ${pkgs.pkexec-kde}/bin/pkexec ${portmasterStop}/bin/portmaster-stop-core
+    exec ${pkgs.polkit}/bin/pkexec ${portmasterStop}/bin/portmaster-stop-core
   '';
 
 in
