@@ -14,6 +14,10 @@
   #   performance   → PPD "performance"
   #   balanced      → PPD "balanced"
   #   powerSaving   → PPD "power-saver"
+  #
+  # ВАЖНО: turnOffDisplay — это ПРОФИЛЬНАЯ опция (внутри AC/battery/lowBattery),
+  # а не глобальная. Если вынести её на верхний уровень, NixOS выдаёт warning
+  # "option has been renamed to programs.plasma.powerdevil.AC.turnOffDisplay".
   # =====================================================================
 
   programs.plasma.powerdevil = {
@@ -22,9 +26,15 @@
       powerProfile = "balanced";
 
       # Экран гаснет через 20 минут (1200 секунд).
-      turnOffDisplay.idleTimeout = 1200;
+      # idleTimeoutWhenLocked = "immediately" — при блокировке экран
+      # выключается сразу (лечит баг KDE, когда подсветка не гаснет
+      # при блокировке пользователя).
+      turnOffDisplay = {
+        idleTimeout = 1200;
+        idleTimeoutWhenLocked = "immediately";
+      };
 
-            # При закрытии крышки от сети — ничего не делать.
+      # При закрытии крышки от сети — ничего не делать.
       whenLaptopLidClosed = "doNothing";
 
       # Автосон отключён: action = "nothing", idleTimeout = null.
@@ -40,10 +50,14 @@
       powerProfile = "powerSaving";
 
       # Экран гаснет через 1 минуту (60 секунд).
-      turnOffDisplay.idleTimeout = 60;
+      # При блокировке (в том числе после закрытия крышки) — сразу.
+      turnOffDisplay = {
+        idleTimeout = 60;
+        idleTimeoutWhenLocked = "immediately";
+      };
 
-            # При закрытии крышки от батареи — заблокировать пользователя.
-      # Экран выключится сразу после блокировки (см. turnOffDisplay ниже).
+      # При закрытии крышки от батареи — заблокировать пользователя.
+      # Экран выключится сразу после блокировки (idleTimeoutWhenLocked).
       whenLaptopLidClosed = "lockScreen";
 
       # Уход в гибернацию через 5 минут (300 секунд).
@@ -57,20 +71,20 @@
     lowBattery = {
       powerProfile = "powerSaving";
 
-            # При закрытии крышки от батареи — заблокировать пользователя.
-      # Экран выключится сразу после блокировки (см. turnOffDisplay ниже).
+      # Экран гаснет через 1 минуту, при блокировке — сразу.
+      turnOffDisplay = {
+        idleTimeout = 60;
+        idleTimeoutWhenLocked = "immediately";
+      };
+
+      # При закрытии крышки — заблокировать пользователя.
       whenLaptopLidClosed = "lockScreen";
     };
 
-        # --- Немедленное выключение экрана при блокировке ---
-    # KDE имеет баг: при выборе «lockScreen» при закрытии крышки
-    # подсветка не гаснет. Эта настройка заставляет экран гаснуть
-    # сразу после блокировки.
-    turnOffDisplay.idleTimeoutWhenLocked = "immediately";
-
-        # Не подавлять действие при подключённом внешнем мониторе
-    # (если хотите, чтобы при закрытии крышки с внешним монитором
-    #  действие всё равно срабатывало).
+    # Не подавлять действие при подключённом внешнем мониторе.
+    # По умолчанию true: если к ноутбуку подключён внешний монитор,
+    # закрытие крышки игнорируется. Раскомментировать и поставить false,
+    # если хотите, чтобы блокировка срабатывала и с внешним монитором.
     # inhibitLidActionWhenExternalMonitorConnected = false;
 
     # Пороги батареи.
@@ -99,16 +113,17 @@
   programs.plasma.input.touchpads = [
     {
       # plasma-manager требует hex-код БЕЗ префикса "0x" —
-      # ровно 4 hex-цифры. Значения из `udevadm info`:
-      #   ID_VENDOR_ID=0b05  (ASUSTeK)
-      #   ID_MODEL_ID=1a30   (GZ302EA-Keyboard)
+      # ровно 4 hex-цифры.
       vendorId = "0b05";
       productId = "1a30";
       name = "ASUSTeK Computer Inc. GZ302EA-Keyboard Touchpad";
 
+      # Отключать тачпад, пока нажата клавиша на клавиатуре.
       disableWhileTyping = true;
+
       tapToClick = true;
       naturalScroll = true;
+      # Прокрутка двумя пальцами.
       scrollMethod = "twoFinger";
     }
   ];
