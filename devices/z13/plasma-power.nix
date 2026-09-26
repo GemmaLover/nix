@@ -76,18 +76,17 @@
   # =====================================================================
   programs.plasma.input.touchpads = [
     {
-      vendorId = "0x0b05";
-      productId = "0x1a30";
+      # plasma-manager требует hex-код БЕЗ префикса "0x" —
+      # ровно 4 hex-цифры. Значения из `udevadm info`:
+      #   ID_VENDOR_ID=0b05  (ASUSTeK)
+      #   ID_MODEL_ID=1a30   (GZ302EA-Keyboard)
+      vendorId = "0b05";
+      productId = "1a30";
       name = "ASUSTeK Computer Inc. GZ302EA-Keyboard Touchpad";
 
-      # Отключать тачпад, пока нажата клавиша на клавиатуре.
-      # Это главная настройка, из-за которой всё делалось.
       disableWhileTyping = true;
-
-      # Остальные настройки.
       tapToClick = true;
       naturalScroll = true;
-      # Прокрутка двумя пальцами.
       scrollMethod = "twoFinger";
     }
   ];
