@@ -22,6 +22,17 @@
       ipv6_servers = false;
       block_ipv6 = true;
 
+      # ОТКЛЮЧАЕМ HTTP/3 (DoH3, DNS-over-QUIC).
+      # HTTP/3 использует UDP, который не проходит через TUN-интерфейс
+      # sing-box (стек gvisor). Без этой опции dnscrypt-proxy будет
+      # пытаться использовать DoH3, что приведёт к зависанию DNS.
+      http3 = false;
+
+      # ПРИНУДИТЕЛЬНО ИСПОЛЬЗУЕМ TCP.
+      # Все зашифрованные DNS-запросы будут отправляться по TCP/443
+      # (DoH2), а не по UDP. TCP через sing-box TUN работает надёжно.
+      force_tcp = true;
+
       cache = true;
       cache_size = 4096;
     };

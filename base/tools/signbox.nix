@@ -5,7 +5,7 @@
   ...
 }: {
   # =====================================================================
-  # sing-box — маршрутизация TCP/UDP-трафика по процессам.
+  # sing-box — маршрутизация TCP-трафика по процессам.
   #
   # Модель трафика (кто чем занимается):
   # ┌─────────────────────────────────────────────────────────────┐
@@ -15,6 +15,7 @@
   # ├─────────────────────────────────────────────────────────────┤
   # │ dnscrypt-proxy (127.0.0.1:53 и :5353)                       │
   # │ - шифрует DNS (DoH/DNSCrypt) → Cloudflare/Quad9/Scaleway    │
+  # │ - HTTP/3 (QUIC) ОТКЛЮЧЁН, TCP-ONLY                          │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
@@ -22,27 +23,16 @@
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
   # │ - Firefox, nix, всё остальное → direct                       │
-  # │ - QUIC (UDP/443, UDP/8443) → REJECT                          │
-  # │   Клиенты автоматически откатываются на TCP.                 │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
   # - DNS-секции нет. sing-box не резолвит имена.
   # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
-  #   Правило ip rule (v4+v6) создаётся сервисом sing-box-fwmark-rule.
-  # - stack = "mixed": TCP через system, UDP через gvisor.
-  # - udp_mapping / udp_filtering — endpoint_independent.
-  # - udp_timeout = "5m".
-  #
-  # - ГЛАВНОЕ: правило { protocol = "quic"; action = "reject"; }
-  #   стоит ПЕРЕД sniff. Это блокирует все QUIC-пакеты
-  #   (HTTP/3, DoH3, любой UDP-based QUIC).
-  #   Причина: gvisor-стек sing-box не умеет корректно
-  #   пробрасывать QUIC (фрагментированный ClientHello теряется,
-  #   ответы не возвращаются, соединение виснет).
-  #   Браузеры и dnscrypt-proxy при отказе QUIC автоматически
-  #   переключаются на TCP — а TCP через TUN работает надёжно.
-  #
+  #   Правило ip rule (v4+v6) создаёт сервис sing-box-fwmark-rule.
+  # - stack = "gvisor": sing-box САМ терминирует TCP и открывает
+  #   НОВЫЙ сокет для outbound. Для TCP это работает надёжно.
+  #   HTTP/3 (QUIC/UDP) через gvisor не проходит, поэтому
+  #   HTTP/3 отключён на стороне dnscrypt-proxy и Firefox.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
   # =====================================================================
@@ -69,10 +59,8 @@
           auto_route = true;
           strict_route = false;
           mtu = 1400;
-          stack = "mixed";
-          udp_timeout = "5m";
-          udp_mapping = "endpoint_independent";
-          udp_filtering = "endpoint_independent";
+
+          stack = "gvisor";
         }
       ];
 
@@ -114,12 +102,10 @@
         default_mark = 8227;
 
         rules = [
-          # 1. Локальные адреса — всегда direct.
           {
             ip_cidr = ["127.0.0.0/8" "::1/128"];
             outbound = "direct-out";
           }
-          # 2. Служебные процессы — direct (чтобы не зациклить DNS).
           {
             process_name = ["dnscrypt-proxy"];
             outbound = "direct-out";
@@ -128,20 +114,9 @@
             process_name = ["portmaster-core"];
             outbound = "direct-out";
           }
-          # 3. БЛОКИРУЕМ QUIC. Ставим ДО sniff, чтобы sniffing
-          #    не пытался читать фрагментированный QUIC ClientHello
-          #    (это ломает pre-match и соединение зависает).
-          #    После reject клиенты (Firefox, dnscrypt-proxy) сами
-          #    откатятся на TCP.
-          {
-            protocol = "quic";
-            action = "reject";
-          }
-          # 4. Sniffing для остального трафика (TCP).
           {
             action = "sniff";
           }
-          # 5. Правила по процессам.
           {
             process_name = ["brave"];
             outbound = "socks-out";
@@ -158,7 +133,6 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # 6. Всё остальное — direct.
           {
             outbound = "direct-out";
           }
@@ -167,9 +141,6 @@
     };
   };
 
-  # =====================================================================
-  # Capabilities и PATH для sing-box.
-  # =====================================================================
   systemd.services.sing-box.serviceConfig = {
     AmbientCapabilities = [
       "CAP_NET_ADMIN"
@@ -186,9 +157,6 @@
     path = [pkgs.nftables pkgs.iptables pkgs.iproute2];
   };
 
-  # =====================================================================
-  # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
-  # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
     wantedBy = ["multi-user.target"];
