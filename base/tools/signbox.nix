@@ -11,7 +11,7 @@
   # ┌─────────────────────────────────────────────────────────────┐
   # │ dnscrypt-proxy (127.0.0.1:53 и :5353)                       │
   # │ - шифрует DNS (DoH) → Cloudflare/Quad9/Scaleway             │
-  # │ - HTTP/3 отключён, TCP-ONLY                                  │
+  # │ - HTTP/3 отключён, TCP-ONLY (http3=false, force_tcp=true)   │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
@@ -26,18 +26,23 @@
   # - DNS-секции нет. sing-box не резолвит имена.
   # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
   #   Правило ip rule (v4+v6) создаёт сервис sing-box-fwmark-rule.
-  # - stack = "mixed": TCP через system, UDP через gvisor.
-  #   Это лучший баланс для QUIC и TCP.
-  # - udp_mapping / udp_filtering — endpoint_independent.
-  # - udp_timeout = "5m".
+  #
+  # - stack = "gvisor" — КРИТИЧНО.
+  #   sing-box терминирует TCP в userspace и открывает НОВЫЙ сокет
+  #   от имени системы с src=физический IP. MASQUERADE не нужен.
+  #
+  #   Почему НЕ "mixed" и НЕ "system":
+  #   Оба используют системный стек для TCP → packet-mode.
+  #   Пакет форвардится с исходным src=172.19.0.1 (адрес TUN).
+  #   Этот адрес приватный, upstream не может ответить → SYN-SENT.
+  #   Нужен MASQUERADE, который мы убрали. Отсюда зависание DNS
+  #   (dnscrypt-proxy не может подключиться к DoH-серверам)
+  #   и новые сайты не открываются.
   #
   # - ПРАВИЛО ДЛЯ QUIC:
   #   { network = "udp"; port = [443 8443]; outbound = "direct-out"; }
   #   Ставится ДО sniff, чтобы sniff не пытался читать
-  #   фрагментированный QUIC ClientHello (это ломает pre-match).
-  #   QUIC пойдёт через TUN, но sing-box сразу направит его
-  #   в direct, минуя прокси. Это надёжнее, чем пытаться
-  #   проксировать QUIC через VLESS (может не поддерживаться).
+  #   фрагментированный QUIC ClientHello.
   #
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
@@ -67,14 +72,8 @@
           strict_route = false;
           mtu = 1400;
 
-          # mixed — TCP через system, UDP через gvisor.
-          # Для QUIC это лучший вариант: gVisor корректно
-          # обрабатывает UDP-фрагментацию.
-          stack = "mixed";
-
-          udp_timeout = "5m";
-          udp_mapping = "endpoint_independent";
-          udp_filtering = "endpoint_independent";
+          # gvisor — TCP termination в userspace.
+          stack = "gvisor";
         }
       ];
 
@@ -197,9 +196,6 @@
 
   # =====================================================================
   # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
-  #
-  # Идемпотентный скрипт: сначала удаляет старые правила,
-  # затем добавляет новые.
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
