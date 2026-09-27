@@ -37,6 +37,10 @@
   #   "mixed" и "system" ломают TCP через TUN без MASQUERADE.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
+  # - IPv6-адрес на TUN УБРАН (ядро Linux отклоняет его при MTU 1280
+  #   с ошибкой "invalid argument"). У нас нет рабочего IPv6
+  #   от провайдера, DNS не отдаёт AAAA-записи (block_ipv6 = true),
+  #   поэтому IPv6 в TUN не нужен.
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -57,11 +61,19 @@
           tag = "tun-in";
           interface_name = "singtun0";
 
-          # address: IPv4 + IPv6 префиксы для TUN-интерфейса.
-          # IPv6 (ULA fdfe:...) нужен, чтобы заворачивать IPv6-трафик.
+          # address: только IPv4-префикс.
+          #
+          # IPv6-адрес (fdfe:dcba:9876::1/126) убран, потому что:
+          #   1. Ядро Linux отклоняет IPv6-адрес на TUN при MTU <= 1280
+          #      с ошибкой "invalid argument". Для IPv6-адреса нужно
+          #      MTU строго > 1280, иначе ядро ругается.
+          #   2. У нас нет рабочего IPv6 от провайдера:
+          #      - dnscrypt-proxy: ipv6_servers = false, block_ipv6 = true
+          #      - DNS не отдаёт AAAA-записи, приложения не используют IPv6
+          #   3. Весь IPv6-трафик, если он есть, идёт напрямую (мимо TUN).
+          #      Это не проблема, потому что без AAAA-записей его нет.
           address = [
             "172.19.0.1/30"
-            "fdfe:dcba:9876::1/126"
           ];
 
           # dns_mode = "disabled": sing-box НЕ перехватывает DNS.
@@ -80,10 +92,11 @@
           strict_route = false;
 
           # MTU TUN-интерфейса.
-# 1280 — безопасное значение для IPv6 и для raw socket в nfqws2.
-# 1400 вызывал ошибки "Message too long" в nfqws2 при отправке
-# десинхронизированных пакетов через raw socket.
-mtu = 1200;
+          # 1400 — безопасное значение для большинства провайдеров.
+          # nfqws2 с multisplit (без fake) не создаёт пакетов больше MTU,
+          # поэтому "Message too long" не возникает.
+          # Значение > 1280 нужно, если в будущем понадобится IPv6-адрес.
+          mtu = 1400;
 
           # stack = "gvisor": TCP termination в userspace.
           # sing-box сам открывает новый сокет → MASQUERADE не нужен.
