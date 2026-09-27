@@ -8,27 +8,18 @@
   # ByeDPI — локальный SOCKS5-прокси для обхода DPI.
   #
   # Стратегии и список хостов перенесены с рабочего роутера OpenWrt.
-  # На роутере использовался прозрачный режим (--transparent),
-  # здесь — SOCKS5 (без --transparent), потому что sing-box
-  # перенаправляет Brave на 127.0.0.1:6430 через socks5.
+  # Отличия от роутера:
+  #   - убран --ip 0.0.0.0 (слушаем только 127.0.0.1)
+  #   - убран --transparent (используем SOCKS5)
+  #   - порт 1080 → 6430
+  #   - hosts: /etc/config/byedpi.hosts → /etc/byedpi/hosts.txt
   #
-  # Изменения относительно роутера:
-  #  - убран --ip 0.0.0.0 (слушаем только 127.0.0.1)
-  #  - убран --transparent (используем SOCKS5)
-  #  - порт 1080 → 6430
-  #  - путь к hosts: /etc/config/byedpi.hosts → /etc/byedpi/hosts.txt
-  #
-  # ВАЖНО:
-  # - ByeDPI — это SOCKS5, не VLESS. Он не шифрует трафик,
-  #   а маскирует его от DPI (TCP-десинхронизация).
-  # - sing-box перенаправляет Brave на byedpi-out (127.0.0.1:6430).
-  #   Правило process_name = ["ciadpi"] с action = "bypass"
-  #   в sing-box предотвращает петлю.
+  # Firefox ходит через него (byedpi-out в signbox.nix).
+  # ByeDPI сам фильтрует: какие домены обходить, какие форвардить.
   # =====================================================================
   services.byedpi = {
     enable = true;
 
-    # Порт и hosts + стратегии с роутера.
     extraArgs = [
       # --- Базовые параметры ---
       "-p" "6430"
@@ -36,7 +27,6 @@
       "--debug" "2"
 
       # --- Стратегии обхода DPI (скопированы с роутера as-is) ---
-      # Первая группа: "disorder" + split для разных позиций
       "-d1"
       "-d3+s"
       "-s6+s"
@@ -52,8 +42,7 @@
       "-a1"
       "-As"
 
-      # Вторая группа: то же самое ещё раз (в конфиге роутера
-      # стратегия продублирована — оставляем как есть, работает)
+      # Вторая группа (в конфиге роутера стратегия продублирована)
       "-d1"
       "-d3+s"
       "-s6+s"
@@ -70,16 +59,16 @@
   };
 
   # =====================================================================
-  # Список хостов с роутера (полный).
+  # Список хостов (полный с роутера).
   #
-  # Каждая строка — один домен или CIDR. ByeDPI применит стратегии
-  # только к соединениям, чей SNI (HTTPS) или Host (HTTP) совпадает
-  # с одним из этих доменов.
+  # ByeDPI применит стратегии только к соединениям, чей SNI/Host
+  # совпадает с одним из доменов. Остальные форвардятся как есть.
   #
-  # Источник: /etc/config/byedpi.hosts с рабочего OpenWrt-роутера.
+  # ВАЖНО: ByeDPI НЕ понимает комментарии в этом файле.
+  # Не добавляйте # и текст после доменов — получите
+  # "invalid host: num: N" в логах.
   # =====================================================================
   environment.etc."byedpi/hosts.txt".text = ''
-    # === YouTube / Google ===
     youtube.com
     youtu.be
     ytimg.com
@@ -104,7 +93,6 @@
     nhacmp3youtube.com
     googleads.g.doubleclick.net
 
-    # === Новости ===
     msnbc.com
     foxnews.com
     cnn.com
@@ -120,7 +108,6 @@
     france24.com
     currenttime.tv
 
-    # === Погода ===
     accuweather.com
     meteoblue.com
     open-meteo.com
@@ -129,7 +116,6 @@
     worldweatheronline.com
     wunderground.com
 
-    # === Мессенджеры / соцсети ===
     whatsapp.com
     whatsapp.net
     static.whatsapp.net
@@ -143,7 +129,6 @@
     twitter.com
     instagram.com
 
-    # === Торренты / медиа ===
     rutracker.org
     rutor.info
     rutor.is
@@ -161,14 +146,12 @@
     edem.tv
     msfree.su
 
-    # === Книги ===
     lib.rus.ec
     flibusta.is
     flibs.me
     flisland.net
     flibusta.site
 
-    # === Приватность / VPN ===
     safing.io
     wiki.safing.io
     updates.safing.io
@@ -181,14 +164,12 @@
     openvpn.net
     community.openvpn.net
 
-    # === Проверка утечек ===
     whois.domaintools.com
     dnsleaktest.com
     ipleak.net
     dnscheck.tools
     check.torproject.org
 
-    # === DNS / Cloudflare ===
     cloudflare.com
     cloudflare-dns.com
     1dot1dot1dot1.cloudflare-dns.com
@@ -197,7 +178,6 @@
     cisco.com
     quad9.net
 
-    # === Разработка / репозитории ===
     github.com
     objects.githubusercontent.com
     openwrt.org
@@ -213,7 +193,6 @@
     deb.oxen.io
     ntc.party
 
-    # === Akamai / CDN ===
     akamaitechnologies.com
     deploy.static.akamaitechnologies.com
     akamaistream.net
@@ -232,7 +211,6 @@
     datapacket.com
     wholesale.adamo.es
 
-    # === Прочее ===
     4pda.to
     startpage.com
     yoa3d.com
@@ -242,14 +220,13 @@
     NS3.google.com
     NS4.google.com
 
-    # === CIDR-диапазоны (IP-подсети) ===
     149.34.0.0/16
     23.192.0.0/11
     23.128.64.0/23
   '';
 
   # =====================================================================
-  # Автозапуск и зависимости сервиса.
+  # Автозапуск: стартует после network-online.target.
   # =====================================================================
   systemd.services.byedpi = {
     after = [ "network-online.target" "nss-lookup.target" ];

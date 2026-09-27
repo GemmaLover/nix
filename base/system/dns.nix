@@ -5,10 +5,15 @@
     enable = true;
 
     settings = {
-      # Слушаем только IPv4. [::1]:53 занят Portmaster'ом,
-      # а [::1]:5353 конфликтует с текущей конфигурацией.
+      # listen_addresses: слушаем только IPv4 loopback.
+      # [::1]:53 конфликтует с Portmaster (сейчас отключён),
+      # но оставляем IPv4-only для простоты.
       listen_addresses = [ "127.0.0.1:53" "127.0.0.1:5353" ];
 
+      # server_names: список DoH/DoT-резолверов.
+      # cloudflare — 1.1.1.1
+      # quad9 — 9.9.9.9 (без фильтрации)
+      # scaleway — французский резолвер, хорошая альтернатива
       server_names = [
         "cloudflare"
         "quad9-dnscrypt-ip4-filter-pri"
@@ -19,18 +24,19 @@
       require_nolog = true;
       require_nofilter = true;
 
+      # ipv6_servers = false: не используем IPv6 DNS-серверы.
+      # block_ipv6 = true: не отдаём AAAA-записи клиентам.
       ipv6_servers = false;
       block_ipv6 = true;
 
-      # ОТКЛЮЧАЕМ HTTP/3 (DoH3, DNS-over-QUIC).
+      # http3 = false: ОТКЛЮЧАЕМ HTTP/3 (DoH3, DNS-over-QUIC).
       # HTTP/3 использует UDP, который не проходит через TUN-интерфейс
-      # sing-box (стек gvisor). Без этой опции dnscrypt-proxy будет
-      # пытаться использовать DoH3, что приведёт к зависанию DNS.
+      # sing-box (стек gvisor). Без этой опции dnscrypt-proxy зависает
+      # в SYN-SENT, DNS не работает, сайты не открываются.
       http3 = false;
 
-      # ПРИНУДИТЕЛЬНО ИСПОЛЬЗУЕМ TCP.
-      # Все зашифрованные DNS-запросы будут отправляться по TCP/443
-      # (DoH2), а не по UDP. TCP через sing-box TUN работает надёжно.
+      # force_tcp = true: принудительно TCP для всех DoH-запросов.
+      # Гарантирует, что не будет попыток использовать UDP/QUIC.
       force_tcp = true;
 
       cache = true;
