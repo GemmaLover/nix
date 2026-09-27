@@ -47,5 +47,6 @@
     nftables
     iptables
     iproute2
+    tcpdump
   ];
 }
