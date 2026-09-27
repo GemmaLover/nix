@@ -1,63 +1,73 @@
-{ config, lib, pkgs, ... }:
-
 {
+  config,
+  lib,
+  pkgs,
+  ...
+}: {
   # =====================================================================
   # sing-box — маршрутизация TCP-трафика по процессам.
   #
   # Модель трафика (кто чем занимается):
-  #   ┌─────────────────────────────────────────────────────────────┐
-  #   │ Portmaster (127.0.0.17:53)                                  │
-  #   │   - перехватывает DNS через nfqueue                         │
-  #   │   - фильтрует и форвардит на dnscrypt-proxy                 │
-  #   ├─────────────────────────────────────────────────────────────┤
-  #   │ dnscrypt-proxy (127.0.0.1:53 и :5353)                       │
-  #   │   - шифрует DNS (DoH/DNSCrypt) → Cloudflare/Quad9/Scaleway  │
-  #   ├─────────────────────────────────────────────────────────────┤
-  #   │ sing-box (TUN singtun0)                                     │
-  #   │   - DNS НЕ трогает                                          │
-  #   │   - dnscrypt-proxy → direct                                 │
-  #   │   - portmaster-core → direct                                │
-  #   │   - Brave → SOCKS5, Chromium → VLESS                        │
-  #   │   - Firefox, nix, всё остальное → direct                    │
-  #   └─────────────────────────────────────────────────────────────┘
+  # ┌─────────────────────────────────────────────────────────────┐
+  # │ Portmaster (127.0.0.17:53)                                  │
+  # │ - перехватывает DNS через nfqueue                           │
+  # │ - фильтрует и форвардит на dnscrypt-proxy                    │
+  # ├─────────────────────────────────────────────────────────────┤
+  # │ dnscrypt-proxy (127.0.0.1:53 и :5353)                       │
+  # │ - шифрует DNS (DoH/DNSCrypt) → Cloudflare/Quad9/Scaleway    │
+  # ├─────────────────────────────────────────────────────────────┤
+  # │ sing-box (TUN singtun0)                                      │
+  # │ - DNS НЕ трогает                                             │
+  # │ - dnscrypt-proxy → direct                                    │
+  # │ - portmaster-core → direct                                   │
+  # │ - Brave → SOCKS5, Chromium → VLESS                          │
+  # │ - Firefox, nix, всё остальное → direct                       │
+  # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
-  #   - DNS-секции нет. sing-box не резолвит имена.
-  #   - default_mark = 8227 — помечает исходящие сокеты sing-box.
-  #     Требуется правило ip rule, которое создаёт
-  #     сервис sing-box-fwmark-rule (см. ниже).
-  #   - MTU = 1400, strict_route = false.
+  # - DNS-секции нет. sing-box не резолвит имена.
+  # - default_mark = 8227 — помечает исходящие сокеты sing-box.
+  #   Требуется правило ip rule, которое создаёт
+  #   сервис sing-box-fwmark-rule (см. ниже).
+  # - MTU = 1400, strict_route = false.
+  # - auto_redirect ОТКЛЮЧЁН. Используем auto_route + nftables.
+  #   auto_redirect конфликтует с nfqueue от Portmaster.
   # =====================================================================
-
   services.sing-box = {
     enable = true;
-
     settings = {
-      log = { level = "info"; };
+      log = {
+        level = "info";
+      };
 
-           inbounds = [
+      inbounds = [
         {
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
-          address = [ "172.19.0.1/30" ];
+          address = ["172.19.0.1/30"];
 
-          # auto_route — создаёт маршруты и ip rule для перехвата
-          # трафика приложений в TUN.
+          # auto_route — классический механизм через ip rule + ip route.
+          # Создаёт правила в таблице 2022 и маркирует пакеты.
+          # НЕ конфликтует с nfqueue Portmaster, т.к. использует
+          # отдельные таблицы маршрутизации, а не перезаписывает
+          # цепочки nftables.
           auto_route = true;
 
-          # auto_redirect УБРАН. Причина: он создаёт правило
-          #   "9001: from all fwmark 0x2023 lookup 2022"
-          # которое конфликтует с нашим default_mark = 0x2023
-          # и направляет пакеты sing-box обратно в TUN (петля).
-          # auto_route справляется сам — его правил достаточно.
-          # auto_redirect = true;
-
+          # strict_route оставляем false для совместимости с
+          # локальными сервисами (Portmaster, dnscrypt-proxy).
           strict_route = false;
+
           mtu = 1400;
+
+          # stack = "system" — использует системный сетевой стек.
+          # Для auto_route это наиболее совместимый вариант.
+          stack = "system";
+
+          # sniff — определяет протокол по первым пакетам.
+          sniff = true;
         }
       ];
-
 
       outbounds = [
         {
@@ -79,10 +89,16 @@
           tls = {
             enabled = true;
             server_name = "ВАШ_ДОМЕН";
-            utls = { enabled = true; fingerprint = "chrome"; };
+            utls = {
+              enabled = true;
+              fingerprint = "chrome";
+            };
           };
         }
-        { type = "direct"; tag = "direct-out"; }
+        {
+          type = "direct";
+          tag = "direct-out";
+        }
       ];
 
       route = {
@@ -96,35 +112,39 @@
 
         rules = [
           {
-            ip_cidr = [ "127.0.0.0/8" "::1/128" ];
+            ip_cidr = ["127.0.0.0/8" "::1/128"];
             outbound = "direct-out";
           }
           {
-            process_name = [ "dnscrypt-proxy" ];
+            process_name = ["dnscrypt-proxy"];
             outbound = "direct-out";
           }
           {
-            process_name = [ "portmaster-core" ];
+            process_name = ["portmaster-core"];
             outbound = "direct-out";
           }
-          { action = "sniff"; }
           {
-            process_name = [ "brave" ];
+            action = "sniff";
+          }
+          {
+            process_name = ["brave"];
             outbound = "socks-out";
           }
           {
-            process_path_regex = [ ".*/brave/brave.*" ];
+            process_path_regex = [".*/brave/brave.*"];
             outbound = "socks-out";
           }
           {
-            process_name = [ "chromium" ];
+            process_name = ["chromium"];
             outbound = "vless-out";
           }
           {
-            process_path_regex = [ ".*/chromium/chromium.*" ];
+            process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          { outbound = "direct-out"; }
+          {
+            outbound = "direct-out";
+          }
         ];
       };
     };
@@ -146,7 +166,7 @@
       "CAP_NET_BIND_SERVICE"
       "CAP_SYS_PTRACE"
     ];
-    path = [ pkgs.nftables pkgs.iptables pkgs.iproute2 ];
+    path = [pkgs.nftables pkgs.iptables pkgs.iproute2];
   };
 
   # =====================================================================
@@ -161,9 +181,9 @@
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop)";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "sing-box.service" ];
-    requires = [ "sing-box.service" ];
+    wantedBy = ["multi-user.target"];
+    after = ["sing-box.service"];
+    requires = ["sing-box.service"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
