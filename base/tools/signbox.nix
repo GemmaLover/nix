@@ -4,28 +4,21 @@
   # =====================================================================
   # sing-box 1.14 — маршрутизация трафика по процессам.
   #
-  # ВАЖНО: В sing-box 1.14.0 удалены устаревшие поля inbound:
-  #   - sniff = true      → заменено на action: "sniff" в route.rules
-  #   - stack = "system"  → убрано
-  #
-  # Также удалён старый формат DNS-серверов. Теперь нужно указывать
-  # type (udp, tcp, tls, https) и server/server_port.
-  #
-  # Логика маршрутизации:
-  #   - Brave (Flatpak)     → SOCKS5 (chelik / pass11)
-  #   - Chromium (Flatpak)  → VLESS
-  #   - Всё остальное       → direct-out
-  #   - DNS                 → 127.0.0.1:5353 (dnscrypt-proxy)
+  # Особенности версии 1.14:
+  #   - Удалены legacy inbound-поля (sniff, stack).
+  #   - Новый формат DNS-серверов: type/server/server_port.
+  #   - detour к пустому direct outbound не работает — DNS
+  #     направляется через route.rules.
+  #   - independent_cache удалён — не используем.
   # =====================================================================
 
   services.sing-box = {
     enable = true;
 
     settings = {
-      # --- Логи ---
       log = { level = "info"; };
 
-      # --- Входящий интерфейс: TUN ---
+      # --- TUN ---
       inbounds = [
         {
           type = "tun";
@@ -37,20 +30,20 @@
         }
       ];
 
-      # --- Исходящие подключения ---
+      # --- Исходящие ---
       outbounds = [
-        # 1. SOCKS5 — для Brave.
+        # SOCKS5 — для Brave.
         {
           type = "socks";
           tag = "socks-out";
-          server = "127.0.0.1";      # <-- ЗАМЕНИТЕ на адрес SOCKS5-прокси
-          server_port = 1080;        # <-- ЗАМЕНИТЕ на порт
+          server = "127.0.0.1";      # <-- ЗАМЕНИТЕ
+          server_port = 1080;        # <-- ЗАМЕНИТЕ
           version = "5";
           username = "chelik";
           password = "pass11";
         }
 
-        # 2. VLESS — для Chromium.
+        # VLESS — для Chromium.
         {
           type = "vless";
           tag = "vless-out";
@@ -60,36 +53,25 @@
           flow = "xtls-rprx-vision";
           tls = {
             enabled = true;
-            server_name = "ВАШ_ДОМЕН";  # <-- ЗАМЕНИТЕ
-            utls = {
-              enabled = true;
-              fingerprint = "chrome";
-            };
+            server_name = "ВАШ_ДОМЕН";
+            utls = { enabled = true; fingerprint = "chrome"; };
           };
         }
 
-        # 3. Direct — по умолчанию.
+        # Direct — по умолчанию.
         { type = "direct"; tag = "direct-out"; }
       ];
 
-      # =====================================================================
-      # DNS — новый формат для sing-box 1.14.
-      #
-      # Вместо старого "address" теперь используются:
-      #   type: "udp" (или "tcp", "tls", "https")
-      #   server: "127.0.0.1"
-      #   server_port: 5353
-      # =====================================================================
+      # --- DNS ---
+      # Новый формат для sing-box 1.14: type + server + server_port.
+      # detour НЕ указываем — DNS пойдёт по route.rules ниже.
       dns = {
         servers = [
           {
-            type = "udp";                # новый формат
+            type = "udp";
             tag = "dns-dnscrypt";
             server = "127.0.0.1";
             server_port = 5353;
-            # detour указывает, через какой outbound идти
-            # к DNS-серверу. direct-out — напрямую.
-            detour = "direct-out";
           }
         ];
 
@@ -98,7 +80,6 @@
         ];
 
         disable_cache = false;
-        independent_cache = true;
       };
 
       # --- Маршрутизация ---
@@ -107,16 +88,24 @@
         auto_detect_interface = true;
 
         rules = [
-          # 0. Loopback — напрямую, минуя TUN.
+          # 0. DNS к dnscrypt-proxy (127.0.0.1:5353) — напрямую.
+          # Это правило идёт первым, чтобы DNS не ушёл в socks/vless.
+          {
+            ip_cidr = [ "127.0.0.0/8" "::1/128" ];
+            port = [ 5353 ];
+            outbound = "direct-out";
+          }
+
+          # 1. Прочий loopback — напрямую.
           {
             ip_cidr = [ "127.0.0.0/8" "::1/128" ];
             outbound = "direct-out";
           }
 
-          # 1. Сниффинг (замена sniff = true из inbound).
+          # 2. Сниффинг доменов (замена sniff=true из inbound).
           { action = "sniff"; }
 
-          # 2. Brave (Flatpak) → SOCKS5.
+          # 3. Brave → SOCKS5.
           {
             process_name = [ "brave" ];
             outbound = "socks-out";
@@ -126,7 +115,7 @@
             outbound = "socks-out";
           }
 
-          # 3. Chromium (Flatpak) → VLESS.
+          # 4. Chromium → VLESS.
           {
             process_name = [ "chromium" ];
             outbound = "vless-out";
@@ -136,14 +125,14 @@
             outbound = "vless-out";
           }
 
-          # 4. Всё остальное → direct.
+          # 5. Всё остальное → direct.
           { outbound = "direct-out"; }
         ];
       };
     };
   };
 
-  # Права для TUN и чтения информации о процессах.
+  # Права для TUN и чтения процессов.
   security.wrappers.sing-box = {
     source = "${pkgs.sing-box}/bin/sing-box";
     capabilities = "cap_net_admin,cap_net_raw,cap_sys_ptrace+ep";
