@@ -5,7 +5,7 @@
   ...
 }: {
   # =====================================================================
-  # sing-box — маршрутизация TCP-трафика по процессам.
+  # sing-box — маршрутизация TCP/UDP-трафика по процессам.
   #
   # Модель трафика (кто чем занимается):
   # ┌─────────────────────────────────────────────────────────────┐
@@ -22,23 +22,21 @@
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
   # │ - Firefox, nix, всё остальное → direct                       │
+  # │ - UDP/QUIC (HTTP/3, DoH3) → пробрасывается через            │
+  # │   стек mixed с включённой фрагментацией.                     │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
   # - DNS-секции нет. sing-box не резолвит имена.
   # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
   #   Правило ip rule (v4+v6) создаётся сервисом sing-box-fwmark-rule.
-  #   БЕЗ ЭТОГО ПРАВИЛА:
-  #     * sing-box direct-out открывает IPv4/IPv6-сокет,
-  #     * ядро применяет auto_route (правило 9001),
-  #     * пакет уходит обратно в singtun0 → петля,
-  #     * DNS от dnscrypt-proxy виснет, Firefox не открывает сайты.
-  # - MTU = 1400, strict_route = false.
+  # - stack = "mixed": TCP через system (надёжно), UDP через gvisor
+  #   (быстрее, но требует udp_fragment = true для QUIC).
+  # - udp_fragment = true — КРИТИЧНО для QUIC/HTTP3. Без этого
+  #   фрагментированные QUIC-пакеты теряются, DoH3 и HTTP/3 зависают.
+  # - udp_timeout = "5m" — стандартное время жизни UDP-сессии.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
-  # - stack = "gvisor": sing-box САМ терминирует TCP и открывает
-  #   НОВЫЙ сокет для outbound. MASQUERADE не нужен.
-  # - address содержит IPv4 + IPv6 префиксы.
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -63,7 +61,20 @@
           auto_route = true;
           strict_route = false;
           mtu = 1400;
-          stack = "gvisor";
+
+          # mixed: TCP через системный стек, UDP через gvisor.
+          # Это лучший баланс для нашего кейса:
+          #  - TCP (сайты) работает надёжно через system.
+          #  - UDP (QUIC, DoH3) обрабатывается gvisor с фрагментацией.
+          stack = "mixed";
+
+          # Разрешаем фрагментацию UDP. Без этого QUIC ClientHello,
+          # не влезающий в один пакет, теряется, и соединение виснет.
+          udp_fragment = true;
+
+          # Время жизни UDP-сессии (NAT expiration).
+          # 5 минут — стандарт, совместим с большинством приложений.
+          udp_timeout = "5m";
         }
       ];
 
@@ -167,16 +178,9 @@
   # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
   #
   # КРИТИЧНО:
-  # - Скрипт ИДЕМПОТЕНТЕН: сначала удаляет старые правила (игнорируя
-  #   ошибки через `|| true`), затем добавляет новые. Без этого
-  #   `ip rule add` падает с "RTNETLINK answers: File exists" при
-  #   рестарте юнита или переключении конфигурации.
+  # - Скрипт ИДЕМПОТЕНТЕН: удаляет старые правила, затем добавляет новые.
   # - Используется `script`, а НЕ многострочный ExecStart/ExecStop.
-  #   systemd в NixOS не оборачивает многострочные значения в shell,
-  #   поэтому `|| true` не работал (см. ошибку
-  #   `Error: argument "||" is wrong`).
-  # - Нужны ДВА правила: IPv4 и IPv6. Без IPv6-правила IPv6-сокеты
-  #   sing-box попадают под auto_route и зацикливаются в TUN.
+  # - Нужны ДВА правила: IPv4 и IPv6.
   # - priority 100 — выше auto_route (9000-9010).
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
@@ -187,21 +191,16 @@
       Type = "oneshot";
       RemainAfterExit = true;
 
-      # ExecStop — отдельный shell-скрипт, чтобы `|| true` работал.
-      # Запускается при остановке/рестарте юнита, удаляет оба правила.
       ExecStop = pkgs.writeShellScript "sing-box-fwmark-stop" ''
         ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
         ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
       '';
     };
 
-    # script → NixOS оборачивает в bash. Здесь идемпотентное добавление.
     script = ''
-      # Шаг 1: удаляем возможные старые правила (без ошибок).
       ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
       ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
 
-      # Шаг 2: добавляем свежие правила.
       ${pkgs.iproute2}/bin/ip    rule add fwmark 8227 lookup main priority 100
       ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
     '';
