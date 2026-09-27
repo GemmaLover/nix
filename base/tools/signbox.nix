@@ -17,7 +17,7 @@
   # │ - шифрует DNS (DoH/DNSCrypt) → Cloudflare/Quad9/Scaleway    │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
-  # │ - DNS НЕ трогает                                             │
+  # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → direct                                    │
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
@@ -40,6 +40,11 @@
   #                 нужен MASQUERADE, часто ломается.
   #     * gvisor  → termination, новый сокет с src=физический IP,
   #                 MASQUERADE не нужен, работает надёжно.
+  # - address теперь содержит и IPv4, и IPv6 префиксы.
+  #   Это заворачивает IPv6-трафик в TUN.
+  # - dns_mode = "disabled" — отключает перехват DNS на уровне
+  #   TUN-интерфейса. Это необходимо, чтобы sing-box не конфликтовал
+  #   с Portmaster и dnscrypt-proxy, которые уже управляют DNS.
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -54,7 +59,20 @@
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
-          address = ["172.19.0.1/30"];
+
+          # IPv4 + IPv6 префиксы для TUN-интерфейса.
+          # IPv6-префикс (fdfe:dcba:9876::1/126) — это ULA
+          # (Unique Local Address), он используется только внутри TUN
+          # и не маршрутизируется в интернет. Это стандартный подход.
+          address = [
+            "172.19.0.1/30"
+            "fdfe:dcba:9876::1/126"
+          ];
+
+          # dns_mode = "disabled" — sing-box НЕ трогает DNS.
+          # DNS-запросы идут через Portmaster → dnscrypt-proxy.
+          # Это критично для совместимости.
+          dns_mode = "disabled";
 
           # auto_route — классический механизм через ip rule + ip route.
           # Создаёт правила в таблице 2022 и маркирует пакеты.

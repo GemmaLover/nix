@@ -53,5 +53,6 @@
     iptables
     iproute2
     tcpdump
+    dig
   ];
 }
