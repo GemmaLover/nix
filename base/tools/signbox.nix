@@ -2,114 +2,91 @@
 
 {
   # =====================================================================
-  # sing-box — маршрутизация трафика по процессам.
+  # DNS-шифрование через dnscrypt-proxy.
   #
-  # ВАЖНО: используется sing-box 1.14.1, где удалены устаревшие поля.
-  #   - sniff = true в inbound      → УДАЛЕНО, заменено на action: "sniff"
-  #                                     в route.rules.
-  #   - stack = "system" в inbound → deprecated, лучше убрать.
+  # Настройки безопасности:
+  #   - require_dnssec = true   — только резолверы с поддержкой DNSSEC.
+  #   - require_nolog = true    — только резолверы, не ведущие логи.
+  #   - require_nofilter = true — только резолверы без собственной фильтрации.
+  #   - ephemeral_keys = true   — новый ключ для каждого запроса (усиленная приватность).
+  #   - Слушает только на loopback (127.0.0.1 и ::1).
   #
-  # Логика маршрутизации:
-  #   - Brave (Flatpak)     → SOCKS5 (chelik / pass11)
-  #   - Chromium (Flatpak)  → VLESS
-  #   - Всё остальное       → direct (напрямую)
+  # Порт 5353 выбран, чтобы избежать конфликтов с Portmaster (127.0.0.17:53)
+  # и systemd-resolved (127.0.0.53:53).
+  #
+  # ВАЖНО: Этот конфиг предполагает, что DNS-запросы перехватываются
+  # sing-box (TUN) и перенаправляются на 127.0.0.1:5353. Если sing-box
+  # не используется, необходимо настроить систему на использование
+  # 127.0.0.1:5353 напрямую (см. комментарии в конце файла).
   # =====================================================================
 
-  services.sing-box = {
+  services.dnscrypt-proxy = {
     enable = true;
 
+    # --- Сетевые настройки ---
+    # Слушаем только на loopback-интерфейсах. Это предотвращает
+    # случайное использование прокси другими устройствами в сети.
+    localAddress = "127.0.0.1";
+    localPort = 5353;
+
     settings = {
-      # --- Входящий интерфейс: TUN ---
-      # УБРАНЫ поля sniff и stack — они больше не поддерживаются.
-      inbounds = [
-        {
-          type = "tun";
-          tag = "tun-in";
-          interface_name = "singtun0";
-          address = [ "172.19.0.1/30" ];
-          auto_route = true;
-          strict_route = true;
-        }
+      # --- Список резолверов ---
+      # Явно указываем проверенные резолверы, соответствующие
+      # требованиям безопасности. dnscrypt-proxy будет использовать
+      # только их, игнорируя остальные из публичного списка.
+      server_names = [
+        "cloudflare"                          # Cloudflare DNS (DoH, без логов)
+        "quad9-dnscrypt-ip4-filter-pri"      # Quad9 (DNSCrypt, фильтрация malware)
+        "scaleway-fr"                         # Scaleway (DNSCrypt, без логов)
       ];
 
-      # --- Исходящие подключения ---
-      outbounds = [
-        # 1. SOCKS5 — для Brave.
-        {
-          type = "socks";
-          tag = "socks-out";
-          server = "127.0.0.1";      # <-- ЗАМЕНИТЕ на адрес SOCKS5-прокси
-          server_port = 1080;        # <-- ЗАМЕНИТЕ на порт
-          version = "5";
-          username = "chelik";
-          password = "pass11";
-        }
+      # --- Требования к безопасности ---
+      # Эти флаги заставляют dnscrypt-proxy отклонять резолверы,
+      # которые не соответствуют указанным критериям.
+      require_dnssec = true;    # Только резолверы с поддержкой DNSSEC.
+      require_nolog = true;     # Только резолверы, не ведущие логи запросов.
+      require_nofilter = true;  # Только резолверы без собственной фильтрации.
 
-        # 2. VLESS — для Chromium.
-        {
-          type = "vless";
-          tag = "vless-out";
-          server = "ВАШ_СЕРВЕР";     # <-- ЗАМЕНИТЕ
-          server_port = 443;         # <-- ЗАМЕНИТЕ
-          uuid = "ВАШ_UUID";         # <-- ЗАМЕНИТЕ
-          flow = "xtls-rprx-vision";
-          tls = {
-            enabled = true;
-            server_name = "ВАШ_ДОМЕН";
-            utls = {
-              enabled = true;
-              fingerprint = "chrome";
-            };
-          };
-        }
+      # --- Приватность ---
+      # Использовать новый ключ для каждого запроса. Это увеличивает
+      # нагрузку на CPU, но делает невозможным отслеживание пользователя
+      # по публичному ключу.
+      ephemeral_keys = true;
 
-        # 3. Direct — по умолчанию.
-        { type = "direct"; tag = "direct-out"; }
-      ];
+      # --- IPv6 ---
+      # Отключаем IPv6-резолверы, если у вас нет полноценного IPv6.
+      # Это также предотвращает утечки DNS через IPv6.
+      ipv6_servers = false;
+      block_ipv6 = true;
 
-      # --- Маршрутизация ---
-      route = {
-        find_process = true;
-        auto_detect_interface = true;
+      # --- Кэширование ---
+      # Включаем кэш для ускорения повторных запросов.
+      cache = true;
+      cache_size = 4096;
 
-        rules = [
-          # Первое правило: сниффинг трафика (замена sniff = true в inbound).
-          # Без него маршрутизация по доменам не работает, но для
-          # правил по process_name он не обязателен. Включаем для полноты.
-          { action = "sniff"; timeout = "300ms"; }
-
-          # 1. Brave (Flatpak) → SOCKS5.
-          {
-            process_name = [ "brave" ];
-            outbound = "socks-out";
-          }
-          {
-            process_path_regex = [ ".*/brave/brave.*" ];
-            outbound = "socks-out";
-          }
-
-          # 2. Chromium (Flatpak) → VLESS.
-          {
-            process_name = [ "chromium" ];
-            outbound = "vless-out";
-          }
-          {
-            process_path_regex = [ ".*/chromium/chromium.*" ];
-            outbound = "vless-out";
-          }
-
-          # 3. Всё остальное → direct.
-          { outbound = "direct-out"; }
-        ];
-      };
+      # --- HTTP/3 (опционально) ---
+      # Если ваш резолвер поддерживает HTTP/3, можно включить для
+      # дополнительного ускорения. Оставьте false, если не уверены.
+      http3 = false;
     };
   };
 
-  # Права для TUN-интерфейса.
-  security.wrappers.sing-box = {
-    source = "${pkgs.sing-box}/bin/sing-box";
-    capabilities = "cap_net_admin,cap_net_raw,cap_sys_ptrace+ep";
-    owner = "root";
-    group = "root";
-  };
+  # =====================================================================
+  # Системный DNS
+  #
+  # ВАЖНО: sing-box перехватывает DNS-запросы через TUN-интерфейс
+  # и отправляет их на 127.0.0.1:5353. Поэтому системный
+  # resolv.conf не используется для разрешения имён.
+  #
+  # Настройки ниже нужны для случаев, когда sing-box отключён.
+  # =====================================================================
+  networking.nameservers = [ "127.0.0.1" "::1" ];
+  networking.networkmanager.dns = "none";
+
+  # Отключаем systemd-resolved, так как он конфликтует с dnscrypt-proxy
+  # за порт 53. Мы используем 5353, но resolved всё равно лучше выключить.
+  services.resolved.enable = false;
+
+  # StateDirectory для кэша dnscrypt-proxy.
+  systemd.services.dnscrypt-proxy.serviceConfig.StateDirectory = "dnscrypt-proxy";
 }
