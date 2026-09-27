@@ -35,7 +35,7 @@
     settings = {
       log = { level = "info"; };
 
-      inbounds = [
+           inbounds = [
         {
           type = "tun";
           tag = "tun-in";
@@ -43,20 +43,17 @@
           address = [ "172.19.0.1/30" ];
 
           # auto_route — создаёт маршруты и ip rule для перехвата
-          # трафика приложений в TUN (table 2022).
+          # трафика приложений в TUN.
           auto_route = true;
 
-          # auto_redirect — добавляет eBPF-программу для
-          # перехвата трафика на уровне сокетов.
-          # В sing-box 1.14 требует auto_route = true.
-          auto_redirect = true;
+          # auto_redirect УБРАН. Причина: он создаёт правило
+          #   "9001: from all fwmark 0x2023 lookup 2022"
+          # которое конфликтует с нашим default_mark = 0x2023
+          # и направляет пакеты sing-box обратно в TUN (петля).
+          # auto_route справляется сам — его правил достаточно.
+          # auto_redirect = true;
 
-          # strict_route = false — иначе ломается rp_filter
-          # при прямых исходящих.
           strict_route = false;
-
-          # MTU 1400 — ниже 1500, чтобы пакеты не дропались
-          # при выходе через wlp194s0.
           mtu = 1400;
         }
       ];
