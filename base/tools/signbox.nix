@@ -45,8 +45,8 @@
     enable = true;
     settings = {
       log = {
-        # debug на время диагностики. Потом вернём info.
-        level = "debug";
+        # info — штатный уровень. debug включаем только для отладки.
+        level = "info";
       };
 
       inbounds = [
