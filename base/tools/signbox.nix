@@ -4,16 +4,15 @@
   # =====================================================================
   # sing-box — маршрутизация трафика по процессам.
   #
-  # Режим: TUN. Перехватывает весь IP-трафик системы на уровне ядра,
-  # включая трафик Flatpak-приложений.
+  # ВАЖНО: используется sing-box 1.14.1, где удалены устаревшие поля.
+  #   - sniff = true в inbound      → УДАЛЕНО, заменено на action: "sniff"
+  #                                     в route.rules.
+  #   - stack = "system" в inbound → deprecated, лучше убрать.
   #
   # Логика маршрутизации:
   #   - Brave (Flatpak)     → SOCKS5 (chelik / pass11)
   #   - Chromium (Flatpak)  → VLESS
   #   - Всё остальное       → direct (напрямую)
-  #
-  # ВАЖНО: для работы TUN нужны права CAP_NET_ADMIN и CAP_NET_RAW.
-  # Они выдаются через security.wrappers ниже.
   # =====================================================================
 
   services.sing-box = {
@@ -21,19 +20,15 @@
 
     settings = {
       # --- Входящий интерфейс: TUN ---
+      # УБРАНЫ поля sniff и stack — они больше не поддерживаются.
       inbounds = [
         {
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
-          # Адрес внутри TUN-подсети. Не должен конфликтовать с локальной сетью.
           address = [ "172.19.0.1/30" ];
-          # Автоматически добавлять маршруты, чтобы весь трафик шёл в TUN.
           auto_route = true;
-          # Строгая маршрутизация для избежания утечек.
           strict_route = true;
-          # Анализ трафика для более точной маршрутизации.
-          sniff = true;
         }
       ];
 
@@ -43,7 +38,7 @@
         {
           type = "socks";
           tag = "socks-out";
-          server = "127.0.0.1";      # <-- ЗАМЕНИТЕ на адрес вашего SOCKS5-прокси
+          server = "127.0.0.1";      # <-- ЗАМЕНИТЕ на адрес SOCKS5-прокси
           server_port = 1080;        # <-- ЗАМЕНИТЕ на порт
           version = "5";
           username = "chelik";
@@ -57,10 +52,10 @@
           server = "ВАШ_СЕРВЕР";     # <-- ЗАМЕНИТЕ
           server_port = 443;         # <-- ЗАМЕНИТЕ
           uuid = "ВАШ_UUID";         # <-- ЗАМЕНИТЕ
-          flow = "xtls-rprx-vision"; # или другой, из вашего конфига
+          flow = "xtls-rprx-vision";
           tls = {
             enabled = true;
-            server_name = "ВАШ_ДОМЕН"; # <-- ЗАМЕНИТЕ
+            server_name = "ВАШ_ДОМЕН";
             utls = {
               enabled = true;
               fingerprint = "chrome";
@@ -69,23 +64,21 @@
         }
 
         # 3. Direct — по умолчанию.
-        {
-          type = "direct";
-          tag = "direct-out";
-        }
+        { type = "direct"; tag = "direct-out"; }
       ];
 
       # --- Маршрутизация ---
       route = {
-        # Обязательно для правил process_name / process_path.
         find_process = true;
-
-        # Автоматически определять интерфейс для Direct-out.
         auto_detect_interface = true;
 
         rules = [
-          # 1. Brave → SOCKS5.
-          # Имя процесса у Flatpak-версии Brave — "brave".
+          # Первое правило: сниффинг трафика (замена sniff = true в inbound).
+          # Без него маршрутизация по доменам не работает, но для
+          # правил по process_name он не обязателен. Включаем для полноты.
+          { action = "sniff"; timeout = "300ms"; }
+
+          # 1. Brave (Flatpak) → SOCKS5.
           {
             process_name = [ "brave" ];
             outbound = "socks-out";
@@ -95,8 +88,7 @@
             outbound = "socks-out";
           }
 
-          # 2. Chromium → VLESS.
-          # Имя процесса у Flatpak-версии Chromium — "chromium".
+          # 2. Chromium (Flatpak) → VLESS.
           {
             process_name = [ "chromium" ];
             outbound = "vless-out";
@@ -107,24 +99,16 @@
           }
 
           # 3. Всё остальное → direct.
-          # Правило без условий (catch-all) должно быть последним.
-          {
-            outbound = "direct-out";
-          }
+          { outbound = "direct-out"; }
         ];
       };
     };
   };
 
-  # =====================================================================
   # Права для TUN-интерфейса.
-  #
-  # sing-box должен уметь создавать сетевой интерфейс и управлять
-  # маршрутами. Без CAP_NET_ADMIN / CAP_NET_RAW TUN не поднимется.
-  # =====================================================================
   security.wrappers.sing-box = {
     source = "${pkgs.sing-box}/bin/sing-box";
-    capabilities = "cap_net_admin,cap_net_raw+ep";
+    capabilities = "cap_net_admin,cap_net_raw,cap_sys_ptrace+ep";
     owner = "root";
     group = "root";
   };
