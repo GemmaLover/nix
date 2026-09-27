@@ -35,28 +35,32 @@
     settings = {
       log = { level = "info"; };
 
-            inbounds = [
+      inbounds = [
         {
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
           address = [ "172.19.0.1/30" ];
 
-          # auto_redirect — перехват трафика через eBPF,
-          # не требует nftables и не конфликтует с iptables-nft
-          # от Portmaster и Docker.
-          #
-          # Включаем auto_redirect вместо auto_route.
-          # auto_route пытается писать в таблицу ip filter,
-          # которую уже занимает iptables-nft (Portmaster/Docker),
-          # и молча пропускает создание своих правил.
+          # auto_route — создаёт маршруты и ip rule для перехвата
+          # трафика приложений в TUN (table 2022).
+          auto_route = true;
+
+          # auto_redirect — добавляет eBPF-программу для
+          # перехвата трафика на уровне сокетов.
+          # В sing-box 1.14 требует auto_route = true.
           auto_redirect = true;
 
-          # strict_route для auto_redirect можно оставить false.
+          # strict_route = false — иначе ломается rp_filter
+          # при прямых исходящих.
           strict_route = false;
+
+          # MTU 1400 — ниже 1500, чтобы пакеты не дропались
+          # при выходе через wlp194s0.
           mtu = 1400;
         }
       ];
+
 
       outbounds = [
         {
