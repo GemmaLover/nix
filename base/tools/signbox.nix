@@ -15,7 +15,7 @@
   # ├─────────────────────────────────────────────────────────────┤
   # │ ByeDPI (127.0.0.1:6430)                                      │
   # │ - локальный SOCKS5-прокси для обхода DPI                    │
-  # │ - работает независимо от sing-box                           │
+  # │ - фильтрует по hosts.txt сам, sing-box не вмешивается        │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
@@ -23,9 +23,10 @@
   # │ - ciadpi (ByeDPI) → bypass (чтобы не зациклиться)           │
   # │ - QUIC (UDP/443, UDP/8443) → direct                         │
   # │ - NTP (UDP/123) → direct                                     │
-  # │ - Brave → byedpi-out (локальный SOCKS5 ByeDPI)              │
-  # │ - Chromium → VLESS                                           │
-  # │ - Firefox, nix, всё остальное → direct                       │
+  # │ - Firefox → byedpi-out (ByeDPI сам фильтрует по hosts)      │
+  # │ - Brave → socks-out (внешний SOCKS5)                        │
+  # │ - Chromium → vless-out                                       │
+  # │ - Всё остальное (nix, flatpak, терминал) → direct            │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -41,21 +42,24 @@
   #   Оба используют системный стек для TCP → packet-mode.
   #   Пакет форвардится с исходным src=172.19.0.1 (адрес TUN).
   #   Этот адрес приватный, upstream не может ответить → SYN-SENT.
-  #   Нужен MASQUERADE, который мы убрали. Отсюда зависание DNS
-  #   (dnscrypt-proxy не может подключиться к DoH-серверам)
-  #   и новые сайты не открываются.
+  #   Нужен MASQUERADE, который мы убрали. Отсюда зависание DNS.
   #
   # - ПРАВИЛО BYPASS ДЛЯ ciadpi:
-  #   ByeDPI — это отдельный процесс, который тоже генерирует
-  #   исходящий трафик. Если этот трафик попадёт в TUN sing-box,
-  #   возникнет петля: ByeDPI → sing-box → ByeDPI → ...
-  #   Поэтому для процесса ciadpi стоит action = "bypass".
-  #   Bypass означает "не перехватывать, отдать системе напрямую".
+  #   ByeDPI — отдельный процесс, который тоже генерирует
+  #   исходящий трафик. Если он попадёт в TUN sing-box,
+  #   возникнет петля: ByeDPI → sing-box → byedpi-out → ByeDPI.
+  #   Поэтому для ciadpi стоит action = "bypass".
   #
-  # - ПРАВИЛО ДЛЯ QUIC:
-  #   { network = "udp"; port = [443 8443]; outbound = "direct-out"; }
-  #   Ставится ДО sniff, чтобы sniff не пытался читать
-  #   фрагментированный QUIC ClientHello.
+  # - ПОЧЕМУ FIREFOX ИДЁТ В byedpi-out:
+  #   Firefox ходит через ByeDPI целиком. ByeDPI сам смотрит
+  #   на SNI/Host и применяет стратегии обхода только для
+  #   доменов из /etc/byedpi/hosts.txt. Остальной трафик
+  #   форвардится без изменений. Поэтому sing-box не должен
+  #   фильтровать по domain_suffix — это делает ByeDPI.
+  #
+  # - ПОЧЕМУ BRAVE ИДЁТ В socks-out:
+  #   Brave больше не использует ByeDPI. Он ходит через
+  #   внешний SOCKS5-прокси (127.0.0.1:1080).
   #
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
@@ -101,23 +105,9 @@
           password = "pass11";
         }
         # =============================================================
-        # НОВЫЙ OUTBOUND: ByeDPI
-        #
-        # Локальный SOCKS5-прокси, который поднимает ByeDPI.
-        # Brave будет направляться на него через правило
-        # process_name = ["brave"] ниже.
-        #
-        # ByeDPI обходит DPI на уровне TCP-десинхронизации.
-        # Он не требует VLESS и работает напрямую с провайдером,
-        # подменяя/разбивая пакеты так, чтобы DPI не мог
-        # распознать SNI.
-        #
-        # ВАЖНО:
-        # - ByeDPI — это SOCKS5, не VLESS. Он не шифрует трафик,
-        #   а маскирует его от DPI. Подходит для сайтов,
-        #   которые блокируются по SNI (YouTube, Discord и т.п.).
-        # - Если сайт заблокирован по IP (а не по SNI),
-        #   ByeDPI не поможет — нужен VLESS.
+        # ByeDPI — локальный SOCKS5-прокси.
+        # Firefox ходит сюда, ByeDPI сам применяет стратегии
+        # обхода DPI к доменам из /etc/byedpi/hosts.txt.
         # =============================================================
         {
           type = "socks";
@@ -166,17 +156,13 @@
           }
           # 3. ByeDPI (ciadpi) — BYPASS.
           #    Процесс ByeDPI сам генерирует трафик, который
-          #    не должен попадать в TUN. Иначе:
+          #    не должен попадать в TUN. Иначе бесконечная петля:
           #    ByeDPI → sing-box → byedpi-out → ByeDPI → ...
-          #    Это бесконечная петля.
-          #    action = "bypass" означает: пропустить этот трафик
-          #    напрямую через системный стек, не перехватывая.
           {
             action = "bypass";
             process_name = ["ciadpi"];
           }
-          # 4. NTP (UDP/123) — direct. systemd-timesyncd не должен
-          #    идти через TUN.
+          # 4. NTP (UDP/123) — direct.
           {
             network = "udp";
             port = [123];
@@ -184,7 +170,7 @@
           }
           # 5. QUIC (UDP/443, UDP/8443) — direct, ДО sniff.
           #    sniff не должен пытаться читать фрагментированный
-          #    QUIC ClientHello. Пропускаем QUIC напрямую.
+          #    QUIC ClientHello.
           {
             network = "udp";
             port = [443 8443];
@@ -194,19 +180,29 @@
           {
             action = "sniff";
           }
-          # 7. Brave → ByeDPI.
-          #    Brave ходит на локальный SOCKS5 ByeDPI.
-          #    Это НЕ внешний прокси — ByeDPI сам обходит DPI
-          #    на уровне TCP.
+          # 7. Firefox → ByeDPI.
+          #    Firefox ходит через локальный SOCKS5 ByeDPI.
+          #    ByeDPI сам фильтрует по hosts.txt — какие домены
+          #    обходить, какие форвардить как есть.
+          {
+            process_name = ["firefox"];
+            outbound = "byedpi-out";
+          }
+          {
+            process_path_regex = [".*/firefox/firefox.*"];
+            outbound = "byedpi-out";
+          }
+          # 8. Brave → внешний SOCKS5 (socks-out).
+          #    Brave больше не использует ByeDPI.
           {
             process_name = ["brave"];
-            outbound = "byedpi-out";
+            outbound = "socks-out";
           }
           {
             process_path_regex = [".*/brave/brave.*"];
-            outbound = "byedpi-out";
+            outbound = "socks-out";
           }
-          # 8. Chromium → VLESS.
+          # 9. Chromium → VLESS.
           {
             process_name = ["chromium"];
             outbound = "vless-out";
@@ -215,7 +211,7 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # 9. Всё остальное — direct.
+          # 10. Всё остальное — direct.
           {
             outbound = "direct-out";
           }
