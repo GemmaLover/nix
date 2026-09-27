@@ -80,16 +80,24 @@
   # в обе стороны).
   #
   # Логика:
-  #  1. Цепочка output (hook output, priority -155):
+  #  1. Цепочка output (hook output, type route, priority -155):
   #     На исходящих пакетах sing-box (meta mark 0x2023)
   #     ставим ct mark 0x2023. Это создаёт conntrack-запись
   #     с меткой 0x2023 для всего соединения.
-  #  2. Цепочка prerouting (hook prerouting, priority -155):
+  #  2. Цепочка prerouting (hook prerouting, type filter, priority -155):
   #     На ВХОДЯЩИХ пакетах, у которых ct mark == 0x2023
   #     (то есть ответах от сервера для соединений sing-box),
   #     ставим meta mark 0x2023.
   #  3. Теперь Portmaster видит у ответных пакетов mark != 0
   #     и НЕ перехватывает их через nfqueue.
+  #
+  # ВАЖНО ПРО ТИПЫ ЦЕПОЧЕК:
+  # В nftables существуют только три типа цепочек:
+  #   - filter — обычная фильтрация (можно на любом хуке)
+  #   - nat    — трансляция адресов (только prerouting/postrouting)
+  #   - route  — изменение маршрутизации (только output)
+  # Для хука output правильный тип — "route", для prerouting — "filter".
+  # Ошибка "type mangle" недопустима: такого типа нет.
   #
   # ПОЧЕМУ priority -155:
   # Portmaster использует iptables-nft, его цепочки находятся
@@ -114,23 +122,26 @@
     # соединений sing-box, чтобы они обходили nfqueue Portmaster.
     table ip singbox-bypass {
       # Цепочка output: ставит ct mark на исходящие пакеты sing-box.
-      # Срабатывает в момент отправки пакета из локального процесса.
+      # Тип цепочки — route, потому что для хука output это
+      # единственный допустимый тип (изменение маршрутизации).
       # meta mark 0x2023 — это fwmark, который sing-box ставит
       # на свои исходящие сокеты (через default_mark = 8227).
       # ct mark set 0x2023 — «приклеивает» этот же mark ко всему
       # conntrack-соединению, включая будущие ответные пакеты.
       chain output {
-        type mangle hook output priority -155; policy accept;
+        type route hook output priority -155; policy accept;
         meta mark 0x2023 ct mark set 0x2023
       }
 
       # Цепочка prerouting: восстанавливает meta mark на входящих
-      # пакетах по ct mark. Это ключевой шаг: ответ от сервера
-      # приходит с mark=0, но у него в conntrack записан mark 0x2023.
+      # пакетах по ct mark. Тип цепочки — filter (можно использовать
+      # на любом хуке, включая prerouting).
+      # Это ключевой шаг: ответ от сервера приходит с mark=0,
+      # но у него в conntrack записан mark 0x2023.
       # Мы ставим meta mark 0x2023 на такой пакет, и Portmaster
       # его пропускает (его nfqueue-правило ищет mark == 0).
       chain prerouting {
-        type mangle hook prerouting priority -155; policy accept;
+        type filter hook prerouting priority -155; policy accept;
         ct mark 0x2023 meta mark set 0x2023
       }
     }
