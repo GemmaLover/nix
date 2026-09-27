@@ -15,8 +15,7 @@
   #   --qnum, --lua-init, --filter-tcp, --filter-l7, --payload,
   #   --lua-desync
   #
-  # НЕТ --fix-seg в этой версии nfqws2. Убрали.
-  # НЕТ внешних blobs (пакет zapret2 их не содержит).
+  # ВАЖНО: nfqws2 запускается от root, чтобы иметь доступ к Lua-скриптам.
   # =====================================================================
 
   TLS_STRATEGY = [
@@ -42,6 +41,8 @@
 
   ALL_ARGS = BASE_ARGS ++ TLS_STRATEGY ++ HTTP_STRATEGY;
 in {
+  # Симлинки на ресурсы zapret2.
+  # Создаём с правами 0755, чтобы nfqws2 мог читать.
   systemd.tmpfiles.rules = [
     "d /opt/zapret2 0755 root root -"
     "L+ /opt/zapret2/lua - - - - ${pkgs.zapret2}/share/zapret2/lua"
@@ -61,25 +62,25 @@ in {
       ExecStart = "${pkgs.zapret2}/bin/nfqws2 " + lib.concatStringsSep " " ALL_ARGS;
       Restart = "on-failure";
       RestartSec = 5;
+
+      # ЗАПУСКАЕМ ОТ ROOT, чтобы nfqws2 мог читать Lua-скрипты.
+      # Флаг --user=root НЕ используем, чтобы не было конфликта.
       User = "root";
       Group = "root";
+
+      # Безопасность (без PrivateTmp, чтобы не мешать доступу к /opt).
       NoNewPrivileges = true;
-      PrivateTmp = true;
-      ProtectSystem = "strict";
+      ProtectSystem = "full";
       ProtectHome = true;
       ReadWritePaths = [ "/run" "/var/log" ];
+
       StandardOutput = "journal";
       StandardError = "journal";
-      RestartIfChanged = true;
     };
   };
 
   # =====================================================================
-  # nftables: перехват трафика с mark 110 (от sing-box outbound).
-  #
-  # Исключения:
-  #   - DNS (порт 53) — не перехватываем.
-  #   - Локальные адреса — не перехватываем.
+  # nftables: перехват трафика с mark 110.
   # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
