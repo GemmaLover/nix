@@ -5,17 +5,21 @@
   # =====================================================================
   # n13rebuild — коммит, push и пересборка NixOS одной командой.
   #
-  # Что делает:
-  #   1. git add .
-  #   2. git commit -m "$MSG"
-  #   3. git push
-  #   4. sudo nixos-rebuild switch --flake .#z13
-  #   5. Перезапуск зависимых сервисов:
-  #      dnscrypt-proxy → nfqws2 → sing-box
+  # ИЗМЕНЕНИЕ:
+  # Раньше после nixos-rebuild switch принудительно перезапускались
+  # dnscrypt-proxy, nfqws2, sing-box. Это вызывало race condition:
+  # nfqws2 успевал привязаться к очереди NFQUEUE, но sing-box ещё
+  # не создал TUN. Пакеты уходили в пустую очередь и терялись.
+  # Итог: после n13rebuild интернет отваливался на несколько секунд,
+  # иногда соединения не восстанавливались.
   #
-  # n13clear — очистка старых поколений и сборка мусора.
-  #   n13clear       — удалить ВСЕ старые поколения
-  #   n13clear 7     — удалить старше 7 дней
+  # Теперь перезапуск убран. Systemd сам решает, какие сервисы
+  # перезапустить при смене конфигурации (RestartIfChanged или
+  # автоматически при изменении unit-файла). Если конфиг не менялся —
+  # сервисы не трогаются.
+  #
+  # Если нужно принудительно перезапустить — вручную:
+  #   sudo systemctl restart nfqws2 sing-box
   # =====================================================================
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "n13rebuild" ''
@@ -49,19 +53,13 @@
       echo "==> sudo nixos-rebuild switch --flake $FLAKE_ATTR"
       sudo nixos-rebuild switch --flake "$FLAKE_ATTR"
 
-      # Порядок: DNS → nfqws2 → sing-box.
-      for svc in dnscrypt-proxy nfqws2 sing-box; do
-        if systemctl list-unit-files --quiet "$svc.service" >/dev/null 2>&1 \
-           && systemctl cat "$svc.service" >/dev/null 2>&1; then
-          echo "==> sudo systemctl restart $svc"
-          sudo systemctl restart "$svc" || \
-            echo "    Предупреждение: не удалось перезапустить $svc"
-        else
-          echo "==> $svc.service не найден — пропускаем"
-        fi
-      done
-
+      echo ""
       echo "==> Готово."
+      echo ""
+      echo "Если интернет не работает — перезапустите сервисы вручную:"
+      echo "  sudo systemctl restart sing-box"
+      echo "  sleep 2"
+      echo "  sudo systemctl restart nfqws2"
     '')
 
     (pkgs.writeShellScriptBin "n13clear" ''

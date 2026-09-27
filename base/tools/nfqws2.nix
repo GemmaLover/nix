@@ -89,8 +89,22 @@ in {
   systemd.services.nfqws2 = {
     description = "nfqws2 (zapret2) DPI bypass daemon";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "nftables.service" ];
+
+    # Жёсткие зависимости:
+    # - after/requires network-online — интернет должен быть готов.
+    # - after nftables — правила очереди должны существовать.
+    # - after/requires sing-box — TUN должен быть создан ДО того,
+    #   как nfqws2 начнёт обрабатывать трафик из очереди.
+    #   Без этого: nfqws2 привязывается к очереди раньше, чем
+    #   sing-box создаёт TUN. Первые пакеты уходят в пустую очередь
+    #   и теряются. Соединения отваливаются по таймауту.
+    after = [
+      "network-online.target"
+      "nftables.service"
+      "sing-box.service"
+    ];
     wants = [ "network-online.target" ];
+    requires = [ "sing-box.service" ];
 
     serviceConfig = {
       Type = "simple";
