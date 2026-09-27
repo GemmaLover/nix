@@ -7,35 +7,37 @@
   # =====================================================================
   # КОНСТАНТЫ
   # =====================================================================
-
-  # Директория с ресурсами zapret2 (Lua-скрипты).
-  # Создаётся через systemd.tmpfiles как симлинк на ${pkgs.zapret2}/share/zapret2.
-  # nfqws2 ищет Lua-файлы именно по этому пути.
   ZAPRET_BASE = "/opt/zapret2";
-
-  # Номер очереди NFQUEUE.
-  # 200 — стандартный для zapret2. nftables заворачивает пакеты
-  # в эту очередь через `queue num 200`, а nfqws2 их обрабатывает.
   QNUM = "200";
-
-  # Метка, которой sing-box помечает трафик для nfqws2.
-  # Должна совпадать с routing_mark = 110 в signbox.nix (outbound zapret-out).
   DESYNC_MARK = "0x40000000";
 
   # =====================================================================
   # СТРАТЕГИИ ОБХОДА DPI
   #
-  # УПРОЩЕНО: только multisplit:pos=1 для TLS.
-  # Убран multisplit:pos=sniext+1 — он создавал больше сегментов,
-  # что увеличивало вероятность превышения MTU при отправке.
+  # Все 9 тестовых доменов (instagram, youtube, rutracker, telegram,
+  # virustotal, discord, x.com, twitter, facebook) — SNI blocked.
+  # Значит DPI читает SNI из TLS ClientHello и блокирует соединение.
   #
-  # multisplit:pos=1 — разбивает ClientHello после первого байта.
-  # Этого достаточно для обхода большинства DPI: TLS record header
-  # (0x16 0x03 ...) разрывается, и DPI не может определить протокол.
+  # БАЗОВАЯ СТРАТЕГИЯ (multisplit:pos=1) работала только для YouTube,
+  # потому что:
+  #   - она ломала TLS record header (0x16 0x03 ...),
+  #   - но SNI внутри ClientHello оставался целым,
+  #   - простой DPI YouTube не смотрел глубже заголовка,
+  #   - сложные DPI (Instagram, Discord) читают SNI и блокируют.
   #
-  # ВАЖНО: --fix-seg в вашей версии nfqws2 НЕ ПОДДЕРЖИВАЕТСЯ.
-  # Эта опция есть только в старом zapret v1. Убрана, чтобы сервис
-  # не падал с ошибкой "unknown option".
+  # НОВАЯ СТРАТЕГИЯ — multisplit с НЕСКОЛЬКИМИ позициями:
+  #   pos=1         — после TLS record header (0x16 0x03 0x01 ...)
+  #   pos=sniext+1  — сразу после начала расширения SNI
+  #   pos=sniext+4  — внутри SNI, ломает имя домена
+  #   pos=host+1    — внутри имени хоста (если sni не сработал)
+  #
+  # Одна опция multisplit создаёт 4-5 фрагментов из ОДНОГО пакета.
+  # Суммарный размер не превышает исходный — поэтому "Message too long"
+  # не возвращается (в отличие от fake, который ДОБАВЛЯЕТ данные).
+  #
+  # Если и это не поможет — можно добавить multidisorder
+  # (отправка фрагментов в обратном порядке). Он тоже не создаёт
+  # новых пакетов.
   # =====================================================================
 
   # --- Стратегия для TLS (HTTPS через TCP/443) ---
@@ -43,7 +45,8 @@
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
-    "--lua-desync=multisplit:pos=1"
+    "--lua-desync=multisplit:pos=1,sniext+1,sniext+4"
+    "--lua-desync=multidisorder:pos=1,sniext+1"
   ];
 
   # --- Стратегия для HTTP (TCP/80) ---
@@ -51,17 +54,13 @@
     "--filter-tcp=80"
     "--filter-l7=http"
     "--payload=http_req"
-    "--lua-desync=multisplit:pos=method+2"
+    "--lua-desync=multisplit:pos=method+2,host+2"
   ];
 
-  # --- Общие аргументы (применяются ко всем стратегиям) ---
-  # --qnum=200                       — номер очереди NFQUEUE.
-  # --lua-init=@.../zapret-lib.lua   — базовая библиотека Lua.
-  # --lua-init=@.../zapret-antidpi.lua — библиотека с функциями
-  #   десинхронизации (multisplit и т.д.).
-  # --filter-l3=ipv4                 — обрабатываем ТОЛЬКО IPv4.
-  #   Это критично: IPv6-пакеты не должны попадать в nfqws2,
-  #   иначе возникает ошибка "Message too long" (1480 + 40 = 1520 > 1500).
+  # --- Общие аргументы ---
+  # --filter-l3=ipv4 — обрабатываем только IPv4.
+  #   IPv6-пакеты не должны попадать в nfqws2, иначе
+  #   "Message too long" (1480 + 40 = 1520 > 1500).
   BASE_ARGS = [
     "--qnum=${QNUM}"
     "--lua-init=@${ZAPRET_BASE}/lua/zapret-lib.lua"
@@ -69,7 +68,6 @@
     "--filter-l3=ipv4"
   ];
 
-  # Итоговый список аргументов для nfqws2.
   ALL_ARGS = BASE_ARGS ++ TLS_STRATEGY ++ HTTP_STRATEGY;
 in {
   # =====================================================================
@@ -85,19 +83,12 @@ in {
 
   # =====================================================================
   # SYSTEMD-СЕРВИС NFQWS2
+  #
+  # Зависит от sing-box (TUN должен быть готов до старта nfqws2).
   # =====================================================================
   systemd.services.nfqws2 = {
     description = "nfqws2 (zapret2) DPI bypass daemon";
     wantedBy = [ "multi-user.target" ];
-
-    # Жёсткие зависимости:
-    # - after/requires network-online — интернет должен быть готов.
-    # - after nftables — правила очереди должны существовать.
-    # - after/requires sing-box — TUN должен быть создан ДО того,
-    #   как nfqws2 начнёт обрабатывать трафик из очереди.
-    #   Без этого: nfqws2 привязывается к очереди раньше, чем
-    #   sing-box создаёт TUN. Первые пакеты уходят в пустую очередь
-    #   и теряются. Соединения отваливаются по таймауту.
     after = [
       "network-online.target"
       "nftables.service"
@@ -123,10 +114,7 @@ in {
   };
 
   # =====================================================================
-  # NFTABLES: ПЕРЕХВАТ ТРАФИКА С MARK 110
-  #
-  # Пропускаем ВЕСЬ IPv6 (meta nfproto ipv6 return) — именно IPv6-пакеты
-  # вызывали "Message too long" (1480 + 40 = 1520 > 1500).
+  # NFTABLES: перехват трафика с mark 110, только IPv4.
   # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
@@ -156,7 +144,7 @@ in {
   '';
 
   # =====================================================================
-  # УТИЛИТЫ ДЛЯ УПРАВЛЕНИЯ И ДИАГНОСТИКИ
+  # УТИЛИТЫ
   # =====================================================================
   environment.systemPackages = with pkgs; [
     (writeShellScriptBin "nfqws2-status" ''
@@ -196,8 +184,6 @@ in {
 
       cd "$(dirname "$BLOCKCHECK")"
       echo "==> Запуск blockcheck2.sh для домена: $DOMAIN"
-      echo "==> Директория: $(pwd)"
-      echo ""
       sudo ./blockcheck2.sh "$DOMAIN"
     '')
   ];
