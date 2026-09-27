@@ -29,6 +29,7 @@
 
     ../../base/tools/byedpi.nix
     ../../base/tools/zapret-tpws.nix
+    ../../base/tools/blockcheckw.nix
 
     # === UI ===
     ../../base/ui/kde.nix
