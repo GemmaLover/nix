@@ -22,6 +22,8 @@
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
   # │ - Firefox, nix, всё остальное → direct                       │
+  # │ - QUIC (UDP/443, UDP/8443) → REJECT                          │
+  # │   Клиенты автоматически откатываются на TCP.                 │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -31,9 +33,16 @@
   # - stack = "mixed": TCP через system, UDP через gvisor.
   # - udp_mapping / udp_filtering — endpoint_independent.
   # - udp_timeout = "5m".
-  # - route_exclude_address НЕ используем: диапазон 172.16.0.0/12
-  #   пересекается с подсетью самого TUN (172.19.0.0/30), из-за чего
-  #   auto_route ломается и трафик вообще не идёт в TUN.
+  #
+  # - ГЛАВНОЕ: правило { protocol = "quic"; action = "reject"; }
+  #   стоит ПЕРЕД sniff. Это блокирует все QUIC-пакеты
+  #   (HTTP/3, DoH3, любой UDP-based QUIC).
+  #   Причина: gvisor-стек sing-box не умеет корректно
+  #   пробрасывать QUIC (фрагментированный ClientHello теряется,
+  #   ответы не возвращаются, соединение виснет).
+  #   Браузеры и dnscrypt-proxy при отказе QUIC автоматически
+  #   переключаются на TCP — а TCP через TUN работает надёжно.
+  #
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
   # =====================================================================
@@ -119,11 +128,20 @@
             process_name = ["portmaster-core"];
             outbound = "direct-out";
           }
-          # 3. Sniffing — определяет протокол для следующих правил.
+          # 3. БЛОКИРУЕМ QUIC. Ставим ДО sniff, чтобы sniffing
+          #    не пытался читать фрагментированный QUIC ClientHello
+          #    (это ломает pre-match и соединение зависает).
+          #    После reject клиенты (Firefox, dnscrypt-proxy) сами
+          #    откатятся на TCP.
+          {
+            protocol = "quic";
+            action = "reject";
+          }
+          # 4. Sniffing для остального трафика (TCP).
           {
             action = "sniff";
           }
-          # 4. Правила по процессам.
+          # 5. Правила по процессам.
           {
             process_name = ["brave"];
             outbound = "socks-out";
@@ -140,7 +158,7 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # 5. Всё остальное — direct.
+          # 6. Всё остальное — direct.
           {
             outbound = "direct-out";
           }
