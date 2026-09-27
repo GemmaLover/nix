@@ -27,6 +27,8 @@
     ../../base/tools/signbox.nix
     ../../base/tools/n13rebuild.nix
 
+    ../../base/tools/byedpi.nix
+
     # === UI ===
     ../../base/ui/kde.nix
 
