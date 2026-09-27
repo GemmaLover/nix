@@ -22,8 +22,9 @@
   # - ПОИСК СТРАТЕГИЙ:
   #   Скрипт zapret-find-strategy запускает blockcheck
   #   (бинарник без расширения .sh) из пакета zapret.
-  #   blockcheck перебирает комбинации split/disorder/tlsrec
-  #   и выводит SUMMARY с рабочими стратегиями.
+  #   Скрипт zapret-find-v2 запускает blockcheck2.sh
+  #   из пакета zapret2 — он умеет работать с Lua-стратегиями
+  #   и находит более сложные комбинации.
   # =====================================================================
 
   systemd.services.zapret-tpws = {
@@ -66,64 +67,130 @@
   };
 
   # =====================================================================
-  # Скрипт zapret-find-strategy — поиск стратегий для tpws.
-  #
-  # Использование:
-  #   sudo zapret-find-strategy instagram.com
-  #   sudo zapret-find-strategy youtube.com --tls13
-  #   sudo zapret-find-strategy discord.com --tls13 --quic
-  #
-  # Что делает:
-  #   1. Находит бинарник blockcheck в пакете zapret.
-  #   2. Запускает blockcheck для указанного домена.
-  #   3. Выводит SUMMARY с найденными рабочими стратегиями.
-  #   4. Показывает, какие параметры вставить в zapret-tpws.nix.
-  #
-  # ВАЖНО: blockcheck — это бинарник БЕЗ расширения .sh.
-  # Раньше скрипт искал blockcheck.sh и не находил его.
+  # Скрипты для поиска стратегий и просмотра статуса.
   # =====================================================================
   environment.systemPackages = with pkgs; [
+    # --- zapret-find-strategy: blockcheck из пакета zapret ---
+    # Использование:
+    #   sudo zapret-find-strategy instagram.com
     (writeShellScriptBin "zapret-find-strategy" ''
       #!/usr/bin/env bash
       set -euo pipefail
 
       if [ $# -lt 1 ]; then
         echo "Использование: zapret-find-strategy <domain> [--tls13] [--quic]"
-        echo ""
-        echo "Примеры:"
-        echo "  zapret-find-strategy instagram.com"
-        echo "  zapret-find-strategy youtube.com --tls13"
-        echo "  zapret-find-strategy discord.com --tls13 --quic"
-        echo ""
-        echo "Скрипт перебирает стратегии обхода DPI для указанного"
-        echo "домена через blockcheck (входит в zapret)."
-        echo "В выводе смотрите секцию SUMMARY."
+        echo "Пример: zapret-find-strategy instagram.com"
         exit 1
       fi
 
       DOMAIN="$1"
       shift
 
-      # Ищем бинарник blockcheck (без .sh) в пакете zapret.
       BLOCKCHECK=$(find ${zapret}/ -name "blockcheck" -type f 2>/dev/null | head -1)
-
       if [ -z "$BLOCKCHECK" ]; then
         echo "Ошибка: бинарник blockcheck не найден в пакете zapret." >&2
-        echo "Проверьте, что zapret установлен:" >&2
-        echo "  nix-shell -p zapret --command which blockcheck" >&2
         exit 1
       fi
 
       echo "==> Запуск blockcheck для домена: $DOMAIN"
-      echo "==> blockcheck: $BLOCKCHECK"
-      echo ""
-
-      # blockcheck принимает домен как аргумент.
-      # Требуется root для SO_MARK и nfqueue.
       sudo "$BLOCKCHECK" "$DOMAIN" "$@"
     '')
 
-    # Утилита для просмотра текущего состояния tpws.
+    # --- zapret-find-v2: blockcheck2.sh из пакета zapret2 ---
+    #
+    # Использование:
+    #   sudo zapret-find-v2 instagram.com
+    #   sudo zapret-find-v2 instagram.com --stop-services
+    #
+    # Отличия от zapret-find-strategy:
+    #   - использует blockcheck2.sh (умеет Lua-стратегии);
+    #   - автоматически находит скрипт в пакете zapret2;
+    #   - с флагом --stop-services останавливает zapret-tpws
+    #     и byedpi на время теста и возвращает после.
+    (writeShellScriptBin "zapret-find-v2" ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      STOP_SERVICES=0
+      DOMAIN=""
+
+      # Парсим аргументы.
+      for arg in "$@"; do
+        case "$arg" in
+          --stop-services)
+            STOP_SERVICES=1
+            ;;
+          -h|--help)
+            echo "Использование: zapret-find-v2 <domain> [--stop-services]"
+            echo ""
+            echo "Аргументы:"
+            echo "  <domain>          Домен для тестирования (обязательно)"
+            echo "  --stop-services   Остановить zapret-tpws и byedpi на время теста"
+            echo ""
+            echo "Примеры:"
+            echo "  sudo zapret-find-v2 instagram.com"
+            echo "  sudo zapret-find-v2 youtube.com --stop-services"
+            exit 0
+            ;;
+          -*)
+            echo "Неизвестный флаг: $arg" >&2
+            exit 1
+            ;;
+          *)
+            if [ -z "$DOMAIN" ]; then
+              DOMAIN="$arg"
+            fi
+            ;;
+        esac
+      done
+
+      if [ -z "$DOMAIN" ]; then
+        echo "Ошибка: укажите домен." >&2
+        echo "Использование: zapret-find-v2 <domain> [--stop-services]" >&2
+        exit 1
+      fi
+
+      # Ищем blockcheck2.sh в пакете zapret2.
+      BLOCKCHECK=$(find ${zapret2}/ -name "blockcheck2.sh" -type f 2>/dev/null | head -1)
+      if [ -z "$BLOCKCHECK" ]; then
+        echo "Ошибка: blockcheck2.sh не найден в пакете zapret2." >&2
+        echo "Проверьте, что zapret2 установлен:" >&2
+        echo "  nix-shell -p zapret2 --command 'find \$(dirname \$(which nfqws2))/.. -name blockcheck2.sh'" >&2
+        exit 1
+      fi
+
+      BLOCKCHECK_DIR=$(dirname "$BLOCKCHECK")
+
+      # Останавливаем сервисы, если попросили.
+      if [ "$STOP_SERVICES" -eq 1 ]; then
+        echo "==> Останавливаю zapret-tpws и byedpi на время теста"
+        sudo systemctl stop zapret-tpws 2>/dev/null || true
+        sudo systemctl stop byedpi 2>/dev/null || true
+      fi
+
+      # Запускаем blockcheck2.sh из его директории.
+      # Скрипт использует относительные пути к blockcheck2.d/ и common/,
+      # поэтому cd обязателен.
+      echo "==> Запуск blockcheck2.sh для домена: $DOMAIN"
+      echo "==> Директория: $BLOCKCHECK_DIR"
+      echo ""
+
+      cd "$BLOCKCHECK_DIR"
+      sudo ./blockcheck2.sh "$DOMAIN"
+      EXIT_CODE=$?
+
+      # Возвращаем сервисы, если останавливали.
+      if [ "$STOP_SERVICES" -eq 1 ]; then
+        echo ""
+        echo "==> Возвращаю zapret-tpws и byedpi"
+        sudo systemctl start byedpi 2>/dev/null || true
+        sudo systemctl start zapret-tpws 2>/dev/null || true
+      fi
+
+      exit $EXIT_CODE
+    '')
+
+    # --- zapret-status: показать текущий статус tpws ---
     (writeShellScriptBin "zapret-status" ''
       #!/usr/bin/env bash
       echo "=== tpws (zapret SOCKS-прокси) ==="
