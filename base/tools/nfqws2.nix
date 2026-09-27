@@ -8,83 +8,133 @@
   # КОНСТАНТЫ
   # =====================================================================
   ZAPRET_BASE = "/opt/zapret2";
+
+  # Директория с файлами blobs/lists (внутри репозитория).
+  # Nix подставляет абсолютный путь к директории, где лежит этот .nix файл.
+  # То есть ${./.} = /nix/store/...-source/base/tools/nfqws2
+  FILES_DIR = ./.;
+
   QNUM = "200";
   DESYNC_MARK = "0x40000000";
 
   # =====================================================================
-  # СТРАТЕГИИ ОБХОДА DPI
+  # СТРАТЕГИЯ GOLDDOPI (Dom.ru)
   #
-  # Все 9 тестовых доменов (instagram, youtube, rutracker, telegram,
-  # virustotal, discord, x.com, twitter, facebook) — SNI blocked.
-  # Значит DPI читает SNI из TLS ClientHello и блокирует соединение.
+  # Источник:
+  # https://github.com/nfqws/nfqws2-keenetic/discussions/2
+  # #discussioncomment-17512647
   #
-  # БАЗОВАЯ СТРАТЕГИЯ (multisplit:pos=1) работала только для YouTube,
-  # потому что:
-  #   - она ломала TLS record header (0x16 0x03 ...),
-  #   - но SNI внутри ClientHello оставался целым,
-  #   - простой DPI YouTube не смотрел глубже заголовка,
-  #   - сложные DPI (Instagram, Discord) читают SNI и блокируют.
-  #
-  # НОВАЯ СТРАТЕГИЯ — multisplit с НЕСКОЛЬКИМИ позициями:
-  #   pos=1         — после TLS record header (0x16 0x03 0x01 ...)
-  #   pos=sniext+1  — сразу после начала расширения SNI
-  #   pos=sniext+4  — внутри SNI, ломает имя домена
-  #   pos=host+1    — внутри имени хоста (если sni не сработал)
-  #
-  # Одна опция multisplit создаёт 4-5 фрагментов из ОДНОГО пакета.
-  # Суммарный размер не превышает исходный — поэтому "Message too long"
-  # не возвращается (в отличие от fake, который ДОБАВЛЯЕТ данные).
-  #
-  # Если и это не поможет — можно добавить multidisorder
-  # (отправка фрагментов в обратном порядке). Он тоже не создаёт
-  # новых пакетов.
+  # Все blobs и lists лежат в base/tools/nfqws2/files/.
+  # Симлинки создаются в /opt/zapret2/blobs и /opt/zapret2/lists.
   # =====================================================================
 
-  # --- Стратегия для TLS (HTTPS через TCP/443) ---
-  TLS_STRATEGY = [
-    "--filter-tcp=443"
-    "--filter-l7=tls"
-    "--payload=tls_client_hello"
-    "--lua-desync=multisplit:pos=1,sniext+1,sniext+4"
-    "--lua-desync=multidisorder:pos=1,sniext+1"
+  # --- Blobs ---
+  BLOBS = [
+    "--blob=quic_initial:@${ZAPRET_BASE}/blobs/quic_initial.bin"
+    "--blob=tls_clienthello:@${ZAPRET_BASE}/blobs/tls_clienthello.bin"
+    "--blob=tls_google:@${ZAPRET_BASE}/blobs/tls_clienthello_www_google_com.bin"
+    "--blob=quic_google:@${ZAPRET_BASE}/blobs/quic_initial_www_google_com.bin"
+    "--blob=tls_max:@${ZAPRET_BASE}/blobs/tls_clienthello_max_ru.bin"
+    "--blob=stun:@${ZAPRET_BASE}/blobs/stun.bin"
+    "--blob=quic_dbankcloud:@${ZAPRET_BASE}/blobs/quic_initial_dbankcloud_ru.bin"
+    "--blob=blob_zero:0x00000000"
   ];
 
-  # --- Стратегия для HTTP (TCP/80) ---
-  HTTP_STRATEGY = [
-    "--filter-tcp=80"
-    "--filter-l7=http"
-    "--payload=http_req"
-    "--lua-desync=multisplit:pos=method+2,host+2"
-  ];
-
-  # --- Общие аргументы ---
-  # --filter-l3=ipv4 — обрабатываем только IPv4.
-  #   IPv6-пакеты не должны попадать в nfqws2, иначе
-  #   "Message too long" (1480 + 40 = 1520 > 1500).
+  # --- Lua + базовые аргументы ---
   BASE_ARGS = [
     "--qnum=${QNUM}"
     "--lua-init=@${ZAPRET_BASE}/lua/zapret-lib.lua"
     "--lua-init=@${ZAPRET_BASE}/lua/zapret-antidpi.lua"
     "--filter-l3=ipv4"
+  ] ++ BLOBS;
+
+  # --- Стратегия (полная от GoldDopi) ---
+  STRATEGY = [
+    # === Профиль 1: YouTube QUIC ===
+    "--filter-udp=443"
+    "--filter-l7=quic"
+    "--hostlist=${ZAPRET_BASE}/lists/domain-youtube.list"
+    "--payload=quic_initial"
+    "--lua-desync=fake:blob=quic_initial:repeats=11"
+    "--new"
+
+    # === Профиль 2: YouTube TLS ===
+    "--filter-tcp=443"
+    "--filter-l7=tls"
+    "--payload=tls_client_hello"
+    "--hostlist=${ZAPRET_BASE}/lists/domain-youtube.list"
+    "--lua-desync=multidisorder:pos=1,sniext+1,host+1,midsld-2,midsld,midsld+2,endhost-1"
+    "--lua-desync=fake:blob=tls_clienthello:optional:tcp_seq=-10000:tcp_ack=-66000:badsum:tls_mod=rnd,dupsid,sni=rzd.ru:repeats=4"
+    "--new"
+
+    # === Профиль 3: IPset OVH ===
+    "--ipset=${ZAPRET_BASE}/lists/ipset_ovh.list"
+    "--filter-l7=tls"
+    "--payload=tls_client_hello"
+    "--lua-desync=hostfakesplit:host=ya.ru:tcp_md5:badsum"
+    "--new"
+
+    # === Профиль 4: Discord UDP ===
+    "--name=Discord-UDP"
+    "--filter-udp=3478-3481,19294-19344,50000-50100"
+    "--filter-l7=discord,stun"
+    "--payload=discord_ip_discovery,stun"
+    "--lua-desync=fake:blob=quic_google:repeats=6"
+    "--new"
+
+    # === Профиль 5: Discord Media ===
+    "--name=Discord-Media"
+    "--filter-tcp=2053,2083,2087,2096,8443"
+    "--hostlist-domains=discord.media"
+    "--lua-desync=hostfakesplit:repeats=4:tcp_ts=-600000:host=www.google.com"
+    "--new"
+
+    # === Профиль 6: Sites (главный для x.com, instagram) ===
+    "--name=Sites"
+    "--filter-tcp=80,443,8443"
+    "--filter-l7=http,tls"
+    "--hostlist-exclude=${ZAPRET_BASE}/lists/domains_exclude.list"
+    "--ipset-exclude=${ZAPRET_BASE}/lists/ipset_exclude.list"
+    "--payload=http_req,tls_client_hello"
+    "--lua-desync=hostfakesplit:repeats=4:tcp_ts=-600000:tcp_md5:host=ya.ru"
+    "--new"
+
+    # === Профиль 7: Games TCP ===
+    "--name=GamesTCP"
+    "--filter-tcp=1024-65535"
+    "--ipset-exclude=${ZAPRET_BASE}/lists/ipset_exclude.list"
+    "--payload=tls_client_hello"
+    "--lua-desync=fake:blob=stun:repeats=8:tcp_ts=-600000"
+    "--lua-desync=multisplit:seqovl_pattern=tls_max:seqovl=664:pos=1"
+    "--new"
+
+    # === Профиль 8: Games UDP ===
+    "--name=GamesUDP"
+    "--filter-udp=1024-65535"
+    "--ipset-exclude=${ZAPRET_BASE}/lists/ipset_exclude.list"
+    "--lua-desync=fake:blob=quic_dbankcloud:repeats=10"
   ];
 
-  ALL_ARGS = BASE_ARGS ++ TLS_STRATEGY ++ HTTP_STRATEGY;
+  ALL_ARGS = BASE_ARGS ++ STRATEGY;
 in {
   # =====================================================================
-  # СИМЛИНКИ НА РЕСУРСЫ ZAPRET2
+  # СИМЛИНКИ НА РЕСУРСЫ
   # =====================================================================
   systemd.tmpfiles.rules = [
+    # Базовые ресурсы zapret2 из nixpkgs
     "d /opt/zapret2 0755 root root -"
     "L+ /opt/zapret2/lua - - - - ${pkgs.zapret2}/share/zapret2/lua"
     "L+ /opt/zapret2/common - - - - ${pkgs.zapret2}/share/zapret2/common"
     "d /opt/zapret2/nfq2 0755 root root -"
     "L+ /opt/zapret2/nfq2/nfqws2 - - - - ${pkgs.zapret2}/bin/nfqws2"
+
+    # Blobs и lists из репозитория (${FILES_DIR}/blobs и ${FILES_DIR}/lists)
+    "L+ /opt/zapret2/blobs - - - - ${FILES_DIR}/blobs"
+    "L+ /opt/zapret2/lists - - - - ${FILES_DIR}/lists"
   ];
 
   # =====================================================================
   # SYSTEMD-СЕРВИС NFQWS2
-  #
-  # Зависит от sing-box (TUN должен быть готов до старта nfqws2).
   # =====================================================================
   systemd.services.nfqws2 = {
     description = "nfqws2 (zapret2) DPI bypass daemon";
@@ -150,40 +200,31 @@ in {
     (writeShellScriptBin "nfqws2-status" ''
       #!/usr/bin/env bash
       echo "=== nfqws2 (zapret2) ==="
-      if systemctl is-active --quiet nfqws2 2>/dev/null; then
-        echo "Статус: активен"
-      else
-        echo "Статус: неактивен"
-      fi
+      systemctl is-active --quiet nfqws2 2>/dev/null && echo "Статус: активен" || echo "Статус: неактивен"
       echo ""
-      echo "=== ExecStart ==="
-      systemctl cat nfqws2 2>/dev/null | grep -A3 "ExecStart" || \
-        echo "  unit не найден"
+      echo "=== Загруженные профили ==="
+      sudo journalctl -u nfqws2 -n 200 --no-pager | grep -oE '\-\-name=[^ ]+' | sort -u
       echo ""
-      echo "=== nftables (таблица zapret_nfqws2) ==="
-      sudo nft list table inet zapret_nfqws2 2>/dev/null || \
-        echo "  таблица не найдена"
+      echo "=== Файлы ==="
+      ls /opt/zapret2/blobs/ 2>/dev/null | head -5
+      echo "..."
+      ls /opt/zapret2/lists/ 2>/dev/null | head -5
     '')
 
     (writeShellScriptBin "nfqws2-find-strategy" ''
       #!/usr/bin/env bash
       set -euo pipefail
-
       if [ $# -lt 1 ]; then
         echo "Использование: nfqws2-find-strategy <domain>"
         exit 1
       fi
-
       DOMAIN="$1"
       BLOCKCHECK=$(find ${zapret2}/ -name "blockcheck2.sh" -type f 2>/dev/null | head -1)
-
       if [ -z "$BLOCKCHECK" ]; then
-        echo "Ошибка: blockcheck2.sh не найден в пакете zapret2." >&2
+        echo "Ошибка: blockcheck2.sh не найден." >&2
         exit 1
       fi
-
       cd "$(dirname "$BLOCKCHECK")"
-      echo "==> Запуск blockcheck2.sh для домена: $DOMAIN"
       sudo ./blockcheck2.sh "$DOMAIN"
     '')
   ];
