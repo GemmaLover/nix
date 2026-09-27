@@ -5,39 +5,17 @@
   # =====================================================================
   # n13rebuild — коммит, push и пересборка NixOS одной командой.
   #
-  # Использование:
-  #   n13rebuild "network: fix NAT rules"
-  #   n13rebuild                 # если сообщение не указано — "update"
-  #
   # Что делает:
-  #   1. cd в ~/projects/nix-wrap/nix
-  #   2. git add .
-  #   3. git commit -m "$MSG"    (не падает, если коммитить нечего)
-  #   4. git push
-  #   5. sudo nixos-rebuild switch --flake .#z13
-  #   6. sudo systemctl restart dnscrypt-proxy
-  #   7. sudo systemctl restart sing-box
-  #   8. sudo systemctl restart byedpi
+  #   1. git add .
+  #   2. git commit -m "$MSG"
+  #   3. git push
+  #   4. sudo nixos-rebuild switch --flake .#z13
+  #   5. Перезапуск зависимых сервисов:
+  #      dnscrypt-proxy → byedpi → zapret2 → sing-box
   #
-  # ЗАЧЕМ ПЕРЕЗАПУСК СЕРВИСОВ:
-  # - dnscrypt-proxy: после пересборки остаются старые сокеты
-  #   и conntrack-записи. Рестарт сбрасывает сокеты и поднимает
-  #   свежие DoH-сессии.
-  # - sing-box: пересоздаёт TUN, пересобирает ip rule и таблицу 2022.
-  #   Явный рестарт гарантирует, что auto_route встал после nftables.
-  # - byedpi: перечитывает hosts.txt и пересоздаёт SOCKS5-сокет.
-  # =====================================================================
-  #
-  # n13clear — очистка старых поколений NixOS и сборка мусора.
-  #
-  # Использование:
-  #   n13clear           # удалить ВСЕ старые поколения
-  #   n13clear 7         # удалить поколения старше 7 дней
-  #
-  # Что делает:
-  #   1. sudo nix-collect-garbage -d (или --delete-older-than Nd)
-  #   2. nix-collect-garbage -d (user profile)
-  #   3. Обновляет записи systemd-boot
+  # n13clear — очистка старых поколений и сборка мусора.
+  #   n13clear       — удалить ВСЕ старые поколения
+  #   n13clear 7     — удалить старше 7 дней
   # =====================================================================
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "n13rebuild" ''
@@ -71,12 +49,8 @@
       echo "==> sudo nixos-rebuild switch --flake $FLAKE_ATTR"
       sudo nixos-rebuild switch --flake "$FLAKE_ATTR"
 
-      # === Перезапуск зависимых сервисов ===
-      # Порядок важен:
-      #  1. dnscrypt-proxy — DNS-резолвер, должен быть готов до sing-box.
-      #  2. byedpi — локальный SOCKS5, должен слушать до sing-box.
-      #  3. sing-box — пересоздаёт TUN и ip rule.
-      for svc in dnscrypt-proxy byedpi sing-box; do
+      # Порядок: DNS → ByeDPI → zapret2 → sing-box.
+      for svc in dnscrypt-proxy byedpi zapret2 sing-box; do
         if systemctl list-unit-files --quiet "$svc.service" >/dev/null 2>&1 \
            && systemctl cat "$svc.service" >/dev/null 2>&1; then
           echo "==> sudo systemctl restart $svc"

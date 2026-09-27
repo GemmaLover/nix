@@ -28,6 +28,7 @@
     ../../base/tools/n13rebuild.nix
 
     ../../base/tools/byedpi.nix
+    ../../base/tools/zapret2.nix
 
     # === UI ===
     ../../base/ui/kde.nix
