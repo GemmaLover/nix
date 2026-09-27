@@ -22,7 +22,6 @@
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
   # │ - Firefox, nix, всё остальное → direct                       │
-  # │ - QUIC/HTTP3 → direct (без sniffing, чтобы не ломать)        │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -30,14 +29,11 @@
   # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
   #   Правило ip rule (v4+v6) создаётся сервисом sing-box-fwmark-rule.
   # - stack = "mixed": TCP через system, UDP через gvisor.
-  # - udp_mapping / udp_filtering — endpoint_independent (по умолчанию).
+  # - udp_mapping / udp_filtering — endpoint_independent.
   # - udp_timeout = "5m".
-  # - ВАЖНО: добавлено правило для QUIC перед sniffing.
-  #   Без него фрагментированный QUIC ClientHello ломает pre-match,
-  #   и UDP-соединение не маршрутизируется (зависает).
-  # - route_exclude_address — исключает локальные сети из TUN,
-  #   чтобы DNS-запросы к роутеру (192.168.1.1:53) не попадали
-  #   в sing-box и не создавали петлю.
+  # - route_exclude_address НЕ используем: диапазон 172.16.0.0/12
+  #   пересекается с подсетью самого TUN (172.19.0.0/30), из-за чего
+  #   auto_route ломается и трафик вообще не идёт в TUN.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
   # =====================================================================
@@ -68,20 +64,6 @@
           udp_timeout = "5m";
           udp_mapping = "endpoint_independent";
           udp_filtering = "endpoint_independent";
-
-          # Исключаем локальные сети из TUN. Это критично:
-          # DNS-запросы к роутеру (192.168.1.1:53) и другим
-          # локальным устройствам не должны попадать в sing-box,
-          # иначе они зацикливаются и создают нагрузку.
-          route_exclude_address = [
-            "192.168.0.0/16"
-            "10.0.0.0/8"
-            "172.16.0.0/12"
-            "127.0.0.0/8"
-            "::1/128"
-            "fe80::/10"
-            "fc00::/7"
-          ];
         }
       ];
 
@@ -137,22 +119,11 @@
             process_name = ["portmaster-core"];
             outbound = "direct-out";
           }
-          # 3. ВАЖНО: QUIC/HTTP3 обрабатываем ДО sniffing.
-          #    Если этого не сделать, sniffing попытается прочитать
-          #    фрагментированный QUIC ClientHello, pre-match
-          #    остановится, и соединение зависнет.
-          #    Ставим action = "route" (не sniff), чтобы сразу
-          #    отправить в direct без анализа протокола.
-          {
-            protocol = "quic";
-            action = "route";
-            outbound = "direct-out";
-          }
-          # 4. Только после QUIC — включаем sniffing для остального.
+          # 3. Sniffing — определяет протокол для следующих правил.
           {
             action = "sniff";
           }
-          # 5. Правила по процессам.
+          # 4. Правила по процессам.
           {
             process_name = ["brave"];
             outbound = "socks-out";
@@ -169,7 +140,7 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # 6. Всё остальное — direct.
+          # 5. Всё остальное — direct.
           {
             outbound = "direct-out";
           }
