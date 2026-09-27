@@ -12,32 +12,21 @@
   #   ├─────────────────────────────────────────────────────────────┤
   #   │ dnscrypt-proxy (127.0.0.1:53 и :5353)                       │
   #   │   - шифрует DNS (DoH/DNSCrypt) → Cloudflare/Quad9/Scaleway  │
-  #   │   - пакеты уже зашифрованы                                  │
   #   ├─────────────────────────────────────────────────────────────┤
   #   │ sing-box (TUN singtun0)                                     │
-  #   │   - DNS НЕ трогает (это работа Portmaster)                  │
-  #   │   - dnscrypt-proxy → direct (пакеты уже зашифрованы)        │
-  #   │   - portmaster-core → direct (он сам управляет nfqueue)     │
-  #   │   - Brave  → SOCKS5                                         │
-  #   │   - Chromium → VLESS                                        │
+  #   │   - DNS НЕ трогает                                          │
+  #   │   - dnscrypt-proxy → direct                                 │
+  #   │   - portmaster-core → direct                                │
+  #   │   - Brave → SOCKS5, Chromium → VLESS                        │
   #   │   - Firefox, nix, всё остальное → direct                    │
   #   └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
   #   - DNS-секции нет. sing-box не резолвит имена.
-  #   - Правила hijack-dns нет. DNS-фильтрацию делает Portmaster.
-  #   - MTU = 1400: предотвращает дропы больших пакетов при выходе
-  #     через wlp (MTU 1500). Без этого TLS-хендшейк зависает.
-  #   - strict_route = false: strict_route ломает rp_filter при
-  #     прямых исходящих через физический интерфейс.
-  #   - default_mark = 8227: КРИТИЧЕСКИ ВАЖНО. Помечает собственные
-  #     исходящие сокеты sing-box этим fwmark, чтобы ip rule пропускал
-  #     их мимо TUN. Без этого пакеты sing-box попадают в TUN и
-  #     зацикливаются (curl висит, Firefox не открывает сайты).
-  #   - auto_route требует nftables. Без nft sing-box не может
-  #     маркировать пакеты fwmark. Поэтому:
-  #       а) networking.nftables.enable = true — в base/system/network.nix;
-  #       б) nft и iptables добавлены в path сервиса ниже.
+  #   - default_mark = 8227 — помечает исходящие сокеты sing-box.
+  #     Требуется правило ip rule, которое создаёт
+  #     сервис sing-box-fwmark-rule (см. ниже).
+  #   - MTU = 1400, strict_route = false.
   # =====================================================================
 
   services.sing-box = {
@@ -46,127 +35,67 @@
     settings = {
       log = { level = "info"; };
 
-      # --- Входящий интерфейс: TUN ---
       inbounds = [
         {
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
           address = [ "172.19.0.1/30" ];
-          # auto_route — sing-box сам добавляет маршруты и ip rule
-          # через nftables-маркировку (fwmark).
           auto_route = true;
-          # strict_route = false — иначе ломается прямой трафик
-          # к dnscrypt и portmaster.
           strict_route = false;
-          # MTU 1400: безопасно ниже 1500, чтобы пакеты не дропались
-          # при выходе через физический интерфейс.
           mtu = 1400;
         }
       ];
 
-      # --- Исходящие подключения ---
       outbounds = [
-        # 1. SOCKS5 — для Brave.
         {
           type = "socks";
           tag = "socks-out";
-          server = "127.0.0.1";      # <-- ЗАМЕНИТЕ на адрес SOCKS5-сервера
-          server_port = 1080;        # <-- ЗАМЕНИТЕ на порт
+          server = "127.0.0.1";
+          server_port = 1080;
           version = "5";
           username = "chelik";
           password = "pass11";
         }
-
-        # 2. VLESS — для Chromium.
         {
           type = "vless";
           tag = "vless-out";
-          server = "ВАШ_СЕРВЕР";     # <-- ЗАМЕНИТЕ
-          server_port = 443;         # <-- ЗАМЕНИТЕ
-          uuid = "ВАШ_UUID";         # <-- ЗАМЕНИТЕ
+          server = "ВАШ_СЕРВЕР";
+          server_port = 443;
+          uuid = "ВАШ_UUID";
           flow = "xtls-rprx-vision";
           tls = {
             enabled = true;
-            server_name = "ВАШ_ДОМЕН";  # <-- ЗАМЕНИТЕ
-            utls = {
-              enabled = true;
-              fingerprint = "chrome";
-            };
+            server_name = "ВАШ_ДОМЕН";
+            utls = { enabled = true; fingerprint = "chrome"; };
           };
         }
-
-        # 3. Direct — по умолчанию.
         { type = "direct"; tag = "direct-out"; }
       ];
 
-      # --- Маршрутизация ---
       route = {
-        # Обязательно для правил process_name / process_path_regex.
         find_process = true;
-
-        # Автоматически определять интерфейс для direct-out.
         auto_detect_interface = true;
 
-        # =================================================================
-        # default_mark — самое важное в этой конфигурации.
-        #
-        # Помечает все исходящие socket'ы самого sing-box (SO_MARK)
-        # fwmark 8227 (это 0x2023 в hex — но Nix парсит 0x как два
-        # токена, поэтому пишем десятичное значение).
-        #
-        # sing-box автоматически создаёт ip rule:
-        #     from all fwmark 8227 lookup main
-        # который стоит ВЫШЕ правил auto_route и направляет
-        # помеченные пакеты в main table (мимо TUN).
-        #
-        # Без этого:
-        #   1. sing-box создаёт direct-out соединение к серверу
-        #      (например, к Cloudflare для DoH dnscrypt).
-        #   2. Пакет выходит с iif lo — правило 9003 auto_route
-        #      ловит его и отправляет в table 2022 (→ singtun0).
-        #   3. sing-box получает свой же пакет из TUN и снова
-        #      создаёт direct-out соединение.
-        #   4. Бесконечная петля: curl зависает, Firefox не открывает
-        #      сайты, dnscrypt-proxy не может подключиться к upstream.
-        #
-        # Значение 8227 выбрано произвольно — важно, чтобы
-        # оно не конфликтовало с другими marks в системе (например,
-        # с fwmark от Portmaster или firewalld).
-        # =================================================================
+        # Помечаем исходящие socket'ы sing-box fwmark 8227 (0x2023).
+        # Правило ip rule для этого mark создаётся сервисом
+        # sing-box-fwmark-rule ниже.
         default_mark = 8227;
 
         rules = [
-          # 1. Loopback — direct.
-          # Покрывает обращения к dnscrypt-proxy (127.0.0.1:53 и :5353)
-          # и Portmaster (127.0.0.17:53).
           {
             ip_cidr = [ "127.0.0.0/8" "::1/128" ];
             outbound = "direct-out";
           }
-
-          # 2. dnscrypt-proxy → direct.
-          # Его пакеты — DoH/DNSCrypt, уже зашифрованы.
-          # sing-box не должен их трогать.
           {
             process_name = [ "dnscrypt-proxy" ];
             outbound = "direct-out";
           }
-
-          # 3. Portmaster → direct.
-          # Он сам перехватывает DNS через nfqueue и фильтрует.
-          # Вмешательство sing-box сломает фильтрацию.
           {
             process_name = [ "portmaster-core" ];
             outbound = "direct-out";
           }
-
-          # 4. Сниффинг доменов — для маршрутизации по домену
-          # (например, чтобы *.youtube.com шёл через VLESS).
-          # Сейчас используется только для информации в логах.
           { action = "sniff"; }
-
-          # 5. Brave (Flatpak) → SOCKS5.
           {
             process_name = [ "brave" ];
             outbound = "socks-out";
@@ -175,8 +104,6 @@
             process_path_regex = [ ".*/brave/brave.*" ];
             outbound = "socks-out";
           }
-
-          # 6. Chromium (Flatpak) → VLESS.
           {
             process_name = [ "chromium" ];
             outbound = "vless-out";
@@ -185,9 +112,6 @@
             process_path_regex = [ ".*/chromium/chromium.*" ];
             outbound = "vless-out";
           }
-
-          # 7. Всё остальное → direct.
-          # Включает Firefox, nix, прочие браузеры, консольные утилиты.
           { outbound = "direct-out"; }
         ];
       };
@@ -195,19 +119,7 @@
   };
 
   # =====================================================================
-  # Настройка systemd-сервиса sing-box.
-  #
-  # Capabilities:
-  #   CAP_NET_ADMIN       — создание TUN, управление маршрутами,
-  #                          nftables-правила для auto_route.
-  #   CAP_NET_RAW         — сырые сокеты.
-  #   CAP_SYS_PTRACE      — чтение /proc/<pid>/exe для process_path_regex.
-  #   CAP_NET_BIND_SERVICE — bind к портам <1024 (не критично).
-  #
-  # PATH:
-  #   NixOS-модуль services.sing-box не пробрасывает системный PATH
-  #   в сервис — только то, что указано явно. Без nft в PATH
-  #   sing-box не может вызывать его для auto_route.
+  # Capabilities и PATH для sing-box.
   # =====================================================================
   systemd.services.sing-box.serviceConfig = {
     AmbientCapabilities = [
@@ -222,49 +134,18 @@
       "CAP_NET_BIND_SERVICE"
       "CAP_SYS_PTRACE"
     ];
-    # nft — для auto_route и маркировки fwmark.
-    # iptables — для совместимости (некоторые версии sing-box
-    #            всё ещё вызывают iptables для nft-таблиц).
-    # iproute2 — для работы с ip rule и ip route.
     path = [ pkgs.nftables pkgs.iptables pkgs.iproute2 ];
   };
 
-    # =====================================================================
-  # Сервис для добавления ip rule fwmark 8227.
-  #
-  # sing-box с default_mark = 8227 помечает свои исходящие сокеты
-  # этим fwmark (SO_MARK), но НЕ создаёт правило маршрутизации
-  # автоматически. Это должны сделать мы.
-  #
-  # Правило: пакеты с fwmark 8227 → main table (обычная маршрутизация
-  # через wlp194s0), минуя table 2022 (→ singtun0).
-  #
-  # priority 100 — ВЫШЕ правил auto_route (9000-9010),
-  # поэтому срабатывает раньше и выводит пакеты из петли.
   # =====================================================================
-  systemd.services.sing-box-fwmark-rule = {
-    description = "Add ip rule for sing-box default_mark (break TUN loop)";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "sing-box.service" ];
-    requires = [ "sing-box.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.iproute2}/bin/ip rule add fwmark 8227 lookup main priority 100";
-      ExecStop = "${pkgs.iproute2}/bin/ip rule del fwmark 8227 lookup main priority 100";
-    };
-  };  # =====================================================================
-  # Сервис для добавления ip rule fwmark 8227.
+  # Правило маршрутизации для fwmark 8227.
   #
   # sing-box с default_mark = 8227 помечает свои исходящие сокеты
-  # этим fwmark (SO_MARK), но НЕ создаёт правило маршрутизации
-  # автоматически. Это должны сделать мы.
+  # этим fwmark, но НЕ создаёт ip rule автоматически.
   #
-  # Правило: пакеты с fwmark 8227 → main table (обычная маршрутизация
-  # через wlp194s0), минуя table 2022 (→ singtun0).
-  #
-  # priority 100 — ВЫШЕ правил auto_route (9000-9010),
-  # поэтому срабатывает раньше и выводит пакеты из петли.
+  # priority 100 — выше правил auto_route (9000-9010),
+  # поэтому срабатывает раньше и выводит пакеты sing-box
+  # из петли через TUN.
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop)";
