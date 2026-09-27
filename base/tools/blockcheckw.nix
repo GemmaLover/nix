@@ -10,9 +10,11 @@
   # Архитектура системы (x86_64 для вашего z13).
   arch = "x86_64";
 
-  # Фиктивный хэш — Nix при сборке покажет реальный.
-  # После первой ошибки замените на значение из строки "got:".
-  hash = lib.fakeHash;
+  # SRI-хэш скачанного архива.
+  # Получен через сборку с lib.fakeHash:
+  #   specified: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  #      got:    sha256-zbPnL5M/0PEOpbULw8u9JTDUQDp9YeIEuVjCy7aTkDw=
+  hash = "sha256-zbPnL5M/0PEOpbULw8u9JTDUQDp9YeIEuVjCy7aTkDw=";
 
   # Собственно пакет blockcheckw.
   blockcheckw = pkgs.stdenv.mkDerivation {
