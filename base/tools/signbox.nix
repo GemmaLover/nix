@@ -22,8 +22,8 @@
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
   # │ - Firefox, nix, всё остальное → direct                       │
-  # │ - UDP/QUIC (HTTP/3, DoH3) → пробрасывается через            │
-  # │   стек mixed с включённой фрагментацией.                     │
+  # │ - UDP/QUIC (HTTP/3, DoH3) → stack "mixed":                  │
+  # │   TCP через system, UDP через gvisor.                        │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -31,9 +31,10 @@
   # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
   #   Правило ip rule (v4+v6) создаётся сервисом sing-box-fwmark-rule.
   # - stack = "mixed": TCP через system (надёжно), UDP через gvisor
-  #   (быстрее, но требует udp_fragment = true для QUIC).
-  # - udp_fragment = true — КРИТИЧНО для QUIC/HTTP3. Без этого
-  #   фрагментированные QUIC-пакеты теряются, DoH3 и HTTP/3 зависают.
+  #   (правильная обработка QUIC/HTTP3 без фрагментации).
+  # - udp_fragment УДАЛЁН из TUN inbound в sing-box 1.14.
+  #   Вместо него — udp_mapping / udp_filtering / udp_nat_max.
+  #   Для QUIC эти настройки не требуются, достаточно stack = "mixed".
   # - udp_timeout = "5m" — стандартное время жизни UDP-сессии.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
@@ -65,16 +66,18 @@
           # mixed: TCP через системный стек, UDP через gvisor.
           # Это лучший баланс для нашего кейса:
           #  - TCP (сайты) работает надёжно через system.
-          #  - UDP (QUIC, DoH3) обрабатывается gvisor с фрагментацией.
+          #  - UDP (QUIC, DoH3) обрабатывается gvisor корректно.
           stack = "mixed";
 
-          # Разрешаем фрагментацию UDP. Без этого QUIC ClientHello,
-          # не влезающий в один пакет, теряется, и соединение виснет.
-          udp_fragment = true;
-
-          # Время жизни UDP-сессии (NAT expiration).
+          # udp_timeout — время жизни UDP-сессии (NAT expiration).
           # 5 минут — стандарт, совместим с большинством приложений.
           udp_timeout = "5m";
+
+          # udp_mapping и udp_filtering — новые поля sing-box 1.14.
+          # endpoint_independent (по умолчанию) — оптимально для QUIC.
+          # Явно указываем для ясности, но можно и опустить.
+          udp_mapping = "endpoint_independent";
+          udp_filtering = "endpoint_independent";
         }
       ];
 
@@ -176,12 +179,6 @@
 
   # =====================================================================
   # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
-  #
-  # КРИТИЧНО:
-  # - Скрипт ИДЕМПОТЕНТЕН: удаляет старые правила, затем добавляет новые.
-  # - Используется `script`, а НЕ многострочный ExecStart/ExecStop.
-  # - Нужны ДВА правила: IPv4 и IPv6.
-  # - priority 100 — выше auto_route (9000-9010).
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
