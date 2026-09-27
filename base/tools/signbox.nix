@@ -27,8 +27,11 @@
   # ВАЖНО:
   # - DNS-секции нет. sing-box не резолвит имена.
   # - default_mark = 8227 — помечает исходящие сокеты sing-box.
-  #   Требуется правило ip rule, которое создаёт
-  #   сервис sing-box-fwmark-rule (см. ниже).
+  #   Требуется правило ip rule ДЛЯ IPv4 И IPv6, которое создаёт
+  #   сервис sing-box-fwmark-rule (см. ниже). Без IPv6-правила
+  #   IPv6-сокеты sing-box попадают под auto_route и зацикливаются
+  #   в TUN — это ломает DNS, который dnscrypt-proxy гоняет по IPv6
+  #   к Quad9/Scaleway.
   # - MTU = 1400, strict_route = false.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route + nftables.
   #   auto_redirect конфликтует с nfqueue от Portmaster.
@@ -40,11 +43,10 @@
   #                 нужен MASQUERADE, часто ломается.
   #     * gvisor  → termination, новый сокет с src=физический IP,
   #                 MASQUERADE не нужен, работает надёжно.
-  # - address теперь содержит и IPv4, и IPv6 префиксы.
+  # - address содержит и IPv4, и IPv6 префиксы.
   #   Это заворачивает IPv6-трафик в TUN.
-  # - dns_mode = "disabled" — отключает перехват DNS на уровне
-  #   TUN-интерфейса. Это необходимо, чтобы sing-box не конфликтовал
-  #   с Portmaster и dnscrypt-proxy, которые уже управляют DNS.
+  # - dns_mode = "disabled" — sing-box не перехватывает DNS
+  #   (DNS уже обслуживают Portmaster + dnscrypt-proxy).
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -88,7 +90,6 @@
           mtu = 1400;
 
           # gvisor — userspace TCP/IP stack, терминирует TCP.
-          # Именно это меняем с "system".
           stack = "gvisor";
         }
       ];
@@ -130,8 +131,8 @@
         auto_detect_interface = true;
 
         # Помечаем исходящие socket'ы sing-box fwmark 8227 (0x2023).
-        # Правило ip rule для этого mark создаётся сервисом
-        # sing-box-fwmark-rule ниже.
+        # Правило ip rule (и ip -6 rule) для этого mark создаётся
+        # сервисом sing-box-fwmark-rule ниже.
         default_mark = 8227;
 
         rules = [
@@ -194,7 +195,7 @@
   };
 
   # =====================================================================
-  # Правило маршрутизации для fwmark 8227.
+  # Правила маршрутизации для fwmark 8227 (IPv4 + IPv6).
   #
   # sing-box с default_mark = 8227 помечает свои исходящие сокеты
   # этим fwmark, но НЕ создаёт ip rule автоматически.
@@ -202,15 +203,29 @@
   # priority 100 — выше правил auto_route (9000-9010),
   # поэтому срабатывает раньше и выводит пакеты sing-box
   # из петли через TUN.
+  #
+  # КРИТИЧНО: нужно ДВА правила — для IPv4 и для IPv6.
+  # Без IPv6-правила:
+  #   * sing-box direct-out открывает IPv6-сокет,
+  #   * ядро применяет auto_route (правило 9001),
+  #   * пакет уходит обратно в singtun0 → петля,
+  #   * DNS от dnscrypt-proxy (DoH на Quad9/Scaleway по IPv6) виснет,
+  #   * Firefox теряет DNS и сайты не открываются.
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
-    description = "Add ip rule for sing-box default_mark (break TUN loop)";
+    description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
     wantedBy = ["multi-user.target"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.iproute2}/bin/ip rule add fwmark 8227 lookup main priority 100";
-      ExecStop = "${pkgs.iproute2}/bin/ip rule del fwmark 8227 lookup main priority 100";
+      ExecStart = ''
+        ${pkgs.iproute2}/bin/ip    rule add fwmark 8227 lookup main priority 100
+        ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
+      '';
+      ExecStop = ''
+        ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 || true
+        ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 || true
+      '';
     };
   };
 }
