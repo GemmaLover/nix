@@ -32,6 +32,8 @@
   # - MTU = 1400, strict_route = false.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route + nftables.
   #   auto_redirect конфликтует с nfqueue от Portmaster.
+  # - sniff на inbound в sing-box 1.14 УБРАН (был deprecated).
+  #   Определение протокола делается через route rule action = "sniff".
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -63,9 +65,6 @@
           # stack = "system" — использует системный сетевой стек.
           # Для auto_route это наиболее совместимый вариант.
           stack = "system";
-
-          # sniff — определяет протокол по первым пакетам.
-          sniff = true;
         }
       ];
 
@@ -178,12 +177,14 @@
   # priority 100 — выше правил auto_route (9000-9010),
   # поэтому срабатывает раньше и выводит пакеты sing-box
   # из петли через TUN.
+  #
+  # ВАЖНО: убрал requires/after от sing-box.service, чтобы сервис
+  # не уходил в "dependency failed" пока sing-box ещё стартует.
+  # Правило можно ставить сразу — оно безвредно, если sing-box мёртв.
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop)";
     wantedBy = ["multi-user.target"];
-    after = ["sing-box.service"];
-    requires = ["sing-box.service"];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
