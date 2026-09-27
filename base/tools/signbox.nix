@@ -228,4 +228,54 @@
     # iproute2 — для работы с ip rule и ip route.
     path = [ pkgs.nftables pkgs.iptables pkgs.iproute2 ];
   };
+
+    # =====================================================================
+  # Сервис для добавления ip rule fwmark 8227.
+  #
+  # sing-box с default_mark = 8227 помечает свои исходящие сокеты
+  # этим fwmark (SO_MARK), но НЕ создаёт правило маршрутизации
+  # автоматически. Это должны сделать мы.
+  #
+  # Правило: пакеты с fwmark 8227 → main table (обычная маршрутизация
+  # через wlp194s0), минуя table 2022 (→ singtun0).
+  #
+  # priority 100 — ВЫШЕ правил auto_route (9000-9010),
+  # поэтому срабатывает раньше и выводит пакеты из петли.
+  # =====================================================================
+  systemd.services.sing-box-fwmark-rule = {
+    description = "Add ip rule for sing-box default_mark (break TUN loop)";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "sing-box.service" ];
+    requires = [ "sing-box.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.iproute2}/bin/ip rule add fwmark 8227 lookup main priority 100";
+      ExecStop = "${pkgs.iproute2}/bin/ip rule del fwmark 8227 lookup main priority 100";
+    };
+  };  # =====================================================================
+  # Сервис для добавления ip rule fwmark 8227.
+  #
+  # sing-box с default_mark = 8227 помечает свои исходящие сокеты
+  # этим fwmark (SO_MARK), но НЕ создаёт правило маршрутизации
+  # автоматически. Это должны сделать мы.
+  #
+  # Правило: пакеты с fwmark 8227 → main table (обычная маршрутизация
+  # через wlp194s0), минуя table 2022 (→ singtun0).
+  #
+  # priority 100 — ВЫШЕ правил auto_route (9000-9010),
+  # поэтому срабатывает раньше и выводит пакеты из петли.
+  # =====================================================================
+  systemd.services.sing-box-fwmark-rule = {
+    description = "Add ip rule for sing-box default_mark (break TUN loop)";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "sing-box.service" ];
+    requires = [ "sing-box.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.iproute2}/bin/ip rule add fwmark 8227 lookup main priority 100";
+      ExecStop = "${pkgs.iproute2}/bin/ip rule del fwmark 8227 lookup main priority 100";
+    };
+  };
 }
