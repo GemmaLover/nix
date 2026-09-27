@@ -11,28 +11,34 @@
   # =====================================================================
   # СТРАТЕГИИ.
   #
-  # Используем только те опции, которые есть в справке nfqws2:
-  #   --qnum, --lua-init, --filter-tcp, --filter-l7, --payload,
-  #   --lua-desync
+  # В zapret2 функция disorder называется multidisorder.
+  # Она требует параметр pos= (позиции для разбиения).
+  # Без pos= nfqws2 падает с ошибкой "desync function does not exist".
   #
-  # ВАЖНО: nfqws2 запускается от root, чтобы иметь доступ к Lua-скриптам.
+  # multisplit — просто разбивает пакет.
+  # multidisorder — разбивает и отправляет фрагменты в обратном порядке.
   # =====================================================================
 
+  # --- Стратегия для TLS (HTTPS через TCP/443) ---
+  # multisplit: разбивает ClientHello после первого байта.
+  # multidisorder: разбивает и отправляет фрагменты в обратном порядке.
   TLS_STRATEGY = [
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
     "--lua-desync=multisplit:pos=1"
-    "--lua-desync=disorder"
+    "--lua-desync=multidisorder:pos=1,sniext+1"
   ];
 
+  # --- Стратегия для HTTP (TCP/80) ---
   HTTP_STRATEGY = [
     "--filter-tcp=80"
     "--filter-l7=http"
     "--payload=http_req"
-    "--lua-desync=multisplit:pos=method"
+    "--lua-desync=multisplit:pos=method+2"
   ];
 
+  # --- Общие аргументы ---
   BASE_ARGS = [
     "--qnum=${QNUM}"
     "--lua-init=@${ZAPRET_BASE}/lua/zapret-lib.lua"
@@ -42,7 +48,7 @@
   ALL_ARGS = BASE_ARGS ++ TLS_STRATEGY ++ HTTP_STRATEGY;
 in {
   # Симлинки на ресурсы zapret2.
-  # Создаём с правами 0755, чтобы nfqws2 мог читать.
+  # Создаём с правами 0755, чтобы nfqws2 мог читать Lua-скрипты.
   systemd.tmpfiles.rules = [
     "d /opt/zapret2 0755 root root -"
     "L+ /opt/zapret2/lua - - - - ${pkgs.zapret2}/share/zapret2/lua"
@@ -63,8 +69,7 @@ in {
       Restart = "on-failure";
       RestartSec = 5;
 
-      # ЗАПУСКАЕМ ОТ ROOT, чтобы nfqws2 мог читать Lua-скрипты.
-      # Флаг --user=root НЕ используем, чтобы не было конфликта.
+      # nfqws2 требует root для NFQUEUE и изменения пакетов.
       User = "root";
       Group = "root";
 
@@ -80,7 +85,11 @@ in {
   };
 
   # =====================================================================
-  # nftables: перехват трафика с mark 110.
+  # nftables: перехват трафика с mark 110 (от sing-box outbound zapret-out).
+  #
+  # Исключения:
+  #   - DNS (порт 53) — не перехватываем.
+  #   - Локальные адреса — не перехватываем.
   # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
