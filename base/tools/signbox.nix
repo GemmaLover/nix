@@ -30,6 +30,11 @@
   #     через wlp (MTU 1500). Без этого TLS-хендшейк зависает.
   #   - strict_route = false: strict_route ломает rp_filter при
   #     прямых исходящих через физический интерфейс.
+  #   - auto_route требует nftables. Без nft sing-box не может
+  #     маркировать пакеты fwmark и его прямые исходящие
+  #     зацикливаются через TUN. Поэтому:
+  #       а) networking.nftables.enable = true — в base/system/network.nix;
+  #       б) nft и iptables добавлены в path сервиса ниже.
   # =====================================================================
 
   services.sing-box = {
@@ -159,13 +164,21 @@
   };
 
   # =====================================================================
-  # Capabilities для sing-box.
+  # Настройка systemd-сервиса sing-box.
   #
-  #   CAP_NET_ADMIN     — создание TUN, управление маршрутами,
-  #                        nftables-правила для auto_route.
-  #   CAP_NET_RAW       — сырые сокеты.
-  #   CAP_SYS_PTRACE    — чтение /proc/<pid>/exe для process_path_regex.
+  # Capabilities:
+  #   CAP_NET_ADMIN       — создание TUN, управление маршрутами,
+  #                          nftables-правила для auto_route.
+  #   CAP_NET_RAW         — сырые сокеты.
+  #   CAP_SYS_PTRACE      — чтение /proc/<pid>/exe для process_path_regex.
   #   CAP_NET_BIND_SERVICE — bind к портам <1024 (не критично).
+  #
+  # PATH:
+  #   NixOS-модуль services.sing-box не пробрасывает системный PATH
+  #   в сервис — только то, что указано явно. Без nft в PATH
+  #   sing-box не может вызывать его для auto_route, и прямые
+  #   исходящие зацикливаются через TUN (curl висит, Firefox
+  #   не открывает сайты).
   # =====================================================================
   systemd.services.sing-box.serviceConfig = {
     AmbientCapabilities = [
@@ -180,5 +193,10 @@
       "CAP_NET_BIND_SERVICE"
       "CAP_SYS_PTRACE"
     ];
+    # nft — для auto_route и маркировки fwmark.
+    # iptables — для совместимости (некоторые версии sing-box
+    #            всё ещё вызывают iptables для nft-таблиц).
+    # iproute2 — для работы с ip rule и ip route.
+    path = [ pkgs.nftables pkgs.iptables pkgs.iproute2 ];
   };
 }
