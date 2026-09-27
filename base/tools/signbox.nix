@@ -2,22 +2,20 @@
 
 {
   # =====================================================================
-  # sing-box — маршрутизация трафика по процессам.
+  # sing-box 1.14 — маршрутизация трафика по процессам.
   #
-  # Конфигурация для sing-box 1.14 (nixpkgs-unstable).
-  # ВАЖНО: в 1.13+ удалены устаревшие поля inbound:
+  # ВАЖНО: В sing-box 1.14.0 удалены устаревшие поля inbound:
   #   - sniff = true      → заменено на action: "sniff" в route.rules
   #   - stack = "system"  → убрано
+  #
+  # Также удалён старый формат DNS-серверов. Теперь нужно указывать
+  # type (udp, tcp, tls, https) и server/server_port.
   #
   # Логика маршрутизации:
   #   - Brave (Flatpak)     → SOCKS5 (chelik / pass11)
   #   - Chromium (Flatpak)  → VLESS
   #   - Всё остальное       → direct-out
   #   - DNS                 → 127.0.0.1:5353 (dnscrypt-proxy)
-  #
-  # DNS-запросы перехватываются через TUN и передаются локальному
-  # dnscrypt-proxy, который шифрует их (DoH/DNSCrypt) и отправляет
-  # на upstream (Cloudflare, Quad9, Scaleway).
   # =====================================================================
 
   services.sing-box = {
@@ -25,25 +23,16 @@
 
     settings = {
       # --- Логи ---
-      # info даёт достаточно данных для отладки маршрутизации,
-      # но не забивает журнал (в отличие от debug/trace).
       log = { level = "info"; };
 
       # --- Входящий интерфейс: TUN ---
-      # Захватывает весь IP-трафик системы на уровне ядра,
-      # включая трафик Flatpak-приложений.
       inbounds = [
         {
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
-          # Адрес внутри TUN-подсети. Не должен конфликтовать
-          # с локальной сетью (192.168.x.x).
           address = [ "172.19.0.1/30" ];
-          # Автоматически добавлять маршруты через TUN.
           auto_route = true;
-          # Строгая маршрутизация — предотвращает утечки
-          # трафика в обход прокси.
           strict_route = true;
         }
       ];
@@ -84,32 +73,27 @@
       ];
 
       # =====================================================================
-      # DNS — через локальный dnscrypt-proxy на 127.0.0.1:5353.
+      # DNS — новый формат для sing-box 1.14.
       #
-      # sing-box сам перехватывает DNS-запросы через TUN и передаёт
-      # их dnscrypt-proxy. Тот шифрует (DoH/DNSCrypt) и отправляет
-      # на upstream. Portmaster (127.0.0.17:53) в этой цепочке
-      # не участвует — sing-box перехватывает запросы раньше.
+      # Вместо старого "address" теперь используются:
+      #   type: "udp" (или "tcp", "tls", "https")
+      #   server: "127.0.0.1"
+      #   server_port: 5353
       # =====================================================================
       dns = {
         servers = [
           {
+            type = "udp";                # новый формат
             tag = "dns-dnscrypt";
-            # dnscrypt-proxy слушает и UDP, и TCP на 127.0.0.1:5353.
-            address = "127.0.0.1";
-            address_port = 5353;
-            # IP-адрес, а не домен — резолвер не нужен.
-            address_resolver = "";
-            # detour = "direct-out" — обращение к dnscrypt идёт
-            # напрямую, без прокси. Loopback исключён из TUN
-            # правилом ниже, поэтому петли не будет.
+            server = "127.0.0.1";
+            server_port = 5353;
+            # detour указывает, через какой outbound идти
+            # к DNS-серверу. direct-out — напрямую.
             detour = "direct-out";
-            strategy = "prefer_ipv4";
           }
         ];
 
         rules = [
-          # Все DNS-запросы → dnscrypt-proxy.
           { server = "dns-dnscrypt"; }
         ];
 
@@ -119,31 +103,20 @@
 
       # --- Маршрутизация ---
       route = {
-        # Обязательно для правил process_name / process_path_regex.
-        # Без этого sing-box не знает, какому процессу принадлежит
-        # соединение.
         find_process = true;
-
-        # Автоматически определять интерфейс для direct-out.
         auto_detect_interface = true;
 
         rules = [
           # 0. Loopback — напрямую, минуя TUN.
-          # Нужно, чтобы DNS-запросы к dnscrypt-proxy (127.0.0.1:5353)
-          # не заворачивались обратно в sing-box (иначе петля).
           {
             ip_cidr = [ "127.0.0.0/8" "::1/128" ];
             outbound = "direct-out";
           }
 
-          # 1. Сниффинг доменов (замена sniff = true из inbound).
-          # Позволяет маршрутизировать по домену, а не только по IP.
-          { action = "sniff"; timeout = "300ms"; }
+          # 1. Сниффинг (замена sniff = true из inbound).
+          { action = "sniff"; }
 
           # 2. Brave (Flatpak) → SOCKS5.
-          # Имя процесса у Flatpak-версии Brave — "brave".
-          # process_path_regex ловит процессы по пути — страховка
-          # на случай, если find_process вернёт bwrap/zypak.
           {
             process_name = [ "brave" ];
             outbound = "socks-out";
@@ -163,22 +136,14 @@
             outbound = "vless-out";
           }
 
-          # 4. Всё остальное → direct-out.
-          # Это правило должно быть ПОСЛЕДНИМ — оно catch-all.
+          # 4. Всё остальное → direct.
           { outbound = "direct-out"; }
         ];
       };
     };
   };
 
-  # =====================================================================
-  # Права для TUN-интерфейса и чтения информации о процессах.
-  #
-  #   cap_net_admin — создание сетевого интерфейса и маршрутов.
-  #   cap_net_raw   — работа с сырыми сокетами.
-  #   cap_sys_ptrace — чтение /proc/<pid>/exe для определения
-  #                    пути процесса (нужно для process_path_regex).
-  # =====================================================================
+  # Права для TUN и чтения информации о процессах.
   security.wrappers.sing-box = {
     source = "${pkgs.sing-box}/bin/sing-box";
     capabilities = "cap_net_admin,cap_net_raw,cap_sys_ptrace+ep";
