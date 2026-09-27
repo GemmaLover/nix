@@ -9,30 +9,29 @@
   DESYNC_MARK = "0x40000000";
 
   # =====================================================================
-  # СТРАТЕГИИ (упрощённые, без внешних blobs).
+  # СТРАТЕГИИ.
   #
-  # В пакете zapret2 из nixpkgs НЕТ .bin-файлов, поэтому используем
-  # только встроенные функции multisplit и disorder.
+  # Используем только те опции, которые есть в справке nfqws2:
+  #   --qnum, --lua-init, --filter-tcp, --filter-l7, --payload,
+  #   --lua-desync
   #
-  # --fix-seg=4: восстанавливает неудачную TCP-сегментацию,
-  #   предотвращая ошибки "Message too long".
+  # НЕТ --fix-seg в этой версии nfqws2. Убрали.
+  # НЕТ внешних blobs (пакет zapret2 их не содержит).
   # =====================================================================
 
   TLS_STRATEGY = [
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
-    "--lua-desync=multisplit:pos=1,sniext+1"
+    "--lua-desync=multisplit:pos=1"
     "--lua-desync=disorder"
-    "--fix-seg=4"
   ];
 
   HTTP_STRATEGY = [
     "--filter-tcp=80"
     "--filter-l7=http"
     "--payload=http_req"
-    "--lua-desync=multisplit:pos=method+2"
-    "--fix-seg=4"
+    "--lua-desync=multisplit:pos=method"
   ];
 
   BASE_ARGS = [
@@ -76,11 +75,10 @@ in {
   };
 
   # =====================================================================
-  # nftables: перехват трафика с mark 110 (от sing-box).
+  # nftables: перехват трафика с mark 110 (от sing-box outbound).
   #
   # Исключения:
-  #   - dnscrypt-proxy (порт 53) — не перехватываем.
-  #   - Chromium (порт 443, но идёт в VLESS) — не перехватываем.
+  #   - DNS (порт 53) — не перехватываем.
   #   - Локальные адреса — не перехватываем.
   # =====================================================================
   networking.nftables.ruleset = ''
@@ -88,20 +86,16 @@ in {
       chain postrouting {
         type filter hook postrouting priority mangle; policy accept;
 
-        # Пропускаем уже обработанные пакеты.
         meta mark and ${DESYNC_MARK} != 0 return
 
-        # Исключения: DNS (порт 53), локальные адреса.
         meta mark 110 udp dport 53 return
         meta mark 110 tcp dport 53 return
         meta mark 110 ip daddr 127.0.0.0/8 return
-        meta mark 110 ip6 daddr ::1/128 return
+        meta mark 110 ip6 daddr ::1 return
 
-        # Перехватываем TCP 80, 443 — первые 6 пакетов.
         meta mark 110 tcp dport {80, 443} \
           ct original packets 1-6 queue num ${QNUM} bypass
 
-        # Перехватываем UDP 443 (QUIC) — первые 6 пакетов.
         meta mark 110 udp dport 443 \
           ct original packets 1-6 queue num ${QNUM} bypass
       }

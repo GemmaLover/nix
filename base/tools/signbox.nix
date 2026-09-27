@@ -14,24 +14,23 @@
   # │ - HTTP/3 отключён, TCP-ONLY                                  │
   # ├─────────────────────────────────────────────────────────────┤
   # │ nfqws2 (zapret2) — перехват пакетов через NFQUEUE.          │
-  # │ Все пакеты, входящие в TUN, помечаются mark 110.            │
-  # │ nftables видит метку и заворачивает их в очередь 200,       │
-  # │ где nfqws2 применяет Lua-стратегии обхода DPI.              │
+  # │ Трафик направляется в outbound "zapret-out" с              │
+  # │ routing_mark = 110. nftables видит метку и заворачивает    │
+  # │ пакеты в очередь 200, где nfqws2 применяет стратегии.      │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → direct                                    │
   # │ - Chromium → vless-out                                       │
-  # │ - Firefox, Brave → direct (но с mark 110 → nfqws2)          │
-  # │ - Всё остальное → direct                                     │
+  # │ - Всё остальное → zapret-out (через nfqws2)                  │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
-  # - routing_mark = 110 в inbound TUN: помечает ВСЕ пакеты,
-  #   входящие в TUN. Это единственный способ заставить nftables
-  #   перехватывать трафик из TUN.
-  # - mark 110 исключается в nftables для dnscrypt-proxy и Chromium
-  #   через отдельные правила (по портам/процессам).
+  # - routing_mark = 110 в OUTBOUND — это правильный способ
+  #   помечать пакеты для nfqws2. В TUN inbound такой опции НЕТ.
+  # - default_mark = 8227 — помечает все исходящие сокеты sing-box
+  #   (для разрыва петли через TUN). Это отдельная метка.
+  # - stack = "gvisor" — КРИТИЧНО.
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -56,10 +55,6 @@
           strict_route = false;
           mtu = 1400;
           stack = "gvisor";
-
-          # routing_mark = 110: помечает ВСЕ пакеты, входящие в TUN.
-          # nftables перехватывает их в очередь 200 для nfqws2.
-          routing_mark = 110;
         }
       ];
 
@@ -72,6 +67,15 @@
           version = "5";
           username = "chelik";
           password = "pass11";
+        }
+        # zapret-out — специальный outbound для nfqws2.
+        # type "direct" + routing_mark = 110.
+        # sing-box просто помечает трафик, а nftables
+        # перенаправляет помеченные пакеты в NFQUEUE.
+        {
+          type = "direct";
+          tag = "zapret-out";
+          routing_mark = 110;
         }
         {
           type = "vless";
@@ -106,7 +110,7 @@
             ip_cidr = ["127.0.0.0/8" "::1/128"];
             outbound = "direct-out";
           }
-          # 2. dnscrypt-proxy — direct (без mark 110).
+          # 2. dnscrypt-proxy — direct (без nfqws2).
           {
             process_name = ["dnscrypt-proxy"];
             outbound = "direct-out";
@@ -117,7 +121,7 @@
             port = [123];
             outbound = "direct-out";
           }
-          # 4. Chromium → VLESS (без mark 110).
+          # 4. Chromium → VLESS (без nfqws2).
           {
             process_name = ["chromium"];
             outbound = "vless-out";
@@ -126,27 +130,10 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # 5. Firefox → direct (но с mark 110 → nfqws2).
+          # 5. Fallback: всё остальное → zapret-out
+          #    (в том числе Firefox и Brave, которые пойдут через nfqws2).
           {
-            process_name = ["firefox"];
-            outbound = "direct-out";
-          }
-          {
-            process_path_regex = [".*/firefox/firefox.*"];
-            outbound = "direct-out";
-          }
-          # 6. Brave → direct (но с mark 110 → nfqws2).
-          {
-            process_name = ["brave"];
-            outbound = "direct-out";
-          }
-          {
-            process_path_regex = [".*/brave/brave.*"];
-            outbound = "direct-out";
-          }
-          # 7. Fallback: всё остальное → direct.
-          {
-            outbound = "direct-out";
+            outbound = "zapret-out";
           }
         ];
       };
