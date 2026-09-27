@@ -35,13 +35,24 @@
     settings = {
       log = { level = "info"; };
 
-      inbounds = [
+            inbounds = [
         {
           type = "tun";
           tag = "tun-in";
           interface_name = "singtun0";
           address = [ "172.19.0.1/30" ];
-          auto_route = true;
+
+          # auto_redirect — перехват трафика через eBPF,
+          # не требует nftables и не конфликтует с iptables-nft
+          # от Portmaster и Docker.
+          #
+          # Включаем auto_redirect вместо auto_route.
+          # auto_route пытается писать в таблицу ip filter,
+          # которую уже занимает iptables-nft (Portmaster/Docker),
+          # и молча пропускает создание своих правил.
+          auto_redirect = true;
+
+          # strict_route для auto_redirect можно оставить false.
           strict_route = false;
           mtu = 1400;
         }
