@@ -13,18 +13,16 @@
   # │ - шифрует DNS (DoH) → Cloudflare/Quad9/Scaleway             │
   # │ - HTTP/3 отключён, TCP-ONLY                                  │
   # ├─────────────────────────────────────────────────────────────┤
-  # │ ByeDPI (127.0.0.1:6430) — локальный SOCKS5 для Firefox       │
-  # │ zapret/tpws (127.0.0.1:3472) — локальный SOCKS5 для Brave    │
+  # │ nfqws2 (zapret2) — перехват пакетов через NFQUEUE.          │
+  # │ Трафик помечается sing-box (routing_mark = 110),            │
+  # │ затем nftables заворачивает его в очередь NFQUEUE,          │
+  # │ где nfqws2 применяет Lua-стратегии обхода DPI.              │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → direct                                    │
-  # │ - ciadpi (ByeDPI) → bypass                                   │
-  # │ - tpws (zapret) → bypass                                     │
-  # │ - QUIC (UDP/443, UDP/8443) → direct                         │
-  # │ - NTP (UDP/123) → direct                                     │
-  # │ - Firefox → byedpi-out                                       │
-  # │ - Brave → zapret-out                                         │
+  # │ - Firefox → zapret-out (через nfqws2)                       │
+  # │ - Brave → zapret-out (через nfqws2)                         │
   # │ - Chromium → vless-out                                       │
   # │ - Всё остальное → direct                                     │
   # └─────────────────────────────────────────────────────────────┘
@@ -38,11 +36,10 @@
   #   sing-box терминирует TCP в userspace и открывает НОВЫЙ сокет
   #   от имени системы с src=физический IP. MASQUERADE не нужен.
   #
-  # - ПРАВИЛА BYPASS ДЛЯ ciadpi и tpws:
-  #   ByeDPI и zapret генерируют исходящий трафик, который
-  #   не должен попадать в TUN. Иначе бесконечная петля.
-  #   action = "bypass" означает: пропустить этот трафик
-  #   напрямую через системный стек, не перехватывая.
+  # - routing_mark = 110 в outbound "zapret-out":
+  #   sing-box помечает этим mark все соединения, направленные
+  #   в этот outbound. nftables видит метку и заворачивает
+  #   первые пакеты в NFQUEUE, где их обрабатывает nfqws2.
   #
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
@@ -83,19 +80,14 @@
           username = "chelik";
           password = "pass11";
         }
+        # zapret-out — специальный outbound для nfqws2.
+        # Тип "direct" + routing_mark = 110.
+        # sing-box не проксирует трафик, а просто помечает его,
+        # чтобы nftables перенаправил пакеты в NFQUEUE для nfqws2.
         {
-          type = "socks";
-          tag = "byedpi-out";
-          server = "127.0.0.1";
-          server_port = 6430;
-          version = "5";
-        }
-        {
-          type = "socks";
+          type = "direct";
           tag = "zapret-out";
-          server = "127.0.0.1";
-          server_port = 3472;
-          version = "5";
+          routing_mark = 110;
         }
         {
           type = "vless";
@@ -125,43 +117,36 @@
         default_mark = 8227;
 
         rules = [
+          # 1. Локальные адреса — всегда direct.
           {
             ip_cidr = ["127.0.0.0/8" "::1/128"];
             outbound = "direct-out";
           }
+          # 2. dnscrypt-proxy — direct. Без этого DNS зациклится.
           {
             process_name = ["dnscrypt-proxy"];
             outbound = "direct-out";
           }
-          {
-            action = "bypass";
-            process_name = ["ciadpi"];
-          }
-          {
-            action = "bypass";
-            process_name = ["tpws"];
-          }
+          # 3. NTP (UDP/123) — direct.
           {
             network = "udp";
             port = [123];
             outbound = "direct-out";
           }
-          {
-            network = "udp";
-            port = [443 8443];
-            outbound = "direct-out";
-          }
+          # 4. Sniffing — определяет протокол для следующих правил.
           {
             action = "sniff";
           }
+          # 5. Firefox → zapret-out (через nfqws2).
           {
             process_name = ["firefox"];
-            outbound = "byedpi-out";
+            outbound = "zapret-out";
           }
           {
             process_path_regex = [".*/firefox/firefox.*"];
-            outbound = "byedpi-out";
+            outbound = "zapret-out";
           }
+          # 6. Brave → zapret-out (через nfqws2).
           {
             process_name = ["brave"];
             outbound = "zapret-out";
@@ -170,6 +155,7 @@
             process_path_regex = [".*/brave/brave.*"];
             outbound = "zapret-out";
           }
+          # 7. Chromium → VLESS.
           {
             process_name = ["chromium"];
             outbound = "vless-out";
@@ -178,6 +164,7 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
+          # 8. Fallback: всё остальное → direct.
           {
             outbound = "direct-out";
           }
@@ -186,6 +173,9 @@
     };
   };
 
+  # =====================================================================
+  # Capabilities и PATH для sing-box.
+  # =====================================================================
   systemd.services.sing-box.serviceConfig = {
     AmbientCapabilities = [
       "CAP_NET_ADMIN"
@@ -202,6 +192,9 @@
     path = [pkgs.nftables pkgs.iptables pkgs.iproute2];
   };
 
+  # =====================================================================
+  # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
+  # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
     wantedBy = ["multi-user.target"];

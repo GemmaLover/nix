@@ -27,8 +27,7 @@
     ../../base/tools/signbox.nix
     ../../base/tools/n13rebuild.nix
 
-    ../../base/tools/byedpi.nix
-    ../../base/tools/zapret-tpws.nix
+    ../../base/tools/nfqws2.nix
     ../../base/tools/blockcheckw.nix
 
     # === UI ===

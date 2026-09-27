@@ -11,7 +11,7 @@
   #   3. git push
   #   4. sudo nixos-rebuild switch --flake .#z13
   #   5. Перезапуск зависимых сервисов:
-  #      dnscrypt-proxy → byedpi → zapret-tpws → sing-box
+  #      dnscrypt-proxy → nfqws2 → sing-box
   #
   # n13clear — очистка старых поколений и сборка мусора.
   #   n13clear       — удалить ВСЕ старые поколения
@@ -49,8 +49,8 @@
       echo "==> sudo nixos-rebuild switch --flake $FLAKE_ATTR"
       sudo nixos-rebuild switch --flake "$FLAKE_ATTR"
 
-      # Порядок: DNS → ByeDPI → zapret-tpws → sing-box.
-      for svc in dnscrypt-proxy byedpi zapret-tpws sing-box; do
+      # Порядок: DNS → nfqws2 → sing-box.
+      for svc in dnscrypt-proxy nfqws2 sing-box; do
         if systemctl list-unit-files --quiet "$svc.service" >/dev/null 2>&1 \
            && systemctl cat "$svc.service" >/dev/null 2>&1; then
           echo "==> sudo systemctl restart $svc"
