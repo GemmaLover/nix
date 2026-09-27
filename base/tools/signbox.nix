@@ -62,28 +62,27 @@
         auto_detect_interface = true;
 
         rules = [
-          # 0. Перехват всех DNS-запросов через TUN.
-          # Обязательно первым, чтобы DNS не ушёл ни в socks, ни в vless.
+          # 1. Сначала сниффинг — без него hijack-dns не сработает.
+          { action = "sniff"; }
+
+          # 2. Перехватить все DNS-запросы (порт 53) и разрешить через секцию dns.
           { protocol = "dns"; action = "hijack-dns"; }
 
-          # 1. Прочий loopback — напрямую (для nix-daemon и локальных сервисов).
+          # 3. Loopback — напрямую.
           {
             ip_cidr = [ "127.0.0.0/8" "::1/128" ];
             outbound = "direct-out";
           }
 
-          # 2. Сниффинг доменов.
-          { action = "sniff"; }
-
-          # 3. Brave → SOCKS5.
+          # 4. Brave → SOCKS5.
           { process_name = [ "brave" ]; outbound = "socks-out"; }
           { process_path_regex = [ ".*/brave/brave.*" ]; outbound = "socks-out"; }
 
-          # 4. Chromium → VLESS.
+          # 5. Chromium → VLESS.
           { process_name = [ "chromium" ]; outbound = "vless-out"; }
           { process_path_regex = [ ".*/chromium/chromium.*" ]; outbound = "vless-out"; }
 
-          # 5. Всё остальное → direct.
+          # 6. Всё остальное → direct.
           { outbound = "direct-out"; }
         ];
       };
