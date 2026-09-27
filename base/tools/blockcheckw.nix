@@ -13,7 +13,7 @@
   # Хэш скачанного архива.
   # Для 0.9.4 был: sha256-zbPnL5M/0PEOpbULw8u9JTDUQDp9YeIEuVjCy7aTkDw=
   # Для 0.12.0 получим через lib.fakeHash (см. ниже).
-  hash = lib.fakeHash;
+  hash = "sha256-uEqAi5xCyryIdZ6HqLj+Hi31b02ywqr1X4fKy4Zv4qk=";
 
   blockcheckw = pkgs.stdenv.mkDerivation {
     pname = "blockcheckw";
