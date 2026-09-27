@@ -34,12 +34,19 @@
   #   auto_redirect конфликтует с nfqueue от Portmaster.
   # - sniff на inbound в sing-box 1.14 УБРАН (был deprecated).
   #   Определение протокола делается через route rule action = "sniff".
+  # - stack = "gvisor": sing-box САМ терминирует TCP и открывает
+  #   НОВЫЙ сокет для outbound. Это критично:
+  #     * system  → packet-mode, пакет уходит с src=172.19.0.1,
+  #                 нужен MASQUERADE, часто ломается.
+  #     * gvisor  → termination, новый сокет с src=физический IP,
+  #                 MASQUERADE не нужен, работает надёжно.
   # =====================================================================
   services.sing-box = {
     enable = true;
     settings = {
       log = {
-        level = "info";
+        # debug на время диагностики. Потом вернём info.
+        level = "debug";
       };
 
       inbounds = [
@@ -62,9 +69,9 @@
 
           mtu = 1400;
 
-          # stack = "system" — использует системный сетевой стек.
-          # Для auto_route это наиболее совместимый вариант.
-          stack = "system";
+          # gvisor — userspace TCP/IP stack, терминирует TCP.
+          # Именно это меняем с "system".
+          stack = "gvisor";
         }
       ];
 
@@ -177,10 +184,6 @@
   # priority 100 — выше правил auto_route (9000-9010),
   # поэтому срабатывает раньше и выводит пакеты sing-box
   # из петли через TUN.
-  #
-  # ВАЖНО: убрал requires/after от sing-box.service, чтобы сервис
-  # не уходил в "dependency failed" пока sing-box ещё стартует.
-  # Правило можно ставить сразу — оно безвредно, если sing-box мёртв.
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop)";
