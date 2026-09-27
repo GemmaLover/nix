@@ -21,45 +21,50 @@
   # - tpws — это stream-level прокси. Он не перехватывает трафик
   #   глобально, а только обрабатывает соединения, явно
   #   направленные на него через SOCKS.
-  # - Стратегии задаются в extraOptions (флаги -d, -s, -r, -S и т.д.).
-  # - В модуле nixpkgs опция называется extraOptions, а не extraArgs.
+  # - Встроенный модуль services.zapret2 из nixpkgs НЕ поддерживает
+  #   tpws (рассчитан на nfqws2 с NFQUEUE), поэтому мы создаём
+  #   собственный systemd-сервис, который запускает tpws напрямую.
+  # - Стратегии задаются в extraArgs (флаги -d, -s, -r, -S и т.д.).
   # =====================================================================
-  services.zapret2 = {
-    enable = true;
 
-    # tpws в режиме SOCKS-прокси на порту 3472.
-    # --socks — включает SOCKS4/5 вместо прозрачного прокси.
-    # --port=3472 — порт прослушивания.
-    extraOptions = [
-      "--socks"
-      "--port=3472"
-      "--debug=1"
+  # ---------------------------------------------------------------------
+  # Кастомный systemd-сервис для tpws (SOCKS-прокси).
+  # ---------------------------------------------------------------------
+  systemd.services.zapret2 = {
+    description = "zapret2 (tpws) SOCKS proxy for DPI bypass";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" "nss-lookup.target" ];
+    wants = [ "network-online.target" ];
 
-      # --- Стратегии обхода DPI (базовый набор) ---
-      # Подобраны как стартовые. Если что-то не работает —
-      # используйте zapret2-find-strategy для подбора.
-      #
-      # -dN — disorder: отправка пакетов в обратном порядке
-      # -sN+s — split: разбиение пакета в позиции N
-      # -rN+s — split с повтором
-      # -S — SYN-ACK desync
-      # -aN — autore: автоматический подбор
-      # -As — авто-стратегия для SNI
-      "-d1"
-      "-d3+s"
-      "-s6+s"
-      "-d9+s"
-      "-s12+s"
-      "-d15+s"
-      "-s20+s"
-      "-d25+s"
-      "-s30+s"
-      "-d35+s"
-      "-r1+s"
-      "-S"
-      "-a1"
-      "-As"
-    ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = ''
+        ${pkgs.zapret2}/bin/tpws \
+          --socks \
+          --port=3472 \
+          --bind-addr=127.0.0.1 \
+          --debug=1 \
+          -d1 -d3+s -s6+s -d9+s -s12+s -d15+s -s20+s -d25+s -s30+s -d35+s -r1+s -S -a1 -As
+      '';
+      Restart = "on-failure";
+      RestartSec = 5;
+
+      # tpws не требует привилегий, кроме бинда на порт >1024.
+      # Запускаем от пользователя daemon (или любого непривилегированного).
+      User = "daemon";
+      Group = "daemon";
+
+      # Безопасность
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      ReadWritePaths = [ "/run" ];
+
+      # Логирование
+      StandardOutput = "journal";
+      StandardError = "journal";
+    };
   };
 
   # =====================================================================
@@ -139,16 +144,4 @@
         echo "  unit не найден"
     '')
   ];
-
-  # =====================================================================
-  # Автозапуск: tpws не требует nftables/nfqueue,
-  # но нужен network-online.target.
-  # =====================================================================
-  systemd.services.zapret2 = {
-    after = [ "network-online.target" "nss-lookup.target" ];
-    wants = [ "network-online.target" ];
-    serviceConfig = {
-      WantedBy = [ "multi-user.target" ];
-    };
-  };
 }
