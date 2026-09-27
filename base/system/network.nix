@@ -1,93 +1,53 @@
-{ config, lib, pkgs, ... }:
-
 {
-  # =====================================================================
-  # Сеть: NetworkManager, firewall, nftables, MASQUERADE для sing-box TUN.
-  #
-  # Модель маршрутизации sing-box:
-  #   1. sing-box создаёт TUN-интерфейс singtun0 (адрес 172.19.0.1/30).
-  #   2. auto_route прописывает ip rule, который направляет весь
-  #      исходящий трафик приложений (iif lo) в таблицу 2022,
-  #      где default-маршрут ведёт на singtun0.
-  #   3. sing-box читает пакеты из TUN и создаёт НОВОЕ исходящее
-  #      соединение через физический интерфейс (wlp194s0).
-  #   4. Поскольку source нового пакета — 172.19.0.1 (адрес TUN),
-  #      MASQUERADE подменяет его на IP физического интерфейса
-  #      (например, 192.168.1.194), иначе сервер не сможет
-  #      ответить: адрес 172.19.0.1 в интернете не маршрутизируется.
-  #   5. Ответ приходит на 192.168.1.194, sing-box его принимает
-  #      и передаёт обратно в TUN — приложение получает ответ.
-  #
-  # Без MASQUERADE:
-  #   - curl/Firefox висят в timeout,
-  #   - в tcpdump видны только SYN'ы на singtun0,
-  #     ни одного пакета на физическом интерфейсе.
-  # =====================================================================
-
-  # === NetworkManager ===
-  # Управление сетевыми подключениями (Wi-Fi, Ethernet, VPN).
+  config,
+  lib,
+  pkgs,
+  ...
+}: {
+  # === Сеть ===
+  # NetworkManager — управление сетевыми подключениями (Wi-Fi, Ethernet, VPN).
   networking.networkmanager.enable = true;
 
   # === nftables ===
-  # nftables нужен для auto_route в sing-box 1.14.
-  # В NixOS 26.11 при networking.nftables.enable = true
-  # firewall тоже работает на nftables (через iptables-nft).
+  # nftables нужен для работы auto_route в sing-box 1.14.
+  #
+  # Как это работает:
+  # 1. sing-box создаёт TUN-интерфейс singtun0.
+  # 2. Через nftables он маркирует пакеты, идущие от приложений,
+  #    специальным fwmark.
+  # 3. ip rule направляет помеченные пакеты в таблицу 2022,
+  #    где default-маршрут указывает на singtun0.
+  # 4. sing-box обрабатывает пакет и отправляет его через
+  #    нужный outbound (direct, socks, vless).
+  # 5. Через nftables sing-box исключает СВОИ СОБСТВЕННЫЕ
+  #    исходящие пакеты из маркировки — иначе получается петля:
+  #    пакет уходит в TUN → возвращается к sing-box → снова в TUN.
+  #
+  # Без nftables:
+  # - auto_route не создаёт правила fwmark,
+  # - прямые исходящие sing-box зацикливаются,
+  # - соединения зависают (curl: connection timed out).
   networking.nftables.enable = true;
 
   # === Firewall ===
-  # Порты не открываем: sing-box, Portmaster и dnscrypt
-  # работают на loopback, входящий трафик извне им не нужен.
+  # Включаем firewall.
+  # В NixOS 26.11 при networking.nftables.enable = true firewall
+  # работает на nftables, а не на iptables-legacy.
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ ];
-    allowedUDPPorts = [ ];
+
+    # Разрешённые TCP-порты. Пусто — sing-box и Portmaster
+    # сами управляют трафиком через свои правила.
+    allowedTCPPorts = [];
+
+    # Разрешённые UDP-порты. Пусто — аналогично.
+    allowedUDPPorts = [];
   };
 
-  # =====================================================================
-  # MASQUERADE для исходящих из TUN (sing-box).
-  #
-  # Проблема:
-  #   Пакеты приложений попадают в TUN с source 172.19.0.1.
-  #   sing-box читает их и создаёт исходящее соединение к серверу
-  #   через физический интерфейс. Без MASQUERADE пакет уходит
-  #   с source 172.19.0.1, который в интернете не маршрутизируется —
-  #   ядро дропает его ещё до выхода на Wi-Fi, curl висит в timeout.
-  #
-  # Решение:
-  #   MASQUERADE подменяет source на IP физического интерфейса
-  #   (например, 192.168.1.194) в цепочке postrouting таблицы nat.
-  #   Ответы возвращаются на реальный IP, sing-box их принимает
-  #   и передаёт обратно в TUN — приложение получает ответ.
-  #
-  # Почему отдельная таблица singboxnat:
-  #   Таблицы ip filter, ip mangle, ip nat уже используются
-  #   Portmaster'ом и Docker'ом через iptables-nft. Объявление
-  #   одной из них через networking.nftables.ruleset приведёт
-  #   к конфликту. Создаём СВОЮ таблицу с уникальным именем.
-  #
-  # Почему priority 100:
-  #   Стандартный приоритет для srcnat. Цепочка обрабатывается
-  #   после filter-цепочек, но до того, как пакет уйдёт в сеть.
-  #
-  # Условие oifname != "singtun0":
-  #   Не маскарадить трафик, уходящий обратно в TUN. Иначе
-  #   sing-box подменит source собственных ответов, которые
-  #   должны вернуться в приложение через TUN.
-  # =====================================================================
-  networking.nftables.ruleset = ''
-    table ip singboxnat {
-      chain postrouting {
-        type nat hook postrouting priority 100; policy accept;
-        ip saddr 172.19.0.0/30 oifname != "singtun0" masquerade
-      }
-    }
-  '';
-
   # === Утилиты для отладки сети ===
-  # nft      — просмотр nftables (sudo nft list ruleset).
-  # iptables — совместимость с утилитами, ожидающими iptables.
-  # iproute2 — ip rule, ip route.
-  # tcpdump  — анализ трафика (sudo tcpdump -i any ...).
+  # nft — для просмотра правил nftables (sudo nft list ruleset).
+  # iptables — совместимость с утилитами, которые его ожидают.
+  # iproute2 — ip rule, ip route (обычно уже есть в системе).
   environment.systemPackages = with pkgs; [
     nftables
     iptables
