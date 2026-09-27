@@ -83,7 +83,7 @@
 # 1280 — безопасное значение для IPv6 и для raw socket в nfqws2.
 # 1400 вызывал ошибки "Message too long" в nfqws2 при отправке
 # десинхронизированных пакетов через raw socket.
-mtu = 1280;
+mtu = 1200;
 
           # stack = "gvisor": TCP termination в userspace.
           # sing-box сам открывает новый сокет → MASQUERADE не нужен.
