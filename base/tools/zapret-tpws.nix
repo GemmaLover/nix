@@ -18,6 +18,12 @@
   #     --split-pos=N, --disorder, --tlsrec=marker+N, --oob
   #   Короткие флаги (-d1, -s6+s, -r1+s) — это синтаксис nfqws.
   #   Они НЕ работают с tpws и вызывают status=1/FAILURE.
+  #
+  # - ПОИСК СТРАТЕГИЙ:
+  #   Скрипт zapret-find-strategy запускает blockcheck
+  #   (бинарник без расширения .sh) из пакета zapret.
+  #   blockcheck перебирает комбинации split/disorder/tlsrec
+  #   и выводит SUMMARY с рабочими стратегиями.
   # =====================================================================
 
   systemd.services.zapret-tpws = {
@@ -61,7 +67,20 @@
 
   # =====================================================================
   # Скрипт zapret-find-strategy — поиск стратегий для tpws.
-  # Использует blockcheck.sh из состава zapret.
+  #
+  # Использование:
+  #   sudo zapret-find-strategy instagram.com
+  #   sudo zapret-find-strategy youtube.com --tls13
+  #   sudo zapret-find-strategy discord.com --tls13 --quic
+  #
+  # Что делает:
+  #   1. Находит бинарник blockcheck в пакете zapret.
+  #   2. Запускает blockcheck для указанного домена.
+  #   3. Выводит SUMMARY с найденными рабочими стратегиями.
+  #   4. Показывает, какие параметры вставить в zapret-tpws.nix.
+  #
+  # ВАЖНО: blockcheck — это бинарник БЕЗ расширения .sh.
+  # Раньше скрипт искал blockcheck.sh и не находил его.
   # =====================================================================
   environment.systemPackages = with pkgs; [
     (writeShellScriptBin "zapret-find-strategy" ''
@@ -70,35 +89,56 @@
 
       if [ $# -lt 1 ]; then
         echo "Использование: zapret-find-strategy <domain> [--tls13] [--quic]"
-        echo "Пример: zapret-find-strategy instagram.com"
+        echo ""
+        echo "Примеры:"
+        echo "  zapret-find-strategy instagram.com"
+        echo "  zapret-find-strategy youtube.com --tls13"
+        echo "  zapret-find-strategy discord.com --tls13 --quic"
+        echo ""
+        echo "Скрипт перебирает стратегии обхода DPI для указанного"
+        echo "домена через blockcheck (входит в zapret)."
+        echo "В выводе смотрите секцию SUMMARY."
         exit 1
       fi
 
       DOMAIN="$1"
       shift
 
-      BLOCKCHECK=$(find ${zapret}/ -name "blockcheck.sh" 2>/dev/null | head -1)
+      # Ищем бинарник blockcheck (без .sh) в пакете zapret.
+      BLOCKCHECK=$(find ${zapret}/ -name "blockcheck" -type f 2>/dev/null | head -1)
+
       if [ -z "$BLOCKCHECK" ]; then
-        echo "Ошибка: blockcheck.sh не найден в пакете zapret." >&2
+        echo "Ошибка: бинарник blockcheck не найден в пакете zapret." >&2
+        echo "Проверьте, что zapret установлен:" >&2
+        echo "  nix-shell -p zapret --command which blockcheck" >&2
         exit 1
       fi
 
       echo "==> Запуск blockcheck для домена: $DOMAIN"
+      echo "==> blockcheck: $BLOCKCHECK"
+      echo ""
+
+      # blockcheck принимает домен как аргумент.
+      # Требуется root для SO_MARK и nfqueue.
       sudo "$BLOCKCHECK" "$DOMAIN" "$@"
     '')
 
+    # Утилита для просмотра текущего состояния tpws.
     (writeShellScriptBin "zapret-status" ''
       #!/usr/bin/env bash
       echo "=== tpws (zapret SOCKS-прокси) ==="
       if systemctl is-active --quiet zapret-tpws 2>/dev/null; then
         echo "Статус: активен"
+        echo ""
+        echo "Слушает:"
         sudo ss -tlnp | grep 3472 || echo "  порт 3472 не слушается"
       else
         echo "Статус: неактивен"
       fi
       echo ""
-      echo "=== ExecStart ==="
-      systemctl cat zapret-tpws 2>/dev/null | grep -A5 "ExecStart" || echo "  unit не найден"
+      echo "=== Стратегии (из systemd unit) ==="
+      systemctl cat zapret-tpws 2>/dev/null | grep -A5 "ExecStart" || \
+        echo "  unit не найден"
     '')
   ];
 }
