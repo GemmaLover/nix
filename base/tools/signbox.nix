@@ -27,32 +27,23 @@
   # ВАЖНО:
   # - DNS-секции нет. sing-box не резолвит имена.
   # - default_mark = 8227 — помечает исходящие сокеты sing-box.
-  #   Требуется правило ip rule ДЛЯ IPv4 И IPv6, которое создаёт
-  #   сервис sing-box-fwmark-rule (см. ниже). Без IPv6-правила
-  #   IPv6-сокеты sing-box попадают под auto_route и зацикливаются
-  #   в TUN — это ломает DNS, который dnscrypt-proxy гоняет по IPv6
-  #   к Quad9/Scaleway.
+  #   Правило ip rule (v4+v6) создаётся сервисом
+  #   sing-box-fwmark-rule. БЕЗ ЭТОГО ПРАВИЛА:
+  #     * sing-box direct-out открывает IPv4/IPv6-сокет,
+  #     * ядро применяет auto_route (правило 9001),
+  #     * пакет уходит обратно в singtun0 → петля,
+  #     * DNS от dnscrypt-proxy виснет, Firefox не открывает сайты.
   # - MTU = 1400, strict_route = false.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route + nftables.
-  #   auto_redirect конфликтует с nfqueue от Portmaster.
-  # - sniff на inbound в sing-box 1.14 УБРАН (был deprecated).
-  #   Определение протокола делается через route rule action = "sniff".
+  # - sniff на inbound в sing-box 1.14 УБРАН.
   # - stack = "gvisor": sing-box САМ терминирует TCP и открывает
-  #   НОВЫЙ сокет для outbound. Это критично:
-  #     * system  → packet-mode, пакет уходит с src=172.19.0.1,
-  #                 нужен MASQUERADE, часто ломается.
-  #     * gvisor  → termination, новый сокет с src=физический IP,
-  #                 MASQUERADE не нужен, работает надёжно.
-  # - address содержит и IPv4, и IPv6 префиксы.
-  #   Это заворачивает IPv6-трафик в TUN.
-  # - dns_mode = "disabled" — sing-box не перехватывает DNS
-  #   (DNS уже обслуживают Portmaster + dnscrypt-proxy).
+  #   НОВЫЙ сокет для outbound. MASQUERADE не нужен.
+  # - address содержит IPv4 + IPv6 префиксы.
   # =====================================================================
   services.sing-box = {
     enable = true;
     settings = {
       log = {
-        # info — штатный уровень. debug включаем только для отладки.
         level = "info";
       };
 
@@ -62,34 +53,16 @@
           tag = "tun-in";
           interface_name = "singtun0";
 
-          # IPv4 + IPv6 префиксы для TUN-интерфейса.
-          # IPv6-префикс (fdfe:dcba:9876::1/126) — это ULA
-          # (Unique Local Address), он используется только внутри TUN
-          # и не маршрутизируется в интернет. Это стандартный подход.
           address = [
             "172.19.0.1/30"
             "fdfe:dcba:9876::1/126"
           ];
 
-          # dns_mode = "disabled" — sing-box НЕ трогает DNS.
-          # DNS-запросы идут через Portmaster → dnscrypt-proxy.
-          # Это критично для совместимости.
           dns_mode = "disabled";
 
-          # auto_route — классический механизм через ip rule + ip route.
-          # Создаёт правила в таблице 2022 и маркирует пакеты.
-          # НЕ конфликтует с nfqueue Portmaster, т.к. использует
-          # отдельные таблицы маршрутизации, а не перезаписывает
-          # цепочки nftables.
           auto_route = true;
-
-          # strict_route оставляем false для совместимости с
-          # локальными сервисами (Portmaster, dnscrypt-proxy).
           strict_route = false;
-
           mtu = 1400;
-
-          # gvisor — userspace TCP/IP stack, терминирует TCP.
           stack = "gvisor";
         }
       ];
@@ -129,10 +102,6 @@
       route = {
         find_process = true;
         auto_detect_interface = true;
-
-        # Помечаем исходящие socket'ы sing-box fwmark 8227 (0x2023).
-        # Правило ip rule (и ip -6 rule) для этого mark создаётся
-        # сервисом sing-box-fwmark-rule ниже.
         default_mark = 8227;
 
         rules = [
@@ -197,35 +166,36 @@
   # =====================================================================
   # Правила маршрутизации для fwmark 8227 (IPv4 + IPv6).
   #
-  # sing-box с default_mark = 8227 помечает свои исходящие сокеты
-  # этим fwmark, но НЕ создаёт ip rule автоматически.
-  #
-  # priority 100 — выше правил auto_route (9000-9010),
-  # поэтому срабатывает раньше и выводит пакеты sing-box
-  # из петли через TUN.
-  #
-  # КРИТИЧНО: нужно ДВА правила — для IPv4 и для IPv6.
-  # Без IPv6-правила:
-  #   * sing-box direct-out открывает IPv6-сокет,
-  #   * ядро применяет auto_route (правило 9001),
-  #   * пакет уходит обратно в singtun0 → петля,
-  #   * DNS от dnscrypt-proxy (DoH на Quad9/Scaleway по IPv6) виснет,
-  #   * Firefox теряет DNS и сайты не открываются.
+  # КРИТИЧНО:
+  # - Используем `script`, а не многострочный ExecStart.
+  #   systemd в NixOS НЕ оборачивает многострочный ExecStart в shell,
+  #   поэтому вторая строка (ip -6 rule add) молча терялась.
+  #   `script` гарантированно выполняется через bash.
+  # - Нужны ДВА правила: IPv4 и IPv6. Без IPv6-правила
+  #   IPv6-сокеты sing-box попадают под auto_route (9001) и
+  #   зацикливаются в TUN, ломая DoH к Quad9/Scaleway по IPv6.
+  # - priority 100 — выше auto_route (9000-9010).
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
     wantedBy = ["multi-user.target"];
+
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = ''
-        ${pkgs.iproute2}/bin/ip    rule add fwmark 8227 lookup main priority 100
-        ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
-      '';
-      ExecStop = ''
+
+      # ExecStop запускается при остановке/рестарте юнита.
+      # || true — чтобы не падать, если правило уже удалено.
+      ExecStop = pkgs.writeShellScript "sing-box-fwmark-stop" ''
         ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 || true
         ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 || true
       '';
     };
+
+    # script → bash, две команды гарантированно выполнятся.
+    script = ''
+      ${pkgs.iproute2}/bin/ip    rule add fwmark 8227 lookup main priority 100
+      ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
+    '';
   };
 }
