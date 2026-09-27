@@ -10,9 +10,14 @@
   # ВАЖНО:
   # - Используется пакет pkgs.zapret, а НЕ pkgs.zapret2.
   #   В zapret2 нет tpws, только nfqws2 (NFQUEUE).
-  #   tpws — это stream-level прокси, часть оригинального zapret.
   # - tpws реализует SOCKS4/SOCKS5 и не требует nfqueue/nftables.
   # - sing-box направляет Brave на 127.0.0.1:3472 (zapret-out).
+  #
+  # - КЛЮЧЕВОЕ ОТЛИЧИЕ ОТ nfqws:
+  #   tpws принимает ТОЛЬКО длинные опции:
+  #     --split-pos=N, --disorder, --tlsrec=marker+N, --oob
+  #   Короткие флаги (-d1, -s6+s, -r1+s) — это синтаксис nfqws.
+  #   Они НЕ работают с tpws и вызывают status=1/FAILURE.
   # =====================================================================
 
   systemd.services.zapret-tpws = {
@@ -23,14 +28,23 @@
 
     serviceConfig = {
       Type = "simple";
+
+      # tpws в режиме SOCKS-прокси.
+      # Стратегии: split-pos=2 (разбиение ClientHello после 2 байт),
+      # disorder (отправка фрагментов в обратном порядке),
+      # tlsrec=sni (разбиение TLS-записи на уровне SNI).
       ExecStart = ''
         ${pkgs.zapret}/bin/tpws \
           --socks \
           --port=3472 \
           --bind-addr=127.0.0.1 \
           --debug=1 \
-          -d1 -d3+s -s6+s -d9+s -s12+s -d15+s -s20+s -d25+s -s30+s -d35+s -r1+s -S -a1 -As
+          --filter-tcp=443 \
+          --split-pos=2 \
+          --disorder \
+          --tlsrec=sni
       '';
+
       Restart = "on-failure";
       RestartSec = 5;
       DynamicUser = true;
@@ -48,10 +62,6 @@
   # =====================================================================
   # Скрипт zapret-find-strategy — поиск стратегий для tpws.
   # Использует blockcheck.sh из состава zapret.
-  #
-  # Использование:
-  #   zapret-find-strategy instagram.com
-  #   zapret-find-strategy youtube.com --tls13
   # =====================================================================
   environment.systemPackages = with pkgs; [
     (writeShellScriptBin "zapret-find-strategy" ''
@@ -88,7 +98,7 @@
       fi
       echo ""
       echo "=== ExecStart ==="
-      systemctl cat zapret-tpws 2>/dev/null | grep -A3 "ExecStart" || echo "  unit не найден"
+      systemctl cat zapret-tpws 2>/dev/null | grep -A5 "ExecStart" || echo "  unit не найден"
     '')
   ];
 }
