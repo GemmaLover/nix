@@ -8,12 +8,6 @@
   # КОНСТАНТЫ
   # =====================================================================
   ZAPRET_BASE = "/opt/zapret2";
-
-  # Директория с файлами blobs/lists (внутри репозитория).
-  # Nix подставляет абсолютный путь к директории, где лежит этот .nix файл.
-  # То есть ${./.} = /nix/store/...-source/base/tools/nfqws2
-  FILES_DIR = ./.;
-
   QNUM = "200";
   DESYNC_MARK = "0x40000000";
 
@@ -24,8 +18,8 @@
   # https://github.com/nfqws/nfqws2-keenetic/discussions/2
   # #discussioncomment-17512647
   #
-  # Все blobs и lists лежат в base/tools/nfqws2/files/.
-  # Симлинки создаются в /opt/zapret2/blobs и /opt/zapret2/lists.
+  # Blobs и lists лежат в ./files/blobs и ./files/lists.
+  # Nix автоматически копирует их в /nix/store при сборке.
   # =====================================================================
 
   # --- Blobs ---
@@ -48,7 +42,7 @@
     "--filter-l3=ipv4"
   ] ++ BLOBS;
 
-  # --- Стратегия (полная от GoldDopi) ---
+  # --- Стратегия GoldDopi ---
   STRATEGY = [
     # === Профиль 1: YouTube QUIC ===
     "--filter-udp=443"
@@ -128,9 +122,12 @@ in {
     "d /opt/zapret2/nfq2 0755 root root -"
     "L+ /opt/zapret2/nfq2/nfqws2 - - - - ${pkgs.zapret2}/bin/nfqws2"
 
-    # Blobs и lists из репозитория (${FILES_DIR}/blobs и ${FILES_DIR}/lists)
-    "L+ /opt/zapret2/blobs - - - - ${FILES_DIR}/blobs"
-    "L+ /opt/zapret2/lists - - - - ${FILES_DIR}/lists"
+    # Blobs и lists из репозитория.
+    # ${./files/blobs} — Nix-путь, относительный к .nix файлу.
+    # Автоматически копируется в /nix/store при сборке,
+    # работает и после git clone на другой машине.
+    "L+ /opt/zapret2/blobs - - - - ${./files/blobs}"
+    "L+ /opt/zapret2/lists - - - - ${./files/lists}"
   ];
 
   # =====================================================================
@@ -164,7 +161,7 @@ in {
   };
 
   # =====================================================================
-  # NFTABLES: перехват трафика с mark 110, только IPv4.
+  # NFTABLES
   # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
