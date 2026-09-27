@@ -26,15 +26,15 @@
   #
   # ВАЖНО:
   # - DNS-секции нет. sing-box не резолвит имена.
-  # - default_mark = 8227 — помечает исходящие сокеты sing-box.
-  #   Правило ip rule (v4+v6) создаётся сервисом
-  #   sing-box-fwmark-rule. БЕЗ ЭТОГО ПРАВИЛА:
+  # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
+  #   Правило ip rule (v4+v6) создаётся сервисом sing-box-fwmark-rule.
+  #   БЕЗ ЭТОГО ПРАВИЛА:
   #     * sing-box direct-out открывает IPv4/IPv6-сокет,
   #     * ядро применяет auto_route (правило 9001),
   #     * пакет уходит обратно в singtun0 → петля,
   #     * DNS от dnscrypt-proxy виснет, Firefox не открывает сайты.
   # - MTU = 1400, strict_route = false.
-  # - auto_redirect ОТКЛЮЧЁН. Используем auto_route + nftables.
+  # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
   # - stack = "gvisor": sing-box САМ терминирует TCP и открывает
   #   НОВЫЙ сокет для outbound. MASQUERADE не нужен.
@@ -164,16 +164,19 @@
   };
 
   # =====================================================================
-  # Правила маршрутизации для fwmark 8227 (IPv4 + IPv6).
+  # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
   #
   # КРИТИЧНО:
-  # - Используем `script`, а не многострочный ExecStart.
-  #   systemd в NixOS НЕ оборачивает многострочный ExecStart в shell,
-  #   поэтому вторая строка (ip -6 rule add) молча терялась.
-  #   `script` гарантированно выполняется через bash.
-  # - Нужны ДВА правила: IPv4 и IPv6. Без IPv6-правила
-  #   IPv6-сокеты sing-box попадают под auto_route (9001) и
-  #   зацикливаются в TUN, ломая DoH к Quad9/Scaleway по IPv6.
+  # - Скрипт ИДЕМПОТЕНТЕН: сначала удаляет старые правила (игнорируя
+  #   ошибки через `|| true`), затем добавляет новые. Без этого
+  #   `ip rule add` падает с "RTNETLINK answers: File exists" при
+  #   рестарте юнита или переключении конфигурации.
+  # - Используется `script`, а НЕ многострочный ExecStart/ExecStop.
+  #   systemd в NixOS не оборачивает многострочные значения в shell,
+  #   поэтому `|| true` не работал (см. ошибку
+  #   `Error: argument "||" is wrong`).
+  # - Нужны ДВА правила: IPv4 и IPv6. Без IPv6-правила IPv6-сокеты
+  #   sing-box попадают под auto_route и зацикливаются в TUN.
   # - priority 100 — выше auto_route (9000-9010).
   # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
@@ -184,16 +187,21 @@
       Type = "oneshot";
       RemainAfterExit = true;
 
-      # ExecStop запускается при остановке/рестарте юнита.
-      # || true — чтобы не падать, если правило уже удалено.
+      # ExecStop — отдельный shell-скрипт, чтобы `|| true` работал.
+      # Запускается при остановке/рестарте юнита, удаляет оба правила.
       ExecStop = pkgs.writeShellScript "sing-box-fwmark-stop" ''
-        ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 || true
-        ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 || true
+        ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
+        ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
       '';
     };
 
-    # script → bash, две команды гарантированно выполнятся.
+    # script → NixOS оборачивает в bash. Здесь идемпотентное добавление.
     script = ''
+      # Шаг 1: удаляем возможные старые правила (без ошибок).
+      ${pkgs.iproute2}/bin/ip    rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
+      ${pkgs.iproute2}/bin/ip -6 rule del fwmark 8227 lookup main priority 100 2>/dev/null || true
+
+      # Шаг 2: добавляем свежие правила.
       ${pkgs.iproute2}/bin/ip    rule add fwmark 8227 lookup main priority 100
       ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
     '';
