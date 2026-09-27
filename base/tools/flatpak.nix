@@ -34,7 +34,7 @@
       # --- Браузеры ---
       "com.brave.Browser"                  # official: браузер Brave
       "io.gitlab.librewolf-community"      # official: приватный браузер на базе Firefox
-
+"org.chromium.Chromium"
       # --- Сеть и безопасность ---
       "org.qbittorrent.qBittorrent"        # official: торрент-клиент
 
@@ -44,6 +44,8 @@
 
         "org.meshtastic.meshtasticd"        # Демон (серверная часть)
   "org.meshtastic.MeshtasticDesktop"  # Графический клиент
+
+
 
       # --- Утилиты ---
       "com.github.tchx84.Flatseal"         # official: GUI для управления правами Flatpak
