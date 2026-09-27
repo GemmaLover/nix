@@ -1,8 +1,8 @@
 { config, lib, pkgs, ... }:
 
 {
-  # === Сеть ===
-  # NetworkManager — управление сетевыми подключениями (Wi-Fi, Ethernet, VPN).
+  # === NetworkManager ===
+  # Управление сетевыми подключениями (Wi-Fi, Ethernet, VPN).
   networking.networkmanager.enable = true;
 
   # === nftables ===
@@ -29,7 +29,7 @@
   # === Firewall ===
   # Включаем firewall.
   # В NixOS 26.11 при networking.nftables.enable = true firewall
-  # работает на nftables, а не на iptables-legacy.
+  # работает на nftables (через iptables-nft).
   networking.firewall = {
     enable = true;
     # Разрешённые TCP-порты. Пусто — sing-box и Portmaster
@@ -37,12 +37,61 @@
     allowedTCPPorts = [ ];
     # Разрешённые UDP-порты. Пусто — аналогично.
     allowedUDPPorts = [ ];
+
+    # =====================================================================
+    # MASQUERADE для исходящих из TUN (sing-box).
+    #
+    # Проблема:
+    #   Пакеты от приложений попадают в TUN с source 172.19.0.1.
+    #   sing-box читает их из TUN и создаёт исходящее соединение
+    #   к серверу назначения через физический интерфейс (wlp194s0).
+    #   Без MASQUERADE пакет уходит с source 172.19.0.1, который
+    #   в интернете не маршрутизируется — ядро дропает его ещё
+    #   до выхода на Wi-Fi. В tcpdump видно SYN'ы только на
+    #   singtun0, но ни одного на wlp194s0, и curl висит в timeout.
+    #
+    # Решение:
+    #   MASQUERADE подменяет source на IP физического интерфейса
+    #   (например, 192.168.1.194) в цепочке POSTROUTING таблицы nat.
+    #   После этого ответы от сервера возвращаются на реальный
+    #   IP, sing-box их принимает и передаёт обратно в TUN —
+    #   приложение получает ответ.
+    #
+    # Почему extraCommands, а не networking.nftables.ruleset:
+    #   Таблицы ip/ip6 filter, mangle, nat уже управляются
+    #   iptables-nft (Portmaster, Docker). Если попытаться
+    #   объявить их через networking.nftables.ruleset, NixOS
+    #   откажется из-за конфликта — правило не применится.
+    #   extraCommands использует тот же iptables-nft и просто
+    #   добавляет ещё одно правило к уже существующей цепочке
+    #   POSTROUTING.
+    #
+    # Условие ! -o singtun0 — не маскарадить трафик, который
+    # уходит обратно в TUN (иначе sing-box будет заворачивать
+    # свои же ответы в TUN и получится петля).
+    # =====================================================================
+    extraCommands = ''
+      iptables -t nat -A POSTROUTING \
+        -s 172.19.0.0/30 \
+        ! -o singtun0 \
+        -j MASQUERADE
+    '';
+
+    # Убираем правило при остановке firewall, чтобы не оставалось
+    # дубликатов при следующем запуске.
+    extraStopCommands = ''
+      iptables -t nat -D POSTROUTING \
+        -s 172.19.0.0/30 \
+        ! -o singtun0 \
+        -j MASQUERADE 2>/dev/null || true
+    '';
   };
 
   # === Утилиты для отладки сети ===
-  # nft — для просмотра правил nftables (sudo nft list ruleset).
-  # iptables — совместимость с утилитами, которые его ожидают.
-  # iproute2 — ip rule, ip route (обычно уже есть в системе).
+  # nft        — просмотр nftables (sudo nft list ruleset).
+  # iptables   — совместимость и добавление MASQUERADE.
+  # iproute2   — ip rule, ip route.
+  # tcpdump    — анализ трафика (sudo tcpdump -i any ...).
   environment.systemPackages = with pkgs; [
     nftables
     iptables
