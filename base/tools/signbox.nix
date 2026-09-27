@@ -79,9 +79,11 @@
           # true ломает localhost-соединения.
           strict_route = false;
 
-          # MTU TUN-интерфейса. 1400 — безопасное значение для
-          # большинства провайдеров (учитывает PPPoE, VPN и т.п.).
-          mtu = 1400;
+          # MTU TUN-интерфейса.
+# 1280 — безопасное значение для IPv6 и для raw socket в nfqws2.
+# 1400 вызывал ошибки "Message too long" в nfqws2 при отправке
+# десинхронизированных пакетов через raw socket.
+mtu = 1280;
 
           # stack = "gvisor": TCP termination в userspace.
           # sing-box сам открывает новый сокет → MASQUERADE не нужен.
