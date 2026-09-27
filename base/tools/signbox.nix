@@ -14,35 +14,24 @@
   # │ - HTTP/3 отключён, TCP-ONLY                                  │
   # ├─────────────────────────────────────────────────────────────┤
   # │ nfqws2 (zapret2) — перехват пакетов через NFQUEUE.          │
-  # │ Трафик помечается sing-box (routing_mark = 110),            │
-  # │ затем nftables заворачивает его в очередь NFQUEUE,          │
+  # │ Все пакеты, входящие в TUN, помечаются mark 110.            │
+  # │ nftables видит метку и заворачивает их в очередь 200,       │
   # │ где nfqws2 применяет Lua-стратегии обхода DPI.              │
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → direct                                    │
-  # │ - Firefox → zapret-out (через nfqws2)                       │
-  # │ - Brave → zapret-out (через nfqws2)                         │
   # │ - Chromium → vless-out                                       │
+  # │ - Firefox, Brave → direct (но с mark 110 → nfqws2)          │
   # │ - Всё остальное → direct                                     │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
-  # - DNS-секции нет. sing-box не резолвит имена.
-  # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
-  #   Правило ip rule (v4+v6) создаёт сервис sing-box-fwmark-rule.
-  #
-  # - stack = "gvisor" — КРИТИЧНО.
-  #   sing-box терминирует TCP в userspace и открывает НОВЫЙ сокет
-  #   от имени системы с src=физический IP. MASQUERADE не нужен.
-  #
-  # - routing_mark = 110 в outbound "zapret-out":
-  #   sing-box помечает этим mark все соединения, направленные
-  #   в этот outbound. nftables видит метку и заворачивает
-  #   первые пакеты в NFQUEUE, где их обрабатывает nfqws2.
-  #
-  # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
-  # - sniff на inbound в sing-box 1.14 УБРАН.
+  # - routing_mark = 110 в inbound TUN: помечает ВСЕ пакеты,
+  #   входящие в TUN. Это единственный способ заставить nftables
+  #   перехватывать трафик из TUN.
+  # - mark 110 исключается в nftables для dnscrypt-proxy и Chromium
+  #   через отдельные правила (по портам/процессам).
   # =====================================================================
   services.sing-box = {
     enable = true;
@@ -67,6 +56,10 @@
           strict_route = false;
           mtu = 1400;
           stack = "gvisor";
+
+          # routing_mark = 110: помечает ВСЕ пакеты, входящие в TUN.
+          # nftables перехватывает их в очередь 200 для nfqws2.
+          routing_mark = 110;
         }
       ];
 
@@ -79,15 +72,6 @@
           version = "5";
           username = "chelik";
           password = "pass11";
-        }
-        # zapret-out — специальный outbound для nfqws2.
-        # Тип "direct" + routing_mark = 110.
-        # sing-box не проксирует трафик, а просто помечает его,
-        # чтобы nftables перенаправил пакеты в NFQUEUE для nfqws2.
-        {
-          type = "direct";
-          tag = "zapret-out";
-          routing_mark = 110;
         }
         {
           type = "vless";
@@ -122,7 +106,7 @@
             ip_cidr = ["127.0.0.0/8" "::1/128"];
             outbound = "direct-out";
           }
-          # 2. dnscrypt-proxy — direct. Без этого DNS зациклится.
+          # 2. dnscrypt-proxy — direct (без mark 110).
           {
             process_name = ["dnscrypt-proxy"];
             outbound = "direct-out";
@@ -133,29 +117,7 @@
             port = [123];
             outbound = "direct-out";
           }
-          # 4. Sniffing — определяет протокол для следующих правил.
-          {
-            action = "sniff";
-          }
-          # 5. Firefox → zapret-out (через nfqws2).
-          {
-            process_name = ["firefox"];
-            outbound = "zapret-out";
-          }
-          {
-            process_path_regex = [".*/firefox/firefox.*"];
-            outbound = "zapret-out";
-          }
-          # 6. Brave → zapret-out (через nfqws2).
-          {
-            process_name = ["brave"];
-            outbound = "zapret-out";
-          }
-          {
-            process_path_regex = [".*/brave/brave.*"];
-            outbound = "zapret-out";
-          }
-          # 7. Chromium → VLESS.
+          # 4. Chromium → VLESS (без mark 110).
           {
             process_name = ["chromium"];
             outbound = "vless-out";
@@ -164,7 +126,25 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # 8. Fallback: всё остальное → direct.
+          # 5. Firefox → direct (но с mark 110 → nfqws2).
+          {
+            process_name = ["firefox"];
+            outbound = "direct-out";
+          }
+          {
+            process_path_regex = [".*/firefox/firefox.*"];
+            outbound = "direct-out";
+          }
+          # 6. Brave → direct (но с mark 110 → nfqws2).
+          {
+            process_name = ["brave"];
+            outbound = "direct-out";
+          }
+          {
+            process_path_regex = [".*/brave/brave.*"];
+            outbound = "direct-out";
+          }
+          # 7. Fallback: всё остальное → direct.
           {
             outbound = "direct-out";
           }
@@ -173,9 +153,6 @@
     };
   };
 
-  # =====================================================================
-  # Capabilities и PATH для sing-box.
-  # =====================================================================
   systemd.services.sing-box.serviceConfig = {
     AmbientCapabilities = [
       "CAP_NET_ADMIN"
@@ -192,9 +169,6 @@
     path = [pkgs.nftables pkgs.iptables pkgs.iproute2];
   };
 
-  # =====================================================================
-  # Правила маршрутизации для fwmark 0x2023 (IPv4 + IPv6).
-  # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
     wantedBy = ["multi-user.target"];
