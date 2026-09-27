@@ -14,15 +14,16 @@
   # =====================================================================
   # РАЗДЕЛЬНЫЕ СТРАТЕГИИ ПО КАТЕГОРИЯМ САЙТОВ
   #
-  # Принцип: каждый профиль (--new) применяется только к доменам
-  # из своего --hostlist. Это позволяет использовать разные
-  # (и разной "тяжести") стратегии для разных сайтов.
+  # ВАЖНО: X.com, Instagram, Discord используют QUIC (UDP/443).
+  # Если профиль не обрабатывает UDP — пакеты уходят без обхода,
+  # и DPI их блокирует. Поэтому для каждого сайта ДВА профиля:
+  #   - TCP (TLS через 443)
+  #   - UDP (QUIC через 443)
   #
-  # ПОРЯДОК ВАЖЕН: nfqws2 проверяет профили сверху вниз,
-  # первое совпадение выигрывает.
+  # Все профили используют --new для разделения.
+  # Порядок: сначала все TCP, потом все UDP.
   # =====================================================================
 
-  # --- Blobs (для профилей, где нужны fake-пакеты) ---
   BLOBS = [
     "--blob=quic_initial:@${ZAPRET_BASE}/blobs/quic_initial.bin"
     "--blob=tls_clienthello:@${ZAPRET_BASE}/blobs/tls_clienthello.bin"
@@ -43,11 +44,9 @@
 
   STRATEGY = [
     # =================================================================
-    # ПРОФИЛЬ 1: YouTube — ЛЁГКАЯ стратегия (проверено, работает)
+    # ПРОФИЛЬ 1: YouTube (TCP) — лёгкая, проверено
     # =================================================================
-    # YouTube блокируется по SNI. Достаточно разбить ClientHello
-    # в 2 позициях. Без fake, без repeats — быстро и стабильно.
-    "--name=YouTube"
+    "--name=YouTube-TCP"
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
@@ -55,32 +54,47 @@
     "--lua-desync=multisplit:pos=1,sniext+1"
     "--new"
 
-    # YouTube QUIC (UDP/443)
+    # =================================================================
+    # ПРОФИЛЬ 2: YouTube (QUIC) — fake
+    # =================================================================
+    "--name=YouTube-QUIC"
     "--filter-udp=443"
     "--filter-l7=quic"
     "--hostlist=${ZAPRET_BASE}/lists/domain-youtube.list"
     "--payload=quic_initial"
-    "--lua-desync=multisplit:pos=1"
+    "--lua-desync=fake:blob=quic_initial:repeats=6"
     "--new"
 
     # =================================================================
-    # ПРОФИЛЬ 2: X.com / Twitter — hostfakesplit
+    # ПРОФИЛЬ 3: X.com / Twitter (TCP)
     # =================================================================
-    # X.com блокируется по SNI, но YouTube-стратегия не помогает.
-    # hostfakesplit подменяет SNI на ya.ru и разбивает пакет —
-    # не создаёт fake-пакетов (нет "Message too long").
-    "--name=X"
+    # hostfakesplit подменяет SNI на ya.ru и разбивает пакет.
+    # Стратегия мягкая, не создаёт fake-пакетов → нет "Message too long".
+    "--name=X-TCP"
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
     "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
     "--lua-desync=hostfakesplit:host=ya.ru:repeats=4:tcp_ts=-600000"
+    "--lua-desync=multisplit:pos=1,sniext+1"
     "--new"
 
     # =================================================================
-    # ПРОФИЛЬ 3: Instagram / Facebook — hostfakesplit + multisplit
+    # ПРОФИЛЬ 4: X.com / Twitter (QUIC) — критично для браузеров!
     # =================================================================
-    "--name=Instagram"
+    # X.com использует QUIC. Без этого профиля X.com не работает.
+    "--name=X-QUIC"
+    "--filter-udp=443"
+    "--filter-l7=quic"
+    "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
+    "--payload=quic_initial"
+    "--lua-desync=fake:blob=quic_google:repeats=6"
+    "--new"
+
+    # =================================================================
+    # ПРОФИЛЬ 5: Instagram / Facebook (TCP)
+    # =================================================================
+    "--name=Instagram-TCP"
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
@@ -90,7 +104,29 @@
     "--new"
 
     # =================================================================
-    # ПРОФИЛЬ 4: Discord — UDP + Media
+    # ПРОФИЛЬ 6: Instagram / Facebook (QUIC)
+    # =================================================================
+    "--name=Instagram-QUIC"
+    "--filter-udp=443"
+    "--filter-l7=quic"
+    "--hostlist=${ZAPRET_BASE}/lists/domain-instagram.list"
+    "--payload=quic_initial"
+    "--lua-desync=fake:blob=quic_google:repeats=6"
+    "--new"
+
+    # =================================================================
+    # ПРОФИЛЬ 7: Discord (TCP Media)
+    # =================================================================
+    "--name=Discord-TCP"
+    "--filter-tcp=2053,2083,2087,2096,8443,443"
+    "--filter-l7=tls"
+    "--payload=tls_client_hello"
+    "--hostlist=${ZAPRET_BASE}/lists/domain-discord.list"
+    "--lua-desync=hostfakesplit:repeats=4:tcp_ts=-600000:host=www.google.com"
+    "--new"
+
+    # =================================================================
+    # ПРОФИЛЬ 8: Discord (UDP Voice/Media)
     # =================================================================
     "--name=Discord-UDP"
     "--filter-udp=3478-3481,19294-19344,50000-50100"
@@ -99,20 +135,11 @@
     "--lua-desync=fake:blob=quic_google:repeats=6"
     "--new"
 
-    "--name=Discord-Media"
-    "--filter-tcp=2053,2083,2087,2096,8443"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-discord.list"
-    "--lua-desync=hostfakesplit:repeats=4:tcp_ts=-600000:host=www.google.com"
-    "--new"
-
     # =================================================================
-    # ПРОФИЛЬ 5: Fallback "Sites" — для всего остального
+    # ПРОФИЛЬ 9: Fallback "Sites" — для всего остального TCP
     # =================================================================
-    # Исключения:
-    #   - domains_exclude.list — банки, госуслуги (не ломать)
-    #   - ipset_exclude.list — локальные сети
-    # Применяется ПОСЛЕ профилей 1-4, поэтому YouTube/X.com/Instagram
-    # сюда уже не попадают.
+    # Исключения: банки, госуслуги, локальные сети.
+    # YouTube/X/Instagram/Discord сюда НЕ попадают — у них свои профили.
     "--name=Sites"
     "--filter-tcp=80,443,8443"
     "--filter-l7=http,tls"
@@ -125,7 +152,7 @@
   ALL_ARGS = BASE_ARGS ++ STRATEGY;
 in {
   # =====================================================================
-  # СИМЛИНКИ
+  # СИМЛИНКИ НА РЕСУРСЫ
   # =====================================================================
   systemd.tmpfiles.rules = [
     "d /opt/zapret2 0755 root root -"
@@ -168,7 +195,7 @@ in {
   };
 
   # =====================================================================
-  # NFTABLES
+  # NFTABLES: перехват TCP 80/443 + UDP 443
   # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
@@ -207,10 +234,10 @@ in {
       systemctl is-active --quiet nfqws2 2>/dev/null && echo "Статус: активен" || echo "Статус: неактивен"
       echo ""
       echo "=== Загруженные профили ==="
-      sudo journalctl -u nfqws2 -n 200 --no-pager | grep -oE '\-\-name=[^ ]+' | sort -u
+      sudo journalctl -u nfqws2 -n 300 --no-pager | grep -oE 'name=[^ ]+' | sort -u
       echo ""
       echo "=== Списки ==="
-      ls /opt/zapret2/lists/ 2>/dev/null
+      ls /opt/zapret2/lists/
     '')
 
     (writeShellScriptBin "nfqws2-find-strategy" ''
