@@ -10,10 +10,9 @@
   # Архитектура системы (x86_64 для вашего z13).
   arch = "x86_64";
 
-  # Хэш скачанного архива, полученный через nix-prefetch-url.
-  # Если версия изменится — обновите хэш:
-  #   nix-prefetch-url https://github.com/rcd27/blockcheckw/releases/download/v${version}/blockcheckw-linux-${arch}.tar.gz
-  hash = "0g4hjfvcphjqp42f4qbx790d8c15pp5w62xmll7g3l1zjcpygcyd";
+  # Фиктивный хэш — Nix при сборке покажет реальный.
+  # После первой ошибки замените на значение из строки "got:".
+  hash = lib.fakeHash;
 
   # Собственно пакет blockcheckw.
   blockcheckw = pkgs.stdenv.mkDerivation {
