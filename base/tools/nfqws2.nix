@@ -18,7 +18,7 @@
   # https://github.com/nfqws/nfqws2-keenetic/discussions/2
   # #discussioncomment-17512647
   #
-  # Blobs и lists лежат в ./files/blobs и ./files/lists.
+  # Blobs и lists лежат в base/tools/nfqws2/files/{blobs,lists}.
   # Nix автоматически копирует их в /nix/store при сборке.
   # =====================================================================
 
@@ -123,11 +123,10 @@ in {
     "L+ /opt/zapret2/nfq2/nfqws2 - - - - ${pkgs.zapret2}/bin/nfqws2"
 
     # Blobs и lists из репозитория.
-    # ${./files/blobs} — Nix-путь, относительный к .nix файлу.
-    # Автоматически копируется в /nix/store при сборке,
-    # работает и после git clone на другой машине.
-    "L+ /opt/zapret2/blobs - - - - ${./files/blobs}"
-    "L+ /opt/zapret2/lists - - - - ${./files/lists}"
+    # Путь ./nfqws2/files/blobs — относительно .nix файла (base/tools/nfqws2.nix).
+    # Разрешается в base/tools/nfqws2/files/blobs.
+    "L+ /opt/zapret2/blobs - - - - ${./nfqws2/files/blobs}"
+    "L+ /opt/zapret2/lists - - - - ${./nfqws2/files/lists}"
   ];
 
   # =====================================================================
