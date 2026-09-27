@@ -24,6 +24,8 @@
     ../../base/system/touchpad.nix
     ../../base/system/time.nix
 
+    ../../base/tools/signbox.nix
+
     # === UI ===
     ../../base/ui/kde.nix
 
