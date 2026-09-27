@@ -22,20 +22,22 @@
   # │ - portmaster-core → direct                                   │
   # │ - Brave → SOCKS5, Chromium → VLESS                          │
   # │ - Firefox, nix, всё остальное → direct                       │
-  # │ - UDP/QUIC (HTTP/3, DoH3) → stack "mixed":                  │
-  # │   TCP через system, UDP через gvisor.                        │
+  # │ - QUIC/HTTP3 → direct (без sniffing, чтобы не ломать)        │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
   # - DNS-секции нет. sing-box не резолвит имена.
   # - default_mark = 8227 (0x2023) — помечает исходящие сокеты sing-box.
   #   Правило ip rule (v4+v6) создаётся сервисом sing-box-fwmark-rule.
-  # - stack = "mixed": TCP через system (надёжно), UDP через gvisor
-  #   (правильная обработка QUIC/HTTP3 без фрагментации).
-  # - udp_fragment УДАЛЁН из TUN inbound в sing-box 1.14.
-  #   Вместо него — udp_mapping / udp_filtering / udp_nat_max.
-  #   Для QUIC эти настройки не требуются, достаточно stack = "mixed".
-  # - udp_timeout = "5m" — стандартное время жизни UDP-сессии.
+  # - stack = "mixed": TCP через system, UDP через gvisor.
+  # - udp_mapping / udp_filtering — endpoint_independent (по умолчанию).
+  # - udp_timeout = "5m".
+  # - ВАЖНО: добавлено правило для QUIC перед sniffing.
+  #   Без него фрагментированный QUIC ClientHello ломает pre-match,
+  #   и UDP-соединение не маршрутизируется (зависает).
+  # - route_exclude_address — исключает локальные сети из TUN,
+  #   чтобы DNS-запросы к роутеру (192.168.1.1:53) не попадали
+  #   в sing-box и не создавали петлю.
   # - auto_redirect ОТКЛЮЧЁН. Используем auto_route.
   # - sniff на inbound в sing-box 1.14 УБРАН.
   # =====================================================================
@@ -62,22 +64,24 @@
           auto_route = true;
           strict_route = false;
           mtu = 1400;
-
-          # mixed: TCP через системный стек, UDP через gvisor.
-          # Это лучший баланс для нашего кейса:
-          #  - TCP (сайты) работает надёжно через system.
-          #  - UDP (QUIC, DoH3) обрабатывается gvisor корректно.
           stack = "mixed";
-
-          # udp_timeout — время жизни UDP-сессии (NAT expiration).
-          # 5 минут — стандарт, совместим с большинством приложений.
           udp_timeout = "5m";
-
-          # udp_mapping и udp_filtering — новые поля sing-box 1.14.
-          # endpoint_independent (по умолчанию) — оптимально для QUIC.
-          # Явно указываем для ясности, но можно и опустить.
           udp_mapping = "endpoint_independent";
           udp_filtering = "endpoint_independent";
+
+          # Исключаем локальные сети из TUN. Это критично:
+          # DNS-запросы к роутеру (192.168.1.1:53) и другим
+          # локальным устройствам не должны попадать в sing-box,
+          # иначе они зацикливаются и создают нагрузку.
+          route_exclude_address = [
+            "192.168.0.0/16"
+            "10.0.0.0/8"
+            "172.16.0.0/12"
+            "127.0.0.0/8"
+            "::1/128"
+            "fe80::/10"
+            "fc00::/7"
+          ];
         }
       ];
 
@@ -119,10 +123,12 @@
         default_mark = 8227;
 
         rules = [
+          # 1. Локальные адреса — всегда direct.
           {
             ip_cidr = ["127.0.0.0/8" "::1/128"];
             outbound = "direct-out";
           }
+          # 2. Служебные процессы — direct (чтобы не зациклить DNS).
           {
             process_name = ["dnscrypt-proxy"];
             outbound = "direct-out";
@@ -131,9 +137,22 @@
             process_name = ["portmaster-core"];
             outbound = "direct-out";
           }
+          # 3. ВАЖНО: QUIC/HTTP3 обрабатываем ДО sniffing.
+          #    Если этого не сделать, sniffing попытается прочитать
+          #    фрагментированный QUIC ClientHello, pre-match
+          #    остановится, и соединение зависнет.
+          #    Ставим action = "route" (не sniff), чтобы сразу
+          #    отправить в direct без анализа протокола.
+          {
+            protocol = "quic";
+            action = "route";
+            outbound = "direct-out";
+          }
+          # 4. Только после QUIC — включаем sniffing для остального.
           {
             action = "sniff";
           }
+          # 5. Правила по процессам.
           {
             process_name = ["brave"];
             outbound = "socks-out";
@@ -150,6 +169,7 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
+          # 6. Всё остальное — direct.
           {
             outbound = "direct-out";
           }
