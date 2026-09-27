@@ -62,30 +62,38 @@
         auto_detect_interface = true;
 
         rules = [
-          # 1. Сначала сниффинг — без него hijack-dns не сработает.
+          # 1. Сниффинг.
           { action = "sniff"; }
 
-          # 2. Перехватить все DNS-запросы (порт 53) и разрешить через секцию dns.
+          # 2. dnscrypt-proxy идёт напрямую, минуя hijack-dns.
+          # Без этого правила sing-box перехватывает исходящие запросы
+          # dnscrypt-proxy к Cloudflare/Quad9 и заворачивает их обратно,
+          # создавая петлю и таймауты на старте.
+          { process_name = [ "dnscrypt-proxy" ]; outbound = "direct-out"; }
+
+          # 3. Перехватывать DNS от остальных процессов.
           { protocol = "dns"; action = "hijack-dns"; }
 
-          # 3. Loopback — напрямую.
+          # 4. Loopback — напрямую.
           {
             ip_cidr = [ "127.0.0.0/8" "::1/128" ];
             outbound = "direct-out";
           }
 
-          # 4. Brave → SOCKS5.
+          # 5. Brave → SOCKS5.
           { process_name = [ "brave" ]; outbound = "socks-out"; }
           { process_path_regex = [ ".*/brave/brave.*" ]; outbound = "socks-out"; }
 
-          # 5. Chromium → VLESS.
+          # 6. Chromium → VLESS.
           { process_name = [ "chromium" ]; outbound = "vless-out"; }
           { process_path_regex = [ ".*/chromium/chromium.*" ]; outbound = "vless-out"; }
 
-          # 6. Всё остальное → direct.
+          # 7. Всё остальное → direct.
           { outbound = "direct-out"; }
         ];
       };
+
+
     };
   };
 
