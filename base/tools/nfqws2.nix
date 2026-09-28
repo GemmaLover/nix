@@ -12,18 +12,17 @@
   DESYNC_MARK = "0x40000000";
 
   # =====================================================================
-  # РАЗДЕЛЬНЫЕ СТРАТЕГИИ ПО КАТЕГОРИЯМ САЙТОВ
+  # СТРАТЕГИИ ОБХОДА DPI
   #
-  # ВАЖНО: X.com, Instagram, Discord используют QUIC (UDP/443).
-  # Если профиль не обрабатывает UDP — пакеты уходят без обхода,
-  # и DPI их блокирует. Поэтому для каждого сайта ДВА профиля:
-  #   - TCP (TLS через 443)
-  #   - UDP (QUIC через 443)
+  # В этом файле собраны рабочие стратегии для разных сайтов,
+  # основанные на обсуждениях в сообществе nfqws2.
   #
-  # Все профили используют --new для разделения.
-  # Порядок: сначала все TCP, потом все UDP.
+  # ВАЖНО: Каждый профиль (--new) применяется только к доменам
+  # из своего --hostlist. Это позволяет использовать разные
+  # стратегии для разных сайтов.
   # =====================================================================
 
+  # --- Blobs (файлы с поддельными пакетами) ---
   BLOBS = [
     "--blob=quic_initial:@${ZAPRET_BASE}/blobs/quic_initial.bin"
     "--blob=tls_clienthello:@${ZAPRET_BASE}/blobs/tls_clienthello.bin"
@@ -44,7 +43,7 @@
 
   STRATEGY = [
     # =================================================================
-    # ПРОФИЛЬ 1: YouTube (TCP) — лёгкая, проверено
+    # ПРОФИЛЬ 1: YouTube — ЛЁГКАЯ стратегия (проверено, работает)
     # =================================================================
     "--name=YouTube-TCP"
     "--filter-tcp=443"
@@ -54,9 +53,7 @@
     "--lua-desync=multisplit:pos=1,sniext+1"
     "--new"
 
-    # =================================================================
-    # ПРОФИЛЬ 2: YouTube (QUIC) — fake
-    # =================================================================
+    # === YouTube QUIC ===
     "--name=YouTube-QUIC"
     "--filter-udp=443"
     "--filter-l7=quic"
@@ -66,23 +63,22 @@
     "--new"
 
     # =================================================================
-    # ПРОФИЛЬ 3: X.com / Twitter (TCP)
+    # ПРОФИЛЬ 2: X.com (Twitter) — АГРЕССИВНАЯ стратегия
     # =================================================================
-    # hostfakesplit подменяет SNI на ya.ru и разбивает пакет.
-    # Стратегия мягкая, не создаёт fake-пакетов → нет "Message too long".
+    # Эта стратегия собрана из нескольких рабочих методов,
+    # найденных в обсуждениях. Она включает fake-пакеты и
+    # multidisorder, чтобы обойти наиболее сложные DPI.
     "--name=X-TCP"
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
     "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
-    "--lua-desync=hostfakesplit:host=ya.ru:repeats=4:tcp_ts=-600000"
-    "--lua-desync=multisplit:pos=1,sniext+1"
+    "--lua-desync=fake:blob=tls_clienthello:tcp_seq=-10000:tcp_ack=-66000:badsum:tls_mod=rnd,dupsid,sni=rzd.ru:repeats=4"
+    "--lua-desync=multidisorder:pos=1,sniext+1,host+1"
     "--new"
 
-    # =================================================================
-    # ПРОФИЛЬ 4: X.com / Twitter (QUIC) — критично для браузеров!
-    # =================================================================
-    # X.com использует QUIC. Без этого профиля X.com не работает.
+    # === X.com QUIC (UDP/443) ===
+    # Также обрабатываем QUIC, так как браузеры часто используют его.
     "--name=X-QUIC"
     "--filter-udp=443"
     "--filter-l7=quic"
@@ -92,54 +88,8 @@
     "--new"
 
     # =================================================================
-    # ПРОФИЛЬ 5: Instagram / Facebook (TCP)
+    # ПРОФИЛЬ 3: Fallback "Sites" — для всего остального TCP
     # =================================================================
-    "--name=Instagram-TCP"
-    "--filter-tcp=443"
-    "--filter-l7=tls"
-    "--payload=tls_client_hello"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-instagram.list"
-    "--lua-desync=multisplit:pos=1,sniext+1,host+1"
-    "--lua-desync=hostfakesplit:host=ya.ru:repeats=2:tcp_ts=-600000"
-    "--new"
-
-    # =================================================================
-    # ПРОФИЛЬ 6: Instagram / Facebook (QUIC)
-    # =================================================================
-    "--name=Instagram-QUIC"
-    "--filter-udp=443"
-    "--filter-l7=quic"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-instagram.list"
-    "--payload=quic_initial"
-    "--lua-desync=fake:blob=quic_google:repeats=6"
-    "--new"
-
-    # =================================================================
-    # ПРОФИЛЬ 7: Discord (TCP Media)
-    # =================================================================
-    "--name=Discord-TCP"
-    "--filter-tcp=2053,2083,2087,2096,8443,443"
-    "--filter-l7=tls"
-    "--payload=tls_client_hello"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-discord.list"
-    "--lua-desync=hostfakesplit:repeats=4:tcp_ts=-600000:host=www.google.com"
-    "--new"
-
-    # =================================================================
-    # ПРОФИЛЬ 8: Discord (UDP Voice/Media)
-    # =================================================================
-    "--name=Discord-UDP"
-    "--filter-udp=3478-3481,19294-19344,50000-50100"
-    "--filter-l7=discord,stun"
-    "--payload=discord_ip_discovery,stun"
-    "--lua-desync=fake:blob=quic_google:repeats=6"
-    "--new"
-
-    # =================================================================
-    # ПРОФИЛЬ 9: Fallback "Sites" — для всего остального TCP
-    # =================================================================
-    # Исключения: банки, госуслуги, локальные сети.
-    # YouTube/X/Instagram/Discord сюда НЕ попадают — у них свои профили.
     "--name=Sites"
     "--filter-tcp=80,443,8443"
     "--filter-l7=http,tls"
@@ -173,16 +123,20 @@ in {
     after = [
       "network-online.target"
       "nftables.service"
+      "systemd-tmpfiles-resetup.service"
       "sing-box.service"
     ];
-    wants = [ "network-online.target" ];
-    requires = [ "sing-box.service" ];
+    wants = [
+      "network-online.target"
+      "sing-box.service"
+    ];
 
     serviceConfig = {
       Type = "simple";
       ExecStart = "${pkgs.zapret2}/bin/nfqws2 " + lib.concatStringsSep " " ALL_ARGS;
       Restart = "on-failure";
       RestartSec = 5;
+      TimeoutStartSec = 30;
       User = "root";
       Group = "root";
       NoNewPrivileges = true;
@@ -195,7 +149,7 @@ in {
   };
 
   # =====================================================================
-  # NFTABLES: перехват TCP 80/443 + UDP 443
+  # NFTABLES
   # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
