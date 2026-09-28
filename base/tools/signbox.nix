@@ -22,10 +22,6 @@
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → direct                                    │
   # │ - Chromium → vless-out                                       │
-  # │ - X.com: QUIC reject + TCP → direct                         │
-  # │   (blockcheck показал: TCP X.com работает БЕЗ обхода,       │
-  # │    блокируется только QUIC — поэтому reject UDP/443         │
-  # │    заставляет Brave уйти на TCP, а TCP идёт напрямую)      │
   # │ - Всё остальное (Firefox, Brave и т.д.) → zapret-out         │
   # └─────────────────────────────────────────────────────────────┘
   #
@@ -146,39 +142,6 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # ---------------------------------------------------------
-          # X.com / Twitter:
-          # 1. reject QUIC (UDP/443) → Brave уходит на TCP.
-          #    blockcheck показал, что TCP X.com работает без обхода,
-          #    а QUIC — блокируется. Без этого правила Brave висит
-          #    на HTTP/3, и X.com не открывается.
-          # 2. TCP X.com → direct-out (не через nfqws2 — там он не
-          #    нужен, стратегия не найдена и мешает).
-          # ---------------------------------------------------------
-          {
-            domain_suffix = [
-              ".x.com"
-              ".twitter.com"
-              ".t.co"
-              ".twimg.com"
-            ];
-            network = "udp";
-            port = [443];
-            action = "reject";
-          }
-          {
-            domain_suffix = [
-              ".x.com"
-              ".twitter.com"
-              ".t.co"
-              ".twimg.com"
-            ];
-            outbound = "direct-out";
-          }
-          # ---------------------------------------------------------
-          # Fallback: всё остальное → zapret-out (через nfqws2).
-          # Здесь YouTube и прочие SNI-blocked домены.
-          # ---------------------------------------------------------
           {
             outbound = "zapret-out";
           }

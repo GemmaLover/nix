@@ -43,7 +43,7 @@
 
   STRATEGY = [
     # =================================================================
-    # ПРОФИЛЬ 1: YouTube — ЛЁГКАЯ стратегия (проверено, работает)
+    # ПРОФИЛЬ 1: YouTube — лёгкая стратегия (проверено, работает)
     # =================================================================
     "--name=YouTube-TCP"
     "--filter-tcp=443"
@@ -53,42 +53,49 @@
     "--lua-desync=multisplit:pos=1,sniext+1"
     "--new"
 
-    # === YouTube QUIC ===
-    "--name=YouTube-QUIC"
-    "--filter-udp=443"
-    "--filter-l7=quic"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-youtube.list"
-    "--payload=quic_initial"
-    "--lua-desync=fake:blob=quic_initial:repeats=6"
-    "--new"
-
     # =================================================================
-    # ПРОФИЛЬ 2: X.com (Twitter) — АГРЕССИВНАЯ стратегия
+    # ПРОФИЛЬ 2: X.com — обход блокировки по объёму (16 КБ)
+    #
+    # ТИП БЛОКИРОВКИ:
+    #   Первые ~16 КБ соединения проходят, потом DPI рвёт поток.
+    #   Это "16KB block" — провайдер считает байты в обе стороны
+    #   и убивает соединение, если набирается порог.
+    #
+    # КАК ОБХОДИТЬ:
+    #   seqovl (sequence overlap) — отправляем первый TLS-пакет
+    #   с СМЕЩЁННЫМ sequence number, как будто это не первое
+    #   соединение, а продолжение старого. DPI видит "середину
+    #   потока" и не применяет счётчик байт.
+    #
+    #   Дополнительно fake-пакеты отвлекают DPI в самом начале.
+    #
+    # Источник: стратегия GoldDopi для GamesTCP в nfqws2-keenetic.
     # =================================================================
-    # Эта стратегия собрана из нескольких рабочих методов,
-    # найденных в обсуждениях. Она включает fake-пакеты и
-    # multidisorder, чтобы обойти наиболее сложные DPI.
     "--name=X-TCP"
     "--filter-tcp=443"
     "--filter-l7=tls"
     "--payload=tls_client_hello"
     "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
-    "--lua-desync=fake:blob=tls_clienthello:tcp_seq=-10000:tcp_ack=-66000:badsum:tls_mod=rnd,dupsid,sni=rzd.ru:repeats=4"
-    "--lua-desync=multidisorder:pos=1,sniext+1,host+1"
-    "--new"
-
-    # === X.com QUIC (UDP/443) ===
-    # Также обрабатываем QUIC, так как браузеры часто используют его.
-    "--name=X-QUIC"
-    "--filter-udp=443"
-    "--filter-l7=quic"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
-    "--payload=quic_initial"
-    "--lua-desync=fake:blob=quic_google:repeats=6"
+    # Отвлекающий fake с подменой tls_mod
+    "--lua-desync=fake:blob=tls_clienthello:tcp_ts=-600000:repeats=4"
+    # Ключевое: seqovl pattern из tls_max, смещение 664
+    "--lua-desync=multisplit:seqovl_pattern=tls_max:seqovl=664:pos=1"
     "--new"
 
     # =================================================================
-    # ПРОФИЛЬ 3: Fallback "Sites" — для всего остального TCP
+    # ПРОФИЛЬ 3: X.com — HTTP fallback (если TLS не сработал)
+    # =================================================================
+    "--name=X-HTTP"
+    "--filter-tcp=80"
+    "--filter-l7=http"
+    "--payload=http_req"
+    "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
+    "--lua-desync=fake:blob=tls_max:tcp_ts=-600000:repeats=4"
+    "--lua-desync=multisplit:seqovl_pattern=tls_max:seqovl=664:pos=1"
+    "--new"
+
+    # =================================================================
+    # ПРОФИЛЬ 4: Fallback "Sites" — для всего остального
     # =================================================================
     "--name=Sites"
     "--filter-tcp=80,443,8443"
@@ -96,7 +103,7 @@
     "--hostlist-exclude=${ZAPRET_BASE}/lists/domains_exclude.list"
     "--ipset-exclude=${ZAPRET_BASE}/lists/ipset_exclude.list"
     "--payload=http_req,tls_client_hello"
-    "--lua-desync=hostfakesplit:repeats=4:tcp_ts=-600000:tcp_md5:host=ya.ru"
+    "--lua-desync=hostfakesplit:repeats=2:tcp_ts=-600000:tcp_md5:host=ya.ru"
   ];
 
   ALL_ARGS = BASE_ARGS ++ STRATEGY;
