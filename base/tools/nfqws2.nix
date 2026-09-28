@@ -4,47 +4,33 @@
   pkgs,
   ...
 }: let
-  # =====================================================================
-  # КОНСТАНТЫ
-  # =====================================================================
   ZAPRET_BASE = "/opt/zapret2";
   QNUM = "200";
   DESYNC_MARK = "0x40000000";
 
   # =====================================================================
-  # СТРАТЕГИИ ОБХОДА DPI
+  # СТРАТЕГИИ
   #
-  # В этом файле собраны рабочие стратегии для разных сайтов,
-  # основанные на обсуждениях в сообществе nfqws2.
+  # УРОК ПРО X-TCP С seqovl:
+  # Профиль X-TCP с `seqovl_pattern=tls_max:seqovl=664` ломал TCP-стек —
+  # curl зависал на ~4 КБ, в логах nfqws2 записей не было. Пакеты с
+  # перекрывающимися sequence-номерами сбивают TCP-сессию.
   #
-  # ВАЖНО: Каждый профиль (--new) применяется только к доменам
-  # из своего --hostlist. Это позволяет использовать разные
-  # стратегии для разных сайтов.
+  # Оставляем только проверенные профили:
+  #   - YouTube-TCP: multisplit (работает)
+  #   - Sites: hostfakesplit для всех остальных (безопасно, не создаёт
+  #     fake-пакетов, только подменяет SNI на ya.ru и разбивает)
   # =====================================================================
-
-  # --- Blobs (файлы с поддельными пакетами) ---
-  BLOBS = [
-    "--blob=quic_initial:@${ZAPRET_BASE}/blobs/quic_initial.bin"
-    "--blob=tls_clienthello:@${ZAPRET_BASE}/blobs/tls_clienthello.bin"
-    "--blob=tls_google:@${ZAPRET_BASE}/blobs/tls_clienthello_www_google_com.bin"
-    "--blob=quic_google:@${ZAPRET_BASE}/blobs/quic_initial_www_google_com.bin"
-    "--blob=tls_max:@${ZAPRET_BASE}/blobs/tls_clienthello_max_ru.bin"
-    "--blob=stun:@${ZAPRET_BASE}/blobs/stun.bin"
-    "--blob=quic_dbankcloud:@${ZAPRET_BASE}/blobs/quic_initial_dbankcloud_ru.bin"
-    "--blob=blob_zero:0x00000000"
-  ];
 
   BASE_ARGS = [
     "--qnum=${QNUM}"
     "--lua-init=@${ZAPRET_BASE}/lua/zapret-lib.lua"
     "--lua-init=@${ZAPRET_BASE}/lua/zapret-antidpi.lua"
     "--filter-l3=ipv4"
-  ] ++ BLOBS;
+  ];
 
   STRATEGY = [
-    # =================================================================
-    # ПРОФИЛЬ 1: YouTube — лёгкая стратегия (проверено, работает)
-    # =================================================================
+    # === YouTube TCP (проверено) ===
     "--name=YouTube-TCP"
     "--filter-tcp=443"
     "--filter-l7=tls"
@@ -53,50 +39,7 @@
     "--lua-desync=multisplit:pos=1,sniext+1"
     "--new"
 
-    # =================================================================
-    # ПРОФИЛЬ 2: X.com — обход блокировки по объёму (16 КБ)
-    #
-    # ТИП БЛОКИРОВКИ:
-    #   Первые ~16 КБ соединения проходят, потом DPI рвёт поток.
-    #   Это "16KB block" — провайдер считает байты в обе стороны
-    #   и убивает соединение, если набирается порог.
-    #
-    # КАК ОБХОДИТЬ:
-    #   seqovl (sequence overlap) — отправляем первый TLS-пакет
-    #   с СМЕЩЁННЫМ sequence number, как будто это не первое
-    #   соединение, а продолжение старого. DPI видит "середину
-    #   потока" и не применяет счётчик байт.
-    #
-    #   Дополнительно fake-пакеты отвлекают DPI в самом начале.
-    #
-    # Источник: стратегия GoldDopi для GamesTCP в nfqws2-keenetic.
-    # =================================================================
-    "--name=X-TCP"
-    "--filter-tcp=443"
-    "--filter-l7=tls"
-    "--payload=tls_client_hello"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
-    # Отвлекающий fake с подменой tls_mod
-    "--lua-desync=fake:blob=tls_clienthello:tcp_ts=-600000:repeats=4"
-    # Ключевое: seqovl pattern из tls_max, смещение 664
-    "--lua-desync=multisplit:seqovl_pattern=tls_max:seqovl=664:pos=1"
-    "--new"
-
-    # =================================================================
-    # ПРОФИЛЬ 3: X.com — HTTP fallback (если TLS не сработал)
-    # =================================================================
-    "--name=X-HTTP"
-    "--filter-tcp=80"
-    "--filter-l7=http"
-    "--payload=http_req"
-    "--hostlist=${ZAPRET_BASE}/lists/domain-x.list"
-    "--lua-desync=fake:blob=tls_max:tcp_ts=-600000:repeats=4"
-    "--lua-desync=multisplit:seqovl_pattern=tls_max:seqovl=664:pos=1"
-    "--new"
-
-    # =================================================================
-    # ПРОФИЛЬ 4: Fallback "Sites" — для всего остального
-    # =================================================================
+    # === Sites: универсальный fallback (включая X.com) ===
     "--name=Sites"
     "--filter-tcp=80,443,8443"
     "--filter-l7=http,tls"
@@ -108,9 +51,6 @@
 
   ALL_ARGS = BASE_ARGS ++ STRATEGY;
 in {
-  # =====================================================================
-  # СИМЛИНКИ НА РЕСУРСЫ
-  # =====================================================================
   systemd.tmpfiles.rules = [
     "d /opt/zapret2 0755 root root -"
     "L+ /opt/zapret2/lua - - - - ${pkgs.zapret2}/share/zapret2/lua"
@@ -121,9 +61,6 @@ in {
     "L+ /opt/zapret2/lists - - - - ${./nfqws2/files/lists}"
   ];
 
-  # =====================================================================
-  # SYSTEMD-СЕРВИС NFQWS2
-  # =====================================================================
   systemd.services.nfqws2 = {
     description = "nfqws2 (zapret2) DPI bypass daemon";
     wantedBy = [ "multi-user.target" ];
@@ -155,9 +92,6 @@ in {
     };
   };
 
-  # =====================================================================
-  # NFTABLES
-  # =====================================================================
   networking.nftables.ruleset = ''
     table inet zapret_nfqws2 {
       chain postrouting {
@@ -185,20 +119,14 @@ in {
     }
   '';
 
-  # =====================================================================
-  # УТИЛИТЫ
-  # =====================================================================
   environment.systemPackages = with pkgs; [
     (writeShellScriptBin "nfqws2-status" ''
       #!/usr/bin/env bash
-      echo "=== nfqws2 (zapret2) ==="
+      echo "=== nfqws2 ==="
       systemctl is-active --quiet nfqws2 2>/dev/null && echo "Статус: активен" || echo "Статус: неактивен"
       echo ""
-      echo "=== Загруженные профили ==="
-      sudo journalctl -u nfqws2 -n 300 --no-pager | grep -oE 'name=[^ ]+' | sort -u
-      echo ""
-      echo "=== Списки ==="
-      ls /opt/zapret2/lists/
+      echo "=== Профили ==="
+      systemctl cat nfqws2 | grep -oE 'name=[^ ]+' | sort -u
     '')
 
     (writeShellScriptBin "nfqws2-find-strategy" ''
