@@ -25,7 +25,6 @@ let
       };
     };
   });
-
 in
 {
   # === Ядро ===
@@ -39,18 +38,14 @@ in
   boot.kernelParams = [
     # Размер GTT-памяти (в МБ). ~111 ГБ для 128 ГБ RAM.
     "amdgpu.gttsize=113777"
-
     # Лимит страниц TTM. Соответствует ~111 ГБ.
     "ttm.pages_limit=29126912"
-
     # Увеличивает таймаут VPE (Video Processing Engine) до 2 секунд.
     # Устраняет soft lock после resume из гибернации на Strix Halo
     # (известный баг, проявляющийся в ~8% случаев).
     "amdgpu.vpe_idle_timeout=2000"
-
     # Отключение IOMMU снижает задержки при доступе GPU к памяти.
     "amd_iommu=off"
-
     # ПРИМЕЧАНИЕ: параметр asus_wmi.fnlock_default убран, так как
     # на GZ302EA он не работает (Fn-Lock управляется через HID-отчёт,
     # см. pkgs/z13-fnlock и сервис asus-fnlock).
@@ -60,4 +55,13 @@ in
   # kvm-amd — для виртуализации (Android Studio, Waydroid, LLM-контейнеры).
   # asus_wmi — для ASUS-специфичных функций (подсветка, профили).
   boot.kernelModules = [ "kvm-amd" "asus_wmi" ];
+
+  # === Специализация CachyOS LTO 7.2.8 ===
+  # Создаёт отдельную запись в меню systemd-boot. Выбор этой записи
+  # загружает систему с ядром CachyOS (LTO, latest). Все остальные
+  # настройки наследуются из основной конфигурации.
+  specialisation.cachyos-lto.configuration = {
+    inheritParentConfig = true;
+    boot.kernelPackages = pkgs.linuxPackages_cachyos-latest-lto;
+  };
 }
