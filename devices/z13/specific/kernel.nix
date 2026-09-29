@@ -60,8 +60,12 @@ in
   # Создаёт отдельную запись в меню systemd-boot. Выбор этой записи
   # загружает систему с ядром CachyOS (LTO, latest). Все остальные
   # настройки наследуются из основной конфигурации.
+  #
+  # ВАЖНО: ядра из overlay доступны как pkgs.cachyosKernels.*
+  # Вариант linuxPackages-cachyos-latest-lto соответствует
+  # LTO-сборке ядра 7.2.8 (проверено через `nix flake show`).
   specialisation.cachyos-lto.configuration = {
     inheritParentConfig = true;
-    boot.kernelPackages = pkgs.linuxPackages_cachyos-latest-lto;
+    boot.kernelPackages = pkgs.cachyosKernels.linuxPackages-cachyos-latest-lto;
   };
 }

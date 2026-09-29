@@ -49,9 +49,14 @@
         modules = [
           disko.nixosModules.disko
           home-manager.nixosModules.home-manager
-          nix-cachyos-kernel.nixosModules.default
           ./devices/z13/config.nix
           {
+            # Подключаем overlay из nix-cachyos-kernel.
+            # После этого ядра доступны как pkgs.cachyosKernels.*
+            nixpkgs.overlays = [
+              nix-cachyos-kernel.overlays.pinned
+            ];
+
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.users.lexi = {
