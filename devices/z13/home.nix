@@ -8,9 +8,12 @@
   # подключает их по оси kda.opts.ui). Общие сервисы подсветки — в
   # ./home-services.nix. Профиль llm подключается по оси profiles.
 
+  # ВАЖНО: NixOS/Home Manager импортируют директорию ТОЛЬКО если в ней
+  # есть default.nix; без него путь-директория даёт «does not look like a
+  # module». Здесь указываем явный ./home-specific/default.nix.
   imports = [
       ./home-services.nix
-      ./home-specific
+      ./home-specific/default.nix
     ]
     ++ lib.optionals (lib.elem "llm" kdaOpts.profiles) [
       ../../llm/home.nix

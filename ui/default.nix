@@ -32,7 +32,9 @@ in
       ./common/input.nix
       ./common/printing.nix
     ]
-    # Собственно оболочки.
-    ++ lib.optionals (opts.ui == "kde") [ ./kde ]
-    ++ lib.optionals (opts.ui == "hyprland") [ ./hyprland ];
+    # Собственно оболочки. ВАЖНО: указываем ./kde/default.nix, а не ./kde —
+    # Nix умеет импортировать директорию только через явный default.nix;
+    # путь-директория в imports даёт «module ... does not look like a module».
+    ++ lib.optionals (opts.ui == "kde") [ ./kde/default.nix ]
+    ++ lib.optionals (opts.ui == "hyprland") [ ./hyprland/default.nix ];
 }
