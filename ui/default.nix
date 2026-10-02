@@ -1,31 +1,38 @@
-{ config, lib, ... }:
+# =====================================================================
+# ui/ — ось «оконная оболочка».
+#
+# Диспетчер подключает ровно один набор модулей в зависимости от
+# opts.ui, переданного хостом через mkSystem (аргумент `kda`, см.
+# lib/mkSystem.nix):
+#   "kde"      -> ui/kde/     (Plasma 6, SDDM, plasma-specific сервисы)
+#   "hyprland" -> ui/hyprland/ (каркас под миграцию)
+#
+# ui/common/ подключается при ЛЮБОЙ графической оболочке — там лежит
+# всё, что не зависит от DE: Wayland-порталы, базовый libinput,
+# печать. Это снимает привязку base/ к KDE и готовит переход на
+# Hyprland: устройству достаточно поменять kda.opts.ui.
+#
+# ВАЖНО: опции читаются из аргумента `kda`, а НЕ из `config.kda.opts`.
+# Поле `imports` вычисляется ДО сборки config; ссылка на config здесь
+# вызвала бы infinite recursion (проверено на z13). Значения opts.*
+# задаются хостом в devices/<host>/config.nix и пробрасываются сюда
+# фабрикой mkSystem как обычный attrset.
+# =====================================================================
+{ kda ? { ui = "none"; profiles = [ ]; }, lib, ... }:
 
 let
-  cfg = config.kda.opts;
+  opts = kda;
 in
 {
-  # =====================================================================
-  # ui/ — ось «оконная оболочка».
-  #
-  # Диспетчер подключает ровно один набор модулей в зависимости от
-  # kda.opts.ui, заданного устройством:
-  #   "kde"      -> ui/kde/     (Plasma 6, SDDM, plasma-specific сервисы)
-  #   "hyprland" -> ui/hyprland/ (каркас под миграцию)
-  #
-  # ui/common/ подключается при ЛЮБОЙ графической оболочке — там лежит
-  # всё, что не зависит от DE: Wayland-порталы, базовый libinput,
-  # печать. Это снимает привязку base/ к KDE и готовит переход на
-  # Hyprland: устройству достаточно поменять kda.opts.ui.
-  # =====================================================================
 
   imports = [ ]
     # Общий слой: активен при любой graphical-shell-оси.
-    ++ lib.optionals (cfg.ui != "none") [
+    ++ lib.optionals (opts.ui != "none") [
       ./common/wayland.nix
       ./common/input.nix
       ./common/printing.nix
     ]
     # Собственно оболочки.
-    ++ lib.optionals (cfg.ui == "kde") [ ./kde ]
-    ++ lib.optionals (cfg.ui == "hyprland") [ ./hyprland ];
+    ++ lib.optionals (opts.ui == "kde") [ ./kde ]
+    ++ lib.optionals (opts.ui == "hyprland") [ ./hyprland ];
 }

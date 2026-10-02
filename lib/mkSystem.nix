@@ -21,9 +21,29 @@ let lib = nixpkgs.lib; in
 # =====================================================================
 deviceName:
 { deviceModule, userHome ? (user: [ ]) }:
+# =====================================================================
+# Проброс осей устройства (ui, profiles) в диспетчеры.
+#
+# Диспетчеры ui/default.nix и profiles/default.nix НЕ могут читать
+# config.kda.opts: поле `imports` вычисляется до сборки config, и
+# ссылка на config вызвала бы infinite recursion (проверено на z13).
+# Поэтому mkSystem извлекает оси ПРЯМЫМ вызовом модуля-функции
+# devices/<host>/config.nix — он возвращает литеральный attrset, а
+# args (config/lib/pkgs) для чтения kda.opts ему не нужны — и
+# передаёт их диспетчерам как обычный аргумент `kda` через specialArgs.
+# tryEval + дефолт { ui = "none"; } защищают от хостов без осей.
+# =====================================================================
+let
+  hostOpts = builtins.tryEval (
+    (deviceModule { config = {}; lib = null; pkgs = null; inherit inputs; }).kda.opts or {}
+  );
+  axes = if hostOpts.success then hostOpts.value else { };
+  kdaAxes = { ui = "none"; profiles = [ ]; } // axes;
+in
 nixpkgs.lib.nixosSystem {
   system = "x86_64-linux";
-  specialArgs = { inherit inputs; };
+  # `kda` — attrset осей, доступен каждому модулю как аргумент функции.
+  specialArgs = { inherit inputs; kda = kdaAxes; };
   modules = [
     # Общие модули-инпуты.
     disko.nixosModules.disko
@@ -31,13 +51,14 @@ nixpkgs.lib.nixosSystem {
     # Декларативная настройка KDE Plasma (нужна home-модулям ui=="kde").
     plasma-manager.homeModules.plasma-manager
 
-    # Кастомные опции kda.opts (ui, profiles) доступны всем модулям.
+    # Кастомные опции kda.opts (ui, profiles) доступны всем модулям
+    # для ЗАДАНИЯ значений хостом; диспетчеры осей читают их из args.kda.
     ../lib/options.nix
 
     # Диспетчер оси «оконная оболочка»: подключает ui/common + ui/<opts.ui>.
     ../ui/default.nix
 
-    # Диспетчер оси «профили ПО»: подключает llm/, games/, dev/ по kda.opts.profiles.
+    # Диспетчер оси «профили ПО»: подключает llm/, games/, dev/ по opts.profiles.
     ../profiles/default.nix
 
     # Конфиг конкретного устройства: сам решает, какие оси включить
@@ -60,7 +81,7 @@ nixpkgs.lib.nixosSystem {
           # через диспетчер devices/<n>/home-specific/default.nix.
           extraSpecialArgs = {
             inherit inputs plasma-manager;
-            kdaOpts = config.kda.opts or { ui = "none"; profiles = [ ]; };
+            kdaOpts = config.kda.opts;
           };
         } // lib.optionalAttrs (hmModules != [ ]) {
           users.${username}.imports = hmModules;
