@@ -47,49 +47,34 @@
   disko,
   plasma-manager,
 #   nix-cachyos-kernel,
-  ... }@inputs: {
+  ... }@inputs:
+let
+  # Фабрика нод nixosConfigurations (см. lib/mkSystem.nix):
+  # подставляет disko, home-manager, plasma-manager, опции kda.opts
+  # и диспетчеры осей ui/ и profiles/ — устройство объявляет только
+  # свои оси в devices/<name>/config.nix.
+  mkSystem = import ./lib/mkSystem.nix {
+    inherit inputs nixpkgs home-manager disko plasma-manager;
+  };
+in {
     nixosConfigurations = {
       # === Устройство: ASUS Z13 ===
-      z13 = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        specialArgs = { inherit inputs; };
-        modules = [
-          disko.nixosModules.disko
-          home-manager.nixosModules.home-manager
-          ./devices/z13/config.nix
-          {
-            # Подключаем overlay из nix-cachyos-kernel.
-            # После этого ядра доступны как pkgs.cachyosKernels.*
-#             nixpkgs.overlays = [
-#               nix-cachyos-kernel.overlays.pinned
-#             ];
-
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.users.lexi = {
-              imports = [
-                # Модуль plasma-manager для декларативной настройки KDE.
-                # В новых версиях plasma-manager путь homeManagerModules
-                # переименован в homeModules.
-                plasma-manager.homeModules.plasma-manager
-                # Основной конфиг пользователя lexi.
-                ./devices/z13/home.nix
-              ];
-            };
-          }
-        ];
+      z13 = mkSystem "z13" {
+        deviceModule = ./devices/z13/config.nix;
+        # Home-модули пользователя lexi (пустой список => HM не подключается).
+        userHome = user: [ ./devices/z13/home.nix ];
       };
 
       # === Устройство: PC (AMD CPU + NVIDIA GPU) ===
-      # pc = nixpkgs.lib.nixosSystem {
-      #   system = "x86_64-linux";
-      #   modules = [ ./devices/pc/config.nix ];
+      # pc = mkSystem "pc" {
+      #   deviceModule = ./devices/pc/config.nix;
+      #   userHome = user: [ ./devices/pc/home.nix ];
       # };
 
       # === Устройство: ASUS 5304UV (Intel) ===
-      # asus5304uv = nixpkgs.lib.nixosSystem {
-      #   system = "x86_64-linux";
-      #   modules = [ ./devices/asus5304uv/config.nix ];
+      # asus5304uv = mkSystem "asus5304uv" {
+      #   deviceModule = ./devices/asus5304uv/config.nix;
+      #   userHome = user: [ ./devices/asus5304uv/home.nix ];
       # };
     };
   };

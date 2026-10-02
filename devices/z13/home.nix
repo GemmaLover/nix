@@ -1,16 +1,20 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, kdaOpts ? { ui = "none"; profiles = [ ]; }, ... }:
 
 {
   # === Home Manager: пользователь lexi ===
+  #
+  # Рефакторинг: DE-специфичные и железо-специфичные домашние модули
+  # вынесены в ./home-specific/ (диспетчер — home-specific/default.nix,
+  # подключает их по оси kda.opts.ui). Общие сервисы подсветки — в
+  # ./home-services.nix. Профиль llm подключается по оси profiles.
 
   imports = [
-    ./home-services.nix
-    ./home-caffeine.nix
-    ../../llm/home.nix
-    ./plasma-power.nix
-#     ../../base/tools/portmaster-ui.nix
-#         ../../base/tools/portmaster-control.nix
-  ];
+      ./home-services.nix
+      ./home-specific
+    ]
+    ++ lib.optionals (lib.elem "llm" kdaOpts.profiles) [
+      ../../llm/home.nix
+    ];
 
   # Домашняя директория пользователя.
   home.homeDirectory = "/home/lexi";

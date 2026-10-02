@@ -2,6 +2,13 @@
 
 {
   # =====================================================================
+  # devices/z13/home-specific/power-lock.nix — настройки PLASMA для z13:
+  # питание, блокировка, тачпад (подключается только при kda.opts.ui="kde",
+  # см. default.nix этой папки).
+  #
+  # При миграции на Hyprland этот модуль выключается, а вместо него
+  # кладётся рядом power-lock-hyprland.nix (hypridle + hyprlock).
+  #
   # Настройки Plasma: питание, блокировка, тачпад.
   #
   # Обработка закрытия крышки полностью передана systemd-logind
@@ -194,44 +201,4 @@
     Install.WantedBy = [ "graphical-session.target" ];
   };
 
-  # =====================================================================
-  # Отключать подсветку клавиатуры, когда экран заблокирован.
-  #
-  # KDE при блокировке не трогает подсветку клавиатуры — это
-  # отдельная подсистема (asusctl). Сервис слушает D-Bus-сигнал
-  # org.kde.screensaver.ActiveChanged и вызывает asusctl.
-  # =====================================================================
-  systemd.user.services.kbd-backlight-lock-sync = {
-    Unit = {
-      Description = "Turn keyboard backlight off when screen is locked";
-      After = [ "graphical-session.target" ];
-      PartOf = [ "graphical-session.target" ];
-    };
-    Service = {
-      Type = "simple";
-      ExecStart = pkgs.writeShellScript "kbd-backlight-lock-sync" ''
-        set -euo pipefail
-        # dbus-monitor читает сигналы kscreenlocker.
-        # Каждый ActiveChanged приходит строкой "boolean true" (locked)
-        # или "boolean false" (unlocked).
-        ${pkgs.dbus}/bin/dbus-monitor --session \
-          "type='signal',interface='org.kde.screensaver',member='ActiveChanged'" \
-        | while read -r line; do
-            case "$line" in
-              *"boolean true"*)
-                # Заблокировано — гасим подсветку.
-                ${pkgs.asusctl}/bin/asusctl -k off 2>/dev/null || true
-                ;;
-              *"boolean false"*)
-                # Разблокировано — низкая яркость.
-                ${pkgs.asusctl}/bin/asusctl -k low 2>/dev/null || true
-                ;;
-            esac
-          done
-      '';
-      Restart = "on-failure";
-      RestartSec = "5";
-    };
-    Install.WantedBy = [ "graphical-session.target" ];
-  };
 }
