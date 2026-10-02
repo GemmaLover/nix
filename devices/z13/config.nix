@@ -1,5 +1,10 @@
 { config, lib, pkgs, ... }:
 
+# NOTE: модуль вызывается lib/mkSystem.nix как функция с урезанными
+# args ({ config = {}; options = {}; inputs; }) — только для чтения
+# литерального kda.opts. Поэтому здесь нельзя обращаться к `config`/`pkgs`
+# (infinite recursion / «not a function» при eval). Всё железо-специфичное
+# живёт в импортируемых модулях ./specific/*, а не в этом файле.
 {
   imports = [
     # === Оси конфигурации (см. lib/options.nix) ===
@@ -8,10 +13,8 @@
     # Устройство лишь объявляет, ЧТО из осей ему нужно:
     #   ui       — kde | hyprland | none
     #   profiles — dev | llm | games (отличия машин только в llm/games)
-    kda.opts = {
-      ui = "kde";                     # TODO(миграция): "hyprland"
-      profiles = [ "dev" "llm" ];     # games — позже
-    };
+    # NOTE: оси объявляются в attrset ниже, вне списка `imports` —
+    # синтаксис Nix не допускает присваиваний внутри списков.
 
     # === Специфичное для z13 (железо, ядро, vendor-утилиты) ===
     ./hardware.nix                 # hardware-configuration.nix
@@ -53,6 +56,15 @@
     #   ../../dev/dev.nix            -> ось profiles ("dev")
     #   ../../llm/system.nix         -> ось profiles ("llm")
   ];
+
+  # === Оси конфигурации этого устройства (ui / profiles) ===
+  # Читаются lib/mkSystem.nix при вызове модуля как функции и диспетчерами
+  # ui/default.nix, profiles/default.nix через specialArgs.kda.
+  kda.opts = {
+    ui = "kde";                     # TODO(миграция): "hyprland"
+    profiles = [ "dev" "llm" ];     # games — позже
+  };
+
   # =====================================================================
   # Крышка теперь обрабатывается udev-правилом (см. specific/lid-handler.nix).
   # logind не должен вмешиваться, иначе будет двойное срабатывание.

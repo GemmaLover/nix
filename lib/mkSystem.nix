@@ -40,7 +40,10 @@ let
   # but a path» при nixos-rebuild на z13.
   deviceModuleFn = import deviceModule;
   hostOpts = builtins.tryEval (
-    (deviceModuleFn { config = {}; options = {}; inherit inputs; }).kda.opts or {}
+    # args должны покрывать аргументы-заголовки модуля устройства:
+    # если в сигнатуре есть `pkgs`, его не передавать — получим
+    # «The function ... called without required argument 'pkgs'».
+    (deviceModuleFn { config = {}; options = {}; pkgs = {}; lib = { }; inherit inputs; }).kda.opts or {}
   );
   axes = if hostOpts.success then hostOpts.value else { };
   kdaAxes = { ui = "none"; profiles = [ ]; } // axes;
