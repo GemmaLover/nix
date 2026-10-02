@@ -35,6 +35,7 @@
     ../../base/system/audio.nix
     ../../base/system/dns.nix      # sing-box DNS + zapret — база для всех
     ../../base/system/time.nix
+    ../../base/system/nix-settings.nix  # nix-command/flakes на уровне системы (без --extra-experimental-features)
 
     ../../base/tools/signbox.nix
     ../../base/tools/n13rebuild.nix
