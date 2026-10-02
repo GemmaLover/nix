@@ -34,13 +34,20 @@
     };
 
     # Ядра CachyOS (LTO, BORE, LTS и т.д.) с собственным бинарным кэшем.
-    nix-cachyos-kernel = {
-      url = "github:xddxdd/nix-cachyos-kernel/release";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+#     nix-cachyos-kernel = {
+#       url = "github:xddxdd/nix-cachyos-kernel/release";
+#       inputs.nixpkgs.follows = "nixpkgs";
+#     };
   };
 
-  outputs = { self, nixpkgs, home-manager, disko, plasma-manager, nix-cachyos-kernel, ... }@inputs: {
+  outputs = {
+  self,
+  nixpkgs,
+  home-manager,
+  disko,
+  plasma-manager,
+#   nix-cachyos-kernel,
+  ... }@inputs: {
     nixosConfigurations = {
       # === Устройство: ASUS Z13 ===
       z13 = nixpkgs.lib.nixosSystem {
@@ -53,9 +60,9 @@
           {
             # Подключаем overlay из nix-cachyos-kernel.
             # После этого ядра доступны как pkgs.cachyosKernels.*
-            nixpkgs.overlays = [
-              nix-cachyos-kernel.overlays.pinned
-            ];
+#             nixpkgs.overlays = [
+#               nix-cachyos-kernel.overlays.pinned
+#             ];
 
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;

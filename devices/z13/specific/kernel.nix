@@ -64,8 +64,8 @@ in
   # ВАЖНО: ядра из overlay доступны как pkgs.cachyosKernels.*
   # Вариант linuxPackages-cachyos-latest-lto соответствует
   # LTO-сборке ядра 7.2.8 (проверено через `nix flake show`).
-  specialisation.cachyos-lto.configuration = {
-    inheritParentConfig = true;
-    boot.kernelPackages = pkgs.cachyosKernels.linuxPackages-cachyos-latest-lto;
-  };
+#   specialisation.cachyos-lto.configuration = {
+#     inheritParentConfig = true;
+#     boot.kernelPackages = pkgs.cachyosKernels.linuxPackages-cachyos-latest-lto;
+#   };
 }

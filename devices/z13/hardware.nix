@@ -20,39 +20,36 @@
   boot.kernelModules = [ "kvm-amd" ];
   boot.extraModulePackages = [ ];
 
-  fileSystems."/" = {
-    device = "/dev/mapper/luks-758e76c9-2be7-4008-92fa-cd78f7f2ea1c";
+   fileSystems."/" = {
+    device = "/dev/mapper/cryptroot";
     fsType = "ext4";
   };
 
-  boot.initrd.luks.devices = {
-    "luks-758e76c9-2be7-4008-92fa-cd78f7f2ea1c" = {
-      device = "/dev/disk/by-uuid/758e76c9-2be7-4008-92fa-cd78f7f2ea1c";
-      crypttabExtraOpts = [ "timeout=5" ];
-    };
-    "luks-c4892993-c483-4bc4-afeb-0549d71d2959" = {
-      device = "/dev/disk/by-uuid/c4892993-c483-4bc4-afeb-0549d71d2959";
-      crypttabExtraOpts = [ "timeout=5" ];
-    };
+   boot.initrd.luks.devices."cryptroot" = {
+    device = "/dev/disk/by-uuid/630ca97f-16bb-4020-9838-fc394df6d5ac";
   };
+
+    fileSystems."/boot" = {
+    device = "/dev/disk/by-uuid/8B43-B2C7";
+    fsType = "vfat";
+    options = [ "fmask=0022" "dmask=0022" ];
+  };
+
+  fileSystems."/data" = {
+    device = "/dev/disk/by-label/datastore";
+    fsType = "ext4";
+    options = [ "defaults" "nofail" "noatime" ];
+  };
+
+    swapDevices = [ ];
 
   # === Гибернация (resume с LUKS) ===
   # Указываем устройство, с которого система будет читать образ памяти
   # после гибернации. Это расшифрованный swap на LUKS.
-  boot.resumeDevice = "/dev/mapper/luks-c4892993-c483-4bc4-afeb-0549d71d2959";
+#   boot.resumeDevice = "/dev/mapper/luks-c4892993-c483-4bc4-afeb-0549d71d2959"; #swap?
 
   # Включаем поддержку гибернации в NixOS.
-  powerManagement.enable = true;
-
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-uuid/B652-F5CD";
-    fsType = "vfat";
-    options = [ "fmask=0077" "dmask=0077" ];
-  };
-
-  swapDevices = [
-    { device = "/dev/mapper/luks-c4892993-c483-4bc4-afeb-0549d71d2959"; }
-  ];
+#   powerManagement.enable = true;
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
