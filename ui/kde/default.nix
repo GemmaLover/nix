@@ -10,8 +10,15 @@
 # CUPS (-> ui/common/printing.nix), ASUS-квирки (-> devices/z13/specific/),
 # powerdevil/touchpad-конфиги пользователя (-> devices/z13/home-specific/).
 # При миграции на Hyprland эта папка просто выключается сменой opts.ui.
+#
+# ФОРМАТ: модуль обязан быть attrset'ом, а не списком путей — NixOS
+# принимает списки только внутри поля `imports` (см. lib/modules.nix:
+# «module ... does not look like a module»). Ошибка была найдена при
+# сборке на z13 (nixos-rebuild switch --flake .#z13).
 # =====================================================================
-[
-  ./plasma.nix
-  ./caffeine.nix
-]
+{
+  imports = [
+    ./plasma.nix
+    ./caffeine.nix
+  ];
+}

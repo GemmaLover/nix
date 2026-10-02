@@ -8,7 +8,12 @@
 #
 # Карта миграции компонентов KDE -> Hyprland см. в guide.md (раздел
 # «Миграция на Hyprland»).
+#
+# ФОРМАТ: attrset с `imports`, а не список путей (см. комментарий в
+# ui/kde/default.nix — тот же класс ошибки «does not look like a module»).
 # =====================================================================
-[
-  ./hyprland.nix
-]
+{
+  imports = [
+    ./hyprland.nix
+  ];
+}
