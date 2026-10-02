@@ -34,8 +34,13 @@ deviceName:
 # tryEval + дефолт { ui = "none"; } защищают от хостов без осей.
 # =====================================================================
 let
+  # deviceModule — это ПУТЬ к devices/<host>/config.nix (см. flake.nix),
+  # поэтому сначала загружаем его через import, и только потом вызываем
+  # как функцию модуля. Раньше путь вызывался напрямую → «not a function
+  # but a path» при nixos-rebuild на z13.
+  deviceModuleFn = import deviceModule;
   hostOpts = builtins.tryEval (
-    (deviceModule { config = {}; lib = null; pkgs = null; inherit inputs; }).kda.opts or {}
+    (deviceModuleFn { config = {}; options = {}; inherit inputs; }).kda.opts or {}
   );
   axes = if hostOpts.success then hostOpts.value else { };
   kdaAxes = { ui = "none"; profiles = [ ]; } // axes;
