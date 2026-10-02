@@ -48,7 +48,7 @@
     # === Базовое ПО для всех ===
     ../../base/tools/base.nix
     ../../base/tools/flatpak.nix
-#     ../../base/tools/portmaster.nix
+    # ../../base/tools/portmaster.nix   # закомментировано (как в baseline): сервис отключён
 
     # Сюда НЕ переносим:
     #   ../../base/ui/kde.nix        -> ось ui (kda.opts.ui = "kde")

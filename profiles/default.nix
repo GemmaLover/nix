@@ -24,6 +24,11 @@ let
   opts = kda;
 in
 {
+  # NOTE: здесь подключаются ТОЛЬКО системные модули профилей.
+  # Домашние HM-модули того же профиля (llm/home.nix и т.п.) живут в
+  # home-слое устройства (devices/<host>/home.nix) — их нельзя импортировать
+  # сюда: опция `home.*` существует только в Home Manager, а не в NixOS
+  # (иначе eval падает с «The option `home' does not exist»).
   imports = [ ]
     ++ lib.optionals (lib.elem "dev" opts.profiles) [ ../dev/dev.nix ]
     ++ lib.optionals (lib.elem "llm" opts.profiles) [ ../llm/system.nix ]
