@@ -17,7 +17,11 @@
     ]
     ++ lib.optionals (lib.elem "llm" kdaOpts.profiles) [
       ../../llm/home.nix
-    ];
+    ]
+    # Portmaster control: HM-модуль (home.packages + xdg.desktopEntries),
+    # в baseline был закомментирован вместе с отключённым сервисом
+    # portmaster — оставляем выключенным, но импортируемым при возврате.
+    # ++ lib.optionals true [ ../../base/tools/portmaster-control.nix ];
 
   # Домашняя директория пользователя.
   home.homeDirectory = "/home/lexi";
