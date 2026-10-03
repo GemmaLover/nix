@@ -2,6 +2,9 @@
 result
 *.log
 
-# Секреты sing-box (vless) — не коммитить
-base/tools/sing-box/vless.nix
-!base/tools/sing-box/vless.nix.example
+# base/tools/sing-box/vless.nix БОЛЬШЕ НЕ игнорируется: это постоянная
+# заглушка (enable = false, плейсхолдеры REPLACE_ME), она обязана быть в
+# git — flake при сборке из git-дерева копирует только отслеживаемые файлы,
+# и untracked-файл ломает import («Path does not exist in Git repository»).
+# Реальные секреты сервера сюда не писать — при появлении сервера вынести
+# в sops/agenix. vless.nix.example оставлен как справочник формата.

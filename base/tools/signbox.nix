@@ -104,16 +104,16 @@
           routing_mark = 110;
         }
         # vless-out — ЗАГЛУШКА на будущее: реального сервера пока нет,
-        # через него ничего не отправляем. Реальные параметры (когда
-        # сервер появится) хранятся ВНЕ git в файле ./sing-box/vless.nix
-        # (в .gitignore): { server = "..."; port = 443; uuid = "..."; sni = "..."; }.
-        # Пока файла нет (или vless.enable = false) — тег vless-out это
-        # обычный direct, и Chromium ходит напрямую без обрыва сайтов.
+        # через него ничего не отправляем. Параметры хранятся в файле
+        # ./sing-box/vless.nix (закоммичен как заглушка с enable = false;
+        # flake из git-дерева копирует только отслеживаемые файлы, поэтому
+        # файл ОБЯЗАН быть в git — иначе «Path does not exist»).
+        # Пока vless.enable = false — тег vless-out это обычный direct,
+        # и Chromium ходит напрямую без обрыва сайтов.
         (let
-          vlessCfg = builtins.tryEval (import ./sing-box/vless.nix);
-          v = vlessCfg.value or { };
+          v = import ./sing-box/vless.nix;
         in
-          if vlessCfg.success && (v.enable or false) then {
+          if v.enable or false then {
             type = "vless";
             tag = "vless-out";
             server = v.server;
