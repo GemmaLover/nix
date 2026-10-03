@@ -22,7 +22,8 @@ in
     # Hyprland: портированные аналоги KDE-доработок (карта — в guide.md).
     # Каждый *-hyprland.nix — прямой наследник своего KDE-файла.
     ++ lib.optionals (cfg.ui == "hyprland") [
-      ./power-lock-hyprland.nix        # hypridle/hyprlock + waybar + тачпад (порт power-lock.nix)
+      ./hyprland-conf.nix              # ~/.config/hypr/hyprland.conf (хоткеи/тачпад/автозапуск)
+      ./power-lock-hyprland.nix        # hypridle/hyprlock + waybar + пакеты окружения (порт power-lock.nix)
       ./caffeine-hyprland.nix          # caffeine-ng через portal Inhibit (порт caffeine-kde.nix)
       ./asus-backlight-hyprland.nix    # подсветка по сокету hyprlock IPC (порт asus-backlight-kde.nix)
       ./cliphist-hyprland.nix          # история буфера вместо Klipper

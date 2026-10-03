@@ -11,7 +11,12 @@ let
   #                       devices/z13/home-specific/power-lock-hyprland.nix;
   #                       NixOS-модулей programs.hyprlock.settings /
   #                       services.hypridle в nixpkgs не существует)
-  #   plasma-manager  -> programs.hyprland в Home Manager (devices/z13/home-specific/)
+  #   plasma-manager  -> ~/.config/hypr/hyprland.conf через xdg.configFile
+  #                       (devices/z13/home-specific/hyprland-conf.nix);
+  #                       programs.hyprland в HM НЕ используем — его опция
+  #                       существует только при включённом NixOS
+  #                       programs.hyprland.enable (sharedModules), чего мы
+  #                       намеренно избегаем, управляя входом через greetd.
   #   bluedevil       -> blueman (ниже)
   #   Dolphin/Konsole -> thunar / foot (базовый софт остаётся из base/tools/base.nix)
   #   caffeine-ng     -> тот же бинарь + XDG autostart (home-слой, DE-независимо)

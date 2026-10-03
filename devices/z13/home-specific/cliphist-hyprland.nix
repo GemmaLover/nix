@@ -7,8 +7,8 @@
   # Порт функциональности Klipper (буфер обмена Plasma): Klipper — часть
   # KDE-стека, на Hyprland его заменяет cliphist + демон wl-paste.
   # Сервис стартует вместе с graphical-сессией; хоткей вызова истории
-  # (SUPER+V -> wtype вставка) задаётся в programs.hyprland.settings.bind
-  # модуля power-lock-hyprland.nix (см. bind = [ "SUPER, V, exec, ..." ]).
+  # (SUPER+V -> fuzzel-меню cliphist + wl-copy вставка) задаётся в блоке
+  # bind конфига ~/.config/hypr/hyprland.conf (см. ./hyprland-conf.nix).
   #
   # Хранение: cliphist store использует XDG_DATA_HOME (~/.local/share/cliphist).
   # =====================================================================

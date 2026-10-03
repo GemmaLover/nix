@@ -1,3 +1,8 @@
+# ВАЖНО: это Home Manager-модуль. programs.hyprland здесь НЕЛЬЗЯ —
+# HM-опция programs.hyprland существует только когда включён модуль
+# NixOS programs.hyprland.enable (home-manager.sharedModules), а он у нас
+# выключен при ui = "hyprland" (см. ui/hyprland/hyprland.nix). Конфиг
+# ~/.config/hypr/hyprland.conf генерирует отдельный модуль ./hyprland-conf.nix.
 { config, lib, pkgs, ... }:
 
 {
@@ -15,9 +20,10 @@
   #     -> hypridle listener timeout=300 + before_sleep_cmd=hyprlock;
   #   plasma-manager input.touchpads (disableWhileTyping/tapToClick/
   #   naturalScroll/twoFinger для GZ302EA vendorId=0b05 productId=1a30)
-  #     -> input:kbd:touchpad_* опции programs.hyprland.settings.input
-  #        (Hyprland читает libinput напрямую, квирк ASUS из
-  #        specific/asus-input.nix остаётся действующим — он DE-независим);
+  #     -> блок input:touchpad в ~/.config/hypr/hyprland.conf
+  #        (см. ./hyprland-conf.nix; Hyprland читает libinput напрямую,
+  #        квирк ASUS из specific/asus-input.nix остаётся действующим —
+  #        он DE-независим);
   #   powerdevil-lid-fix (LidAction=0, экран гаснуть при блокировке)
   #     -> не нужен: lid обрабатывает logind, гашение делает hypridle.
   #
@@ -26,55 +32,22 @@
   # дублировать не нужно. Виджет батареи из Plasma заменяет waybar (ниже).
   # =====================================================================
 
-  programs.hyprland = {
-    enable = true;
-
-    settings = {
-      # === Ввод (порт plasma-manager input.touchpads для GZ302EA) ===
-      input = {
-        kb_layout = "us,ru";          # раскладка была в Plasma-профиле; сохраняем
-        follow_mouse = 1;
-
-        touchpad = {
-          # disableWhileTyping — по умолчанию ON в libinput; фиксируем явно.
-          disable_while_typing = true;
-          # tapToClick=true
-          tap-to-click = true;
-          # naturalScroll=true
-          natural_scroll = true;
-          # scrollMethod="twoFinger"
-          scroll_method = "two_finger";
-        };
-      };
-
-      # === Прочее базовое (минимальная рабочая сессия) ===
-      general = {
-        gaps_in = 5;
-        gaps_out = 10;
-        border_size = 2;
-        layout = "dwindle";
-      };
-
-      decoration = {
-        rounding_power = 2;
-      };
-
-      # === Клавиши (аналоги KDE-глобалок) ===
-      bind = [
-        "SUPER, RETURN, exec, foot"                          # Konsole -> foot
-        "SUPER, SPACE, exec, fuzzel"                         # KRunner -> fuzzel
-        "CTRL ALT, L, exec, hyprlock"                        # ручной лок (KScreensaver)
-        "SUPER SHIFT, S, exec, grim -g \"$(slurp)\" - | wl-copy"  # Spectacle region -> clipboard
-        "SUPER, B, exec, waypaper --random"                  # обои (plasma wallpaper)
-        ", Print, exec, grim $HOME/Pictures/screenshot-$(date +%F-%H%M%S).png"  # PrintScreen (Spectacle)
-        # История буфера (Klipper): fuzzel-меню cliphist + вставка через wl-copy.
-        "SUPER, V, exec, cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"
-      ];
-      # Закрытие крышки: локальный дубль logind-пути (lid-daemon дергает
-      # loginctl lock-sessions; этот бинд реагирует на событие Hyprland).
-      bindl = [ ", switch:on:Lid Switch, exec, hyprlock" ];
-    };
-  };
+  # Пакеты окружения Hyprland (сами хоткеи/ввод — в ./hyprland-conf.nix,
+  # чтобы не требовать включения NixOS programs.hyprland.enable):
+  #   foot      — терминал (аналог Konsole)
+  #   fuzzel    — лаунчер/меню (аналог KRunner)
+  #   grim slurp — скриншоты области (аналог Spectacle)
+  #   wl-clipboard — wl-copy/paste для пайпов хоткеев
+  #   waybar    — панель (часы/батарея/трей вместо Plasma-плазм)
+  home.packages = with pkgs; [
+    foot
+    fuzzel
+    grim
+    slurp
+    wl-clipboard
+    cliphist
+    waybar
+  ];
 
   # Waybar — замена панели Plasma: часы, батарея (аналог виджета батарейки,
   # через который переключаются PPD-профили), трей (blueman/nm-applet/caffeine-ng).
