@@ -39,16 +39,18 @@ let
   # как функцию модуля. Раньше путь вызывался напрямую → «not a function
   # but a path» при nixos-rebuild на z13.
   deviceModuleFn = import deviceModule;
+  # Извлечение осей: модуль устройства вызывается как функция с
+  # минимальными args ({ config = {}; options = {}; inputs; }).
+  # ВАЖНО: здесь НЕ нужен настоящий pkgs — поле `imports` в
+  # devices/<host>/config.nix является ЛИТЕРАЛЬНЫМ списком путей,
+  # а Nix ленив: выражения из импортируемых модулей (base/tools/*,
+  # где используется pkgs.writeShellScriptBin) вычисляются только
+  # при реальном включении модуля в систему, чего при «осевом»
+  # вызове не происходит. Приходилось держать импорт целого nixpkgs
+  # ради чтения литерала — избыточно и замедляло eval.
+  # tryEval страхует от хостов без объявленных осей (дефолт none/[ ]).
   hostOpts = builtins.tryEval (
-    # args должны покрывать аргументы-заголовки модуля устройства.
-    # ВАЖНО: `lib` должен быть НАСТОЯЩИМ, а не пустой заглушкой ({ }):
-    # модули устройств могут вычислять imports через lib.optionals и
-    # обращаться к полям типа lib.versionOlder — с пустым lib это падает,
-    # tryEval проглатывает ошибку, оси молча слетают на дефолт
-    # { ui = "none"; profiles = []; } и KDE/llm вообще не подключаются.
-    # `pkgs = {}` безопасен: импорт путей ./.nix ленив, а обращение к
-    # полям pkgs внутри литерального kda.opts запрещено правилами слоя.
-    (deviceModuleFn { config = {}; options = {}; pkgs = {}; inherit lib inputs; }).kda.opts or {}
+    (deviceModuleFn { config = {}; options = {}; inherit lib inputs; }).kda.opts or {}
   );
   axes = if hostOpts.success then hostOpts.value else { };
   kdaAxes = { ui = "none"; profiles = [ ]; } // axes;
@@ -66,17 +68,21 @@ nixpkgs.lib.nixosSystem {
 
     # Кастомные опции kda.opts (ui, profiles) доступны всем модулям
     # для ЗАДАНИЯ значений хостом; диспетчеры осей читают их из args.kda.
+    # ВАЖНО: подключается ДО модуля устройства — порядок imports в
+    # nixpkgs-модулях влияет на разрешение «неизвестных» опций при
+    # eval, и раньше обратный порядок приводил к падению с ошибкой
+    # про несуществующую опцию `home`.
     ../lib/options.nix
+
+    # Конфиг конкретного устройства: сам решает, какие оси включить
+    # (kda.opts.ui / kda.opts.profiles + собственные imports).
+    deviceModule
 
     # Диспетчер оси «оконная оболочка»: подключает ui/common + ui/<opts.ui>.
     ../ui/default.nix
 
     # Диспетчер оси «профили ПО»: подключает llm/, games/, dev/ по opts.profiles.
     ../profiles/default.nix
-
-    # Конфиг конкретного устройства: сам решает, какие оси включить
-    # (kda.opts.ui / kda.opts.profiles + собственные imports).
-    deviceModule
 
     ({ config, ... }:
       let

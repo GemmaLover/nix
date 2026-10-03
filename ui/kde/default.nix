@@ -15,7 +15,12 @@
 # принимает списки только внутри поля `imports` (см. lib/modules.nix:
 # «module ... does not look like a module»). Ошибка была найдена при
 # сборке на z13 (nixos-rebuild switch --flake .#z13).
+#
+# Файл импортируется как модуль (путём из ui/default.nix): nixpkgs сам
+# подставит аргументы { config, lib, pkgs, ... } + specialArgs.
 # =====================================================================
+{ config, lib, pkgs, ... }:
+
 {
   imports = [
     ./plasma.nix

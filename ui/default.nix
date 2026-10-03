@@ -32,9 +32,16 @@ in
       ./common/input.nix
       ./common/printing.nix
     ]
-    # Собственно оболочки. ВАЖНО: указываем ./kde/default.nix, а не ./kde —
-    # Nix умеет импортировать директорию только через явный default.nix;
-    # путь-директория в imports даёт «module ... does not look like a module».
+    # Собственно оболочки. ВАЖНО: в imports кладётся ПУТЬ к default.nix,
+    # а не результат его вызова. NixOS-модуль обязан быть одной из форм:
+    # путь / attrset / функция args→attrset. Если вызвать default.nix
+    # здесь вручную ({ config = {}; ... } или даже полными args), его
+    # результат — обычный attrset без _module-метаданных — nixpkgs
+    # принимает, но при любой ошибке внутри теряется контекст файла, а
+    # раньше передавались неполные args и eval падал с «does not look
+    # like a module». Правильный путь: импортировать файл как модуль —
+    # nixpkgs сам подставит ему { config, lib, pkgs, ... } плюс
+    # specialArgs (в них `kda` из mkSystem).
     ++ lib.optionals (opts.ui == "kde") [ ./kde/default.nix ]
     ++ lib.optionals (opts.ui == "hyprland") [ ./hyprland/default.nix ];
 }
