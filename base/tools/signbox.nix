@@ -93,25 +93,42 @@
           tag = "zapret-out";
           routing_mark = 110;
         }
-        {
-          type = "vless";
-          tag = "vless-out";
-          server = "ВАШ_СЕРВЕР";
-          server_port = 443;
-          uuid = "ВАШ_UUID";
-          flow = "xtls-rprx-vision";
-          tls = {
-            enabled = true;
-            server_name = "ВАШ_ДОМЕН";
-            utls = {
+        # vless-out — РЕАЛЬНЫЕ параметры прокси хранятся ВНЕ git
+        # (секреты не коммитим; раньше здесь стояли заглушки
+        # "ВАШ_СЕРВЕР"/"ВАШ_UUID", из-за которых весь трафик
+        # Chromium уходил в несуществующий сервер и обрывался).
+        # Положите файл вида { server = "..."; port = 443; uuid = "..."; sni = "..."; }
+        # в ./sing-box/vless.nix (файл в .gitignore). Если файла нет —
+        # vless-out падает в direct, и сайты работают через zapret.
+        (let
+          vlessCfg = builtins.tryEval (import ./sing-box/vless.nix);
+        in
+          if vlessCfg.success then {
+            type = "vless";
+            tag = "vless-out";
+            server = vlessCfg.value.server;
+            server_port = vlessCfg.value.port or 443;
+            uuid = vlessCfg.value.uuid;
+            flow = "xtls-rprx-vision";
+            tls = {
               enabled = true;
-              fingerprint = "chrome";
+              server_name = vlessCfg.value.sni;
+              utls = {
+                enabled = true;
+                fingerprint = "chrome";
+              };
             };
-          };
-        }
+          } else {
+            type = "direct";
+            tag = "vless-out";
+          })
         {
           type = "direct";
           tag = "direct-out";
+        }
+        {
+          type = "direct";
+          tag = "dns-out";
         }
       ];
 
@@ -126,8 +143,13 @@
             outbound = "direct-out";
           }
           {
+            # DNS-трафик dnscrypt-proxy: отдельный явный аутбаунд.
+            # auto_route добавляет правило main-table для sing-box,
+            # но ip rule fwmark 8227 (см. sing-box-fwmark-rule) имеет
+            # приоритет 100 и уводит пакеты в main table — на случай
+            # гонки маршрутизации держим DNS на гарантированном пути.
             process_name = ["dnscrypt-proxy"];
-            outbound = "direct-out";
+            outbound = "dns-out";
           }
           {
             network = "udp";

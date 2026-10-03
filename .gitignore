@@ -1,3 +1,6 @@
 *.kate-swp
 result
 *.log
+
+# Секреты sing-box (vless) — не коммитить
+base/tools/sing-box/vless.nix
