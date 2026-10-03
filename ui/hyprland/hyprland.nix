@@ -66,13 +66,13 @@ in
   ];
 
   # hypridle/hyprlock настраиваются в Home Manager (power-lock-hyprland.nix):
-  # NixOS-модулей для них нет. Из DE-аналогов здесь остаётся только PAM:
-  programs.hyprlock = {
-    enable = true;
-    # PAM-сервис hyprlock — без него ввод пароля не проверяется
-    # (аналог kcheckpass/kscreenlocker-PAM в KDE).
-    pamWithWallet = true;
-  };
+  # NixOS-модулей для них нет. В nixpkgs у programs.hyprlock существуют
+  # ТОЛЬКО опции enable и package — pamWithWallet/ksettings там отсутствуют,
+  # их использование ломало eval («The option `programs.hyprlock.pamWithWallet'
+  # does not exist»).
+  # PAM-сервис hyprlock создаётся автоматически при enable = true
+  # (аналог kcheckpass/kscreenlocker-PAM в KDE) — отдельная опция не нужна.
+  programs.hyprlock.enable = true;
 
   # wlr-protocols (grim/slurp/cliphist/wtype) подключаются через ./default.nix.
 
