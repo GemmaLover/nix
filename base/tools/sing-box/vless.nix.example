@@ -1,0 +1,12 @@
+# Пример конфига vless-out для sing-box. НЕ АКТИВЕН: скопируйте в
+#   base/tools/sing-box/vless.nix   (этот файл в .gitignore — секреты не коммитим)
+# и подставьте реальные данные, когда появится сервер.
+# signbox.nix использует vless только если enable = true И файл существует;
+# иначе тег vless-out = обычный direct (сервера пока нет — ничего не шлём).
+{
+  enable = false;              # true — только при реальном сервере
+  server = "REPLACE_ME";       # адрес/домен сервера
+  port = 443;
+  uuid = "REPLACE_ME";
+  sni = "REPLACE_ME";          # TLS server_name
+}

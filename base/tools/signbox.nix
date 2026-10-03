@@ -20,9 +20,15 @@
   # ├─────────────────────────────────────────────────────────────┤
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
-  # │ - dnscrypt-proxy → direct                                    │
-  # │ - Chromium → vless-out                                       │
-  # │ - Всё остальное (Firefox, Brave и т.д.) → zapret-out         │
+  # │ - dnscrypt-proxy → dns-out (гарантированный обход TUN)       │
+  # │ - Brave → zapret-out (через nfqws2, как «база для всех»)     │
+  # │ - Firefox → socks-out (ручной SOCKS5-прокси в браузере;      │
+  # │   правило нужно, чтобы SOCKS-соединение к 127.0.0.1 не       │
+  # │   заворачивалось обратно в TUN — петля)                      │
+  # │ - Chromium → vless-out (заглушка: сервера пока нет, при      │
+  # │   отсутствии base/tools/sing-box/vless.nix деградирует       │
+  # │   в direct; включается, когда появится реальный сервер)      │
+  # │ - Всё остальное → zapret-out                                 │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -93,26 +99,26 @@
           tag = "zapret-out";
           routing_mark = 110;
         }
-        # vless-out — РЕАЛЬНЫЕ параметры прокси хранятся ВНЕ git
-        # (секреты не коммитим; раньше здесь стояли заглушки
-        # "ВАШ_СЕРВЕР"/"ВАШ_UUID", из-за которых весь трафик
-        # Chromium уходил в несуществующий сервер и обрывался).
-        # Положите файл вида { server = "..."; port = 443; uuid = "..."; sni = "..."; }
-        # в ./sing-box/vless.nix (файл в .gitignore). Если файла нет —
-        # vless-out падает в direct, и сайты работают через zapret.
+        # vless-out — ЗАГЛУШКА на будущее: реального сервера пока нет,
+        # через него ничего не отправляем. Реальные параметры (когда
+        # сервер появится) хранятся ВНЕ git в файле ./sing-box/vless.nix
+        # (в .gitignore): { server = "..."; port = 443; uuid = "..."; sni = "..."; }.
+        # Пока файла нет (или vless.enable = false) — тег vless-out это
+        # обычный direct, и Chromium ходит напрямую без обрыва сайтов.
         (let
           vlessCfg = builtins.tryEval (import ./sing-box/vless.nix);
+          v = vlessCfg.value or { };
         in
-          if vlessCfg.success then {
+          if vlessCfg.success && (v.enable or false) then {
             type = "vless";
             tag = "vless-out";
-            server = vlessCfg.value.server;
-            server_port = vlessCfg.value.port or 443;
-            uuid = vlessCfg.value.uuid;
+            server = v.server;
+            server_port = v.port or 443;
+            uuid = v.uuid;
             flow = "xtls-rprx-vision";
             tls = {
               enabled = true;
-              server_name = vlessCfg.value.sni;
+              server_name = v.sni;
               utls = {
                 enabled = true;
                 fingerprint = "chrome";
@@ -164,6 +170,20 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
+          # Firefox ходит через ручной SOCKS5-прокси, настроенный в
+          # самом браузере (127.0.0.1:1080). Правило нужно, чтобы это
+          # SOCKS-соединение не заворачивалось обратно в TUN (петля):
+          # трафик firefox идёт напрямую к socks-out, минуя zapret.
+          {
+            process_name = ["firefox" "firefox-bin"];
+            outbound = "socks-out";
+          }
+          {
+            process_path_regex = [".*/firefox/firefox.*" ".*/libexec/mozilla-firefox.*"];
+            outbound = "socks-out";
+          }
+          # Brave — «база для всех»: общий путь через zapret-out
+          # (последнее правило по умолчанию), отдельного правила нет.
           {
             outbound = "zapret-out";
           }

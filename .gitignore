@@ -4,3 +4,4 @@ result
 
 # Секреты sing-box (vless) — не коммитить
 base/tools/sing-box/vless.nix
+!base/tools/sing-box/vless.nix.example
