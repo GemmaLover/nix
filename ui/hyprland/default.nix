@@ -12,5 +12,9 @@
 {
   imports = [
     ./hyprland.nix
+    # Портированные аналоги KDE-компонентов (карта — в guide.md):
+    ./wlr-protocols.nix   # grim/slurp/cliphist/wtype/hyprpicker (Spectacle/Klipper/KColorChooser)
+    ./hypridle.nix        # аналог связки PowerDevil+kscreenlocker (таймауты/гашение экрана)
+    ./hyprlock.nix        # экран блокировки (аналог kscreenlocker Greeter)
   ];
 }

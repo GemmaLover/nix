@@ -19,9 +19,12 @@ in
       ./caffeine-kde.nix         # трей caffeine-ng (home.packages + xdg.autostart)
       ./asus-backlight-kde.nix   # гашение подсветки по сигналу kscreenlocker
     ]
+    # Hyprland: портированные аналоги KDE-доработок (карта — в guide.md).
+    # Каждый *-hyprland.nix — прямой наследник своего KDE-файла.
     ++ lib.optionals (cfg.ui == "hyprland") [
-      # TODO(миграция): ./power-lock-hyprland.nix (hypridle/hyprlock)
-      # TODO(миграция): ./caffeine-hyprland.nix (inhibit через hypridle)
-      # TODO(миграция): ./asus-backlight-hyprland.nix (сокет hyprlock)
+      ./power-lock-hyprland.nix        # hypridle/hyprlock + waybar + тачпад (порт power-lock.nix)
+      ./caffeine-hyprland.nix          # caffeine-ng через portal Inhibit (порт caffeine-kde.nix)
+      ./asus-backlight-hyprland.nix    # подсветка по сокету hyprlock IPC (порт asus-backlight-kde.nix)
+      ./cliphist-hyprland.nix          # история буфера вместо Klipper
     ];
 }

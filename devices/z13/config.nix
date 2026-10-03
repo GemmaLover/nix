@@ -64,9 +64,17 @@
   # === Оси конфигурации этого устройства (ui / profiles) ===
   # Читаются lib/mkSystem.nix при вызове модуля как функции и диспетчерами
   # ui/default.nix, profiles/default.nix через specialArgs.kda.
+  #
+  # ПЕРЕКЛЮЧЕНИЕ ОБОЛОЧКИ: чтобы уйти с KDE на Hyprland (или обратно),
+  # достаточно поменять строку ui ниже и пересобрать:
+  #   sudo nixos-rebuild switch --flake .#z13 && home-manager switch --flake .#z13
+  # Конфиг KDE НЕ удаляется — он остаётся в ui/kde/ и подключается при ui="kde".
+  # Все доработки Plasma портированы в Hyprland-аналоги (см. guide.md):
+  #   power-lock.nix -> power-lock-hyprland.nix, caffeine-kde -> caffeine-hyprland,
+  #   asus-backlight-kde -> asus-backlight-hyprland (+cliphist-hyprland).
   kda.opts = {
-    ui = "kde";                     # TODO(миграция): "hyprland"
-    profiles = [ "dev" "llm" ];     # games — позже
+    ui = "hyprland";               # переключение: "kde" | "hyprland" | "none"
+    profiles = [ "dev" "llm" ];    # games — позже
   };
 
   # =====================================================================

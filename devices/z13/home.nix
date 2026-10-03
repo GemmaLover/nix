@@ -51,7 +51,7 @@
     };
   };
 
-    # =====================================================================
+  # =====================================================================
   # Автоматическое исправление ярлыков KDE на панели задач.
   #
   # KDE сохраняет ярлыки как абсолютные пути к .desktop-файлам
@@ -62,14 +62,17 @@
   # Заменяем абсолютные пути на универсальные ссылки
   # "applications:имя.desktop", которые KDE резолвит динамически.
   #
+  # Активируется ТОЛЬКО при ui = "kde": файл plasma-org.kde.plasma.desktop-appletsrc
+  # создаётся Plasma; на Hyprland его нет, sed по несуществующему файлу — no-op,
+  # но явное условие дешевле лишней ветки (см. диспетчер home-specific/default.nix).
+  #
   # Запускается при каждой пересборке (nixos-rebuild switch)
   # после записи конфигов, но до старта Plasma.
   # =====================================================================
-  home.activation.fix-plasma-launchers = config.lib.dag.entryAfter [ "writeBoundary" ] ''
-    APPSRC="$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
-    if [ -f "$APPSRC" ]; then
+  home.activation.fix-plasma-launchers = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ "${kdaOpts.ui or "none"}" = "kde" ] && [ -f "$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc" ]; then
       sed -i 's|file:///nix/store/[^/]*/share/applications/|applications:|g' \
-        "$APPSRC" || true
+        "$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc" || true
     fi
   '';
 }
