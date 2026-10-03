@@ -40,10 +40,15 @@ let
   # but a path» при nixos-rebuild на z13.
   deviceModuleFn = import deviceModule;
   hostOpts = builtins.tryEval (
-    # args должны покрывать аргументы-заголовки модуля устройства:
-    # если в сигнатуре есть `pkgs`, его не передавать — получим
-    # «The function ... called without required argument 'pkgs'».
-    (deviceModuleFn { config = {}; options = {}; pkgs = {}; lib = { }; inherit inputs; }).kda.opts or {}
+    # args должны покрывать аргументы-заголовки модуля устройства.
+    # ВАЖНО: `lib` должен быть НАСТОЯЩИМ, а не пустой заглушкой ({ }):
+    # модули устройств могут вычислять imports через lib.optionals и
+    # обращаться к полям типа lib.versionOlder — с пустым lib это падает,
+    # tryEval проглатывает ошибку, оси молча слетают на дефолт
+    # { ui = "none"; profiles = []; } и KDE/llm вообще не подключаются.
+    # `pkgs = {}` безопасен: импорт путей ./.nix ленив, а обращение к
+    # полям pkgs внутри литерального kda.opts запрещено правилами слоя.
+    (deviceModuleFn { config = {}; options = {}; pkgs = {}; inherit lib inputs; }).kda.opts or {}
   );
   axes = if hostOpts.success then hostOpts.value else { };
   kdaAxes = { ui = "none"; profiles = [ ]; } // axes;
