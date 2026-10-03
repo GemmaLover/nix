@@ -65,8 +65,10 @@ nixpkgs.lib.nixosSystem {
     # Общие модули-инпуты.
     disko.nixosModules.disko
     home-manager.nixosModules.home-manager
-    # Декларативная настройка KDE Plasma (нужна home-модулям ui=="kde").
-    plasma-manager.homeModules.plasma-manager
+    # ВАЖНО: plasma-manager.homeModules.plasma-manager — это HM-модуль
+    # (объявляет options.programs.plasma.* внутри Home Manager-домена).
+    # Как элемент NixOS `modules` он вызывал «The option `home' does not
+    # exist» при eval на z13 — подключается ниже через sharedModules.
 
     # Конфиг конкретного устройства: сам решает, какие оси включить
     # (kda.opts.ui / kda.opts.profiles + собственные imports).
@@ -96,6 +98,10 @@ nixpkgs.lib.nixosSystem {
         _module.args.plasma-manager = plasma-manager;
 
         home-manager = {
+          # Декларативная настройка KDE Plasma (нужна home-модулям ui=="kde").
+          # sharedModules подключаются к ДОМЕННОЙ конфигурации Home Manager,
+          # где и живут опции programs.plasma.* / home.*.
+          sharedModules = [ plasma-manager.homeModules.plasma-manager ];
           useGlobalPkgs = true;
           useUserPackages = true;
           # kdaOpts — оси устройства (ui, profiles), проброшены в home-слой:
