@@ -1,10 +1,14 @@
 { config, lib, pkgs, ... }:
 
-# NOTE: модуль вызывается lib/mkSystem.nix как функция с урезанными
-# args ({ config = {}; options = {}; inputs; }) — только для чтения
-# литерального kda.opts. Поэтому здесь нельзя обращаться к `config`/`pkgs`
-# (infinite recursion / «not a function» при eval). Всё железо-специфичное
-# живёт в импортируемых модулях ./specific/*, а не в этом файле.
+# NOTE: этот файл используется ДВАЖДЫ с разными args:
+#   1) lib/mkSystem.nix вызывает его как функцию с урезанными args
+#      ({ config = {}; options = {}; lib; pkgs = { }; inputs; }) — только
+#      для чтения ЛИТЕРАЛЬНОГО kda.opts (оси ui/profiles до сборки config).
+#   2) штатный импорт NixOS-модулем с настоящими config/lib/pkgs.
+# Поэтому в самом attrset ниже нельзя обращаться к `config`/`pkgs` —
+# при «осевом» вызове это дало бы infinite recursion / падение.
+# Всё железо-специфичное живёт в импортируемых модулях ./specific/*,
+# а не в этом файле.
 {
   imports = [
     # === Оси конфигурации (см. lib/options.nix) ===

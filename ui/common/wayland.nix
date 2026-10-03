@@ -14,7 +14,8 @@
   # =====================================================================
 
   # Включаем поддержку Wayland-сессий на системном уровне.
-  programs.wayland.enable = lib.mkDefault true;
+  # programs.wayland.enable не существует в nixpkgs — Wayland включается
+  # самими DE (plasma6/hyprland); пакетный слой ниже это portals + wl-clipboard.
 
   environment.systemPackages = with pkgs; [
     # Буфер обмена Wayland (используется скриптами и LLM-обёртками).

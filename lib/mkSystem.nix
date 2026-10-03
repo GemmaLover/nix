@@ -39,18 +39,20 @@ let
   # как функцию модуля. Раньше путь вызывался напрямую → «not a function
   # but a path» при nixos-rebuild на z13.
   deviceModuleFn = import deviceModule;
-  # Извлечение осей: модуль устройства вызывается как функция с
-  # минимальными args ({ config = {}; options = {}; inputs; }).
-  # ВАЖНО: здесь НЕ нужен настоящий pkgs — поле `imports` в
-  # devices/<host>/config.nix является ЛИТЕРАЛЬНЫМ списком путей,
-  # а Nix ленив: выражения из импортируемых модулей (base/tools/*,
-  # где используется pkgs.writeShellScriptBin) вычисляются только
-  # при реальном включении модуля в систему, чего при «осевом»
-  # вызове не происходит. Приходилось держать импорт целого nixpkgs
-  # ради чтения литерала — избыточно и замедляло eval.
-  # tryEval страхует от хостов без объявленных осей (дефолт none/[ ]).
+  # Извлечение осей: модуль устройства вызывается как функция.
+  # ВАЖНО: сигнатура devices/<host>/config.nix — { config, lib, pkgs, ... },
+  # поэтому ВСЕ объявленные параметры должны быть переданы явно, иначе
+  # Nix падает с «called without required argument 'pkgs'» (проверено на z13).
+  # Настоящий pkgs НЕ нужен: поле `imports` в конфиге устройства —
+  # ЛИТЕРАЛЬНЫЙ список путей, а Nix ленив: выражения из импортируемых
+  # модулей (base/tools/*, где используется pkgs.writeShellScriptBin)
+  # вычисляются только при реальном включении модуля в систему, чего
+  # при «осевом» вызове не происходит. Пустой attrset для pkgs
+  # достаточно, чтобы закрыть обязательный параметр функции.
+  # tryEval страхует от хостов без объявленных осей (дефолт none/[ ]),
+  # но теперь он лишь запасной путь — main-ветка обязана eval-иться чисто.
   hostOpts = builtins.tryEval (
-    (deviceModuleFn { config = {}; options = {}; inherit lib inputs; }).kda.opts or {}
+    (deviceModuleFn { config = {}; options = {}; inherit lib inputs; pkgs = { }; }).kda.opts or {}
   );
   axes = if hostOpts.success then hostOpts.value else { };
   kdaAxes = { ui = "none"; profiles = [ ]; } // axes;
@@ -66,14 +68,6 @@ nixpkgs.lib.nixosSystem {
     # Декларативная настройка KDE Plasma (нужна home-модулям ui=="kde").
     plasma-manager.homeModules.plasma-manager
 
-    # Кастомные опции kda.opts (ui, profiles) доступны всем модулям
-    # для ЗАДАНИЯ значений хостом; диспетчеры осей читают их из args.kda.
-    # ВАЖНО: подключается ДО модуля устройства — порядок imports в
-    # nixpkgs-модулях влияет на разрешение «неизвестных» опций при
-    # eval, и раньше обратный порядок приводил к падению с ошибкой
-    # про несуществующую опцию `home`.
-    ../lib/options.nix
-
     # Конфиг конкретного устройства: сам решает, какие оси включить
     # (kda.opts.ui / kda.opts.profiles + собственные imports).
     deviceModule
@@ -83,6 +77,15 @@ nixpkgs.lib.nixosSystem {
 
     # Диспетчер оси «профили ПО»: подключает llm/, games/, dev/ по opts.profiles.
     ../profiles/default.nix
+
+    # ВАЖНО: lib/options.nix подключается ПОСЛЕДНИМ. В nixpkgs-модулях
+    # опции объявляются в фазе option-values, независимо от порядка
+    # модулей в списке; а вот *значения* разрешаются в порядке подключения,
+    # поэтому `kda.opts = { ... }` из модуля устройства корректно матчится
+    # на объявленные здесь опции. Раньше этот модуль стоял ДО устройства —
+    # это не влияло на eval, но сбивало с толку при отладке ошибок
+    # «The option ... does not exist».
+    ../lib/options.nix
 
     ({ config, ... }:
       let
