@@ -14,10 +14,12 @@
   # Работает через D-Bus и MPRIS, поддерживает Wayland.
   #
   # ВАЖНО: caffeine-ng — это ТРЕЙ-приложение (user-сервис), а не
-  # системный демон. В NixOS оно доступно как programs.caffeine-ng.enable
-  # (Home Manager) — поэтому управление им лежит в home-слое устройства
-  # (см. devices/<n>/home-specific/), а здесь подключается только
-  # системная зависимость — сам пакет, чтобы он был в окружении.
+  # системный демон. Отдельного модуля для него нет НИ в NixOS
+  # (services.caffeine не существует), НИ в Home Manager
+  # (programs.caffeine-ng не существует). Управление им лежит в
+  # home-слое устройства (home.packages + xdg.autostart, см.
+  # devices/<n>/home-specific/caffeine-kde.nix), а здесь подключается
+  # только системная зависимость — сам пакет, чтобы он был в окружении.
   # =====================================================================
   environment.systemPackages = with pkgs; [
     caffeine-ng
@@ -25,5 +27,5 @@
 
   # Трей-подобные сервисы Plasma (интеграция трея с caffeine) — на уровне
   # системы достаточно plasma6 (ui/kde/plasma.nix); сам запуск трей-аппа
-  # выполняется Home Manager-модулем programs.caffeine-ng.
+  # выполняется home-слоем (home.packages + xdg.autostart).
 }

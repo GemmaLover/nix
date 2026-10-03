@@ -16,7 +16,7 @@ in
   imports = [ ]
     ++ lib.optionals (cfg.ui == "kde") [
       ./power-lock.nix           # PowerDevil / kscreenlocker / plasma-manager
-      ./caffeine-kde.nix         # трей caffeine-ng (programs.caffeine-ng)
+      ./caffeine-kde.nix         # трей caffeine-ng (home.packages + xdg.autostart)
       ./asus-backlight-kde.nix   # гашение подсветки по сигналу kscreenlocker
     ]
     ++ lib.optionals (cfg.ui == "hyprland") [

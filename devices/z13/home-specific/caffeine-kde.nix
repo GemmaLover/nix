@@ -14,9 +14,14 @@
   # Автоматически блокирует засыпание и блокировку экрана,
   # когда приложение (Firefox, VLC и т.д.) запрашивает ингибирование.
   # Работает через D-Bus и MPRIS, поддерживает Wayland.
+  #
+  # ВАЖНО: в Home Manager НЕТ модуля programs.caffeine-ng (в отличие от
+  # NixOS-опции services.caffeine, которая тоже не используется). caffeine-ng
+  # — обычное трей-приложение: достаточно положить бинарь в PATH пользователя
+  # и добавить автозапуск (XDG autostart работает и на Plasma, и на Hyprland
+  # через xdg-desktop-portal). Запускается вручную из трея по необходимости.
   # =====================================================================
-  programs.caffeine-ng = {
-    enable = true;
-    package = pkgs.caffeine-ng;
-  };
+  home.packages = [ pkgs.caffeine-ng ];
+
+  xdg.autostart.entries = [ "${pkgs.caffeine-ng}/share/applications/caffeine.desktop" ];
 }
