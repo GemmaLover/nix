@@ -11,13 +11,14 @@
   # ВАЖНО: NixOS/Home Manager импортируют директорию ТОЛЬКО если в ней
   # есть default.nix; без него путь-директория даёт «does not look like a
   # module». Здесь указываем явный ./home-specific/default.nix.
-  imports = [
+  imports = [ ]
+    ++ [
       ./home-services.nix
       ./home-specific/default.nix
     ]
     ++ lib.optionals (lib.elem "llm" kdaOpts.profiles) [
       ../../llm/home.nix
-    ]
+    ];
     # Portmaster control: HM-модуль (home.packages + xdg.desktopEntries),
     # в baseline был закомментирован вместе с отключённым сервисом
     # portmaster — оставляем выключенным, но импортируемым при возврате.
