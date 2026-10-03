@@ -21,14 +21,14 @@
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → dns-out (гарантированный обход TUN)       │
-  # │ - Brave → zapret-out (через nfqws2, как «база для всех»)     │
-  # │ - Firefox → socks-out (ручной SOCKS5-прокси в браузере;      │
-  # │   правило нужно, чтобы SOCKS-соединение к 127.0.0.1 не       │
-  # │   заворачивалось обратно в TUN — петля)                      │
-  # │ - Chromium → vless-out (заглушка: сервера пока нет, при      │
-  # │   отсутствии base/tools/sing-box/vless.nix деградирует       │
-  # │   в direct; включается, когда появится реальный сервер)      │
-  # │ - Всё остальное → zapret-out                                 │
+  # │ - Firefox → direct-out (напрямую, мимо TUN/zapret — так      │
+  # │   задано явно; SOCKS-сервера нет, правила на socks-out       │
+  # │   удалены, чтобы не было петли/зависания)                    │
+  # │ - Brave и всё остальное → zapret-out (nfqws2, «база для      │
+  # │   всех»); chromium → vless-out — заглушка (деградирует в     │
+  # │   direct, реального сервера нет)                             │
+  # │ OUTBOUND "socks-out" оставлен в конфиге как заготовка, но    │
+  # │ НИКАКИЕ правила маршрутизации на него не направлены.         │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -85,6 +85,10 @@
       ];
 
       outbounds = [
+        # socks-out — заготовка на будущее (реального SOCKS-сервера
+        # сейчас нет). ВНИМАНИЕ: правила маршрутизации на него НЕ
+        # направлены — через него ничего не ходит. Активировать можно,
+        # добавив process-правила, когда сервер появится.
         {
           type = "socks";
           tag = "socks-out";
@@ -170,20 +174,19 @@
             process_path_regex = [".*/chromium/chromium.*"];
             outbound = "vless-out";
           }
-          # Firefox ходит через ручной SOCKS5-прокси, настроенный в
-          # самом браузере (127.0.0.1:1080). Правило нужно, чтобы это
-          # SOCKS-соединение не заворачивалось обратно в TUN (петля):
-          # трафик firefox идёт напрямую к socks-out, минуя zapret.
+          # Firefox — напрямую (direct-out), мимо TUN и zapret.
+          # SOCKS-сервера нет: правила на socks-out удалены, чтобы
+          # трафик браузера не зависал на несуществующем прокси.
+          # Brave не имеет отдельного правила и попадает в базовый
+          # zapret-out (последнее правило по умолчанию).
           {
             process_name = ["firefox" "firefox-bin"];
-            outbound = "socks-out";
+            outbound = "direct-out";
           }
           {
             process_path_regex = [".*/firefox/firefox.*" ".*/libexec/mozilla-firefox.*"];
-            outbound = "socks-out";
+            outbound = "direct-out";
           }
-          # Brave — «база для всех»: общий путь через zapret-out
-          # (последнее правило по умолчанию), отдельного правила нет.
           {
             outbound = "zapret-out";
           }
