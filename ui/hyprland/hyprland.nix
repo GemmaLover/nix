@@ -7,8 +7,11 @@ let
   # Миграция с KDE (порт всех доработок; карта — в guide.md):
   #   SDDM            -> greetd + tuigreet (ниже)
   #   PowerDevil      -> power-profiles-daemon (уже в devices/z13/specific/performance.nix, DE-независимо)
-  #   kscreenlocker   -> hyprlock (./hyprlock.nix) + hypridle (./hypridle.nix)
-  #   plasma-manager  -> programs.hyprland в Home Manager (devices/z13/home-specific/hyprland/)
+  #   kscreenlocker   -> hyprlock + hypridle (конфиги — в Home Manager:
+  #                       devices/z13/home-specific/power-lock-hyprland.nix;
+  #                       NixOS-модулей programs.hyprlock.settings /
+  #                       services.hypridle в nixpkgs не существует)
+  #   plasma-manager  -> programs.hyprland в Home Manager (devices/z13/home-specific/)
   #   bluedevil       -> blueman (ниже)
   #   Dolphin/Konsole -> thunar / foot (базовый софт остаётся из base/tools/base.nix)
   #   caffeine-ng     -> тот же бинарь + XDG autostart (home-слой, DE-независимо)
@@ -62,8 +65,16 @@ in
     hyprpolkitagent               # polkit-агент для запроса пароля админа
   ];
 
-  # hypridle/hyprlock/wlr-protocols подключаются через ./default.nix
-  # (раньше были здесь же — дублирование убрано).
+  # hypridle/hyprlock настраиваются в Home Manager (power-lock-hyprland.nix):
+  # NixOS-модулей для них нет. Из DE-аналогов здесь остаётся только PAM:
+  programs.hyprlock = {
+    enable = true;
+    # PAM-сервис hyprlock — без него ввод пароля не проверяется
+    # (аналог kcheckpass/kscreenlocker-PAM в KDE).
+    pamWithWallet = true;
+  };
+
+  # wlr-protocols (grim/slurp/cliphist/wtype) подключаются через ./default.nix.
 
   # SDDM остаётся включённым при ui = "kde" (ui/kde/plasma.nix); при переходе
   # на Hyprland его надо явно выключить, иначе два login-manager'а конфликтуют

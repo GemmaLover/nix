@@ -9,7 +9,7 @@
   #
   #   PowerDevil AC/battery turnOffDisplay + autoSuspend
   #     -> hypridle (таймауты блокировки и гашения экрана; сон/гибернацию
-  #        обрабатывает logind + lid-демон — см. ui/hyprland/hypridle.nix,
+  #        обрабатывает logind + lid-демон — см. devices/z13/config.nix,
   #        таймаутов suspend здесь НЕТ намеренно);
   #   kscreenlockerrc Autolock/LockOnResume/Timeout=5
   #     -> hypridle listener timeout=300 + before_sleep_cmd=hyprlock;
@@ -113,17 +113,103 @@
   };
 
   # =====================================================================
-  # hypridle / hyprlock как пользовательские сервисы.
+  # hypridle / hyprlock — ПОЛНОСТЬЮ в Home Manager.
   #
-  # В Home Manager есть готовые модули services.hypridle и programs.hyprlock —
-  # они включают systemd-user-юниты; конфиги берём из NixOS-слоя
-  # (ui/hyprland/hypridle.nix пишет /etc/hypridle.conf, hyprlock.nix —
-  # /etc/hypr/hyprlock.conf), поэтому здесь только включение без дублирования.
-  # before_sleep_cmd в NixOS-модуле гарантирует блокировку перед сном
-  # (аналог LockOnResume + D-Bus Lock связки logind+kscreenlocker).
+  # Почему не в NixOS-слое: модулей `services.hypridle` и
+  # `programs.hyprlock.settings` в nixpkgs НЕ СУЩЕСТВУЕТ (у NixOS-
+  # programs.hyprlock только enable/package) — прошлая версия этих
+  # файлов в ui/hyprland/ падала на eval с «The option
+  # programs.hyprlock.settings does not exist». Оба модуля живут в HM:
+  #   services.hypridle        -> ~/.config/hypr/hypridle.conf + user-юнит
+  #   programs.hyprlock        -> ~/.config/hypr/hyprlock.conf
+  # Конфиги ниже — порт поведения PowerDevil+kscreenlocker
+  # (бывший ui/hyprland/hypridle.nix / hyprlock.nix, удалены).
   # =====================================================================
-  services.hypridle.enable = true;
-  programs.hyprlock.enable = true;
+  services.hypridle = {
+    enable = true;
+
+    settings = {
+      general = {
+        # Перед сном/гибернацией (logind lid-путь) — заблокировать экран:
+        # аналог LockOnResume + D-Bus Lock в связке logind+kscreenlocker.
+        before_sleep_cmd = "hyprlock --quiet & sleep 1";
+        # После пробуждения — включить дисплеи (dpms мог быть выключен).
+        after_sleep_cmd = "hyprctl dispatch dpms on";
+      };
+
+      listener = [
+        # 5 минут бездействия → блокировка (аналог kscreenlockerrc Timeout=5).
+        {
+          timeout = 300;
+          # hyprlock запускается прямым бинарём: PATH user-юнита содержит
+          # home.packages, XDG_RUNTIME_DIR подставляет systemd-user-окружение.
+          on-timeout = "hyprlock --quiet";
+          # Разблокировка → снова активен (аналог ActiveChanged=false).
+          on-resume = "";
+        }
+        # Сразу после блокировки (клавиатура hyprlock перехвачена) —
+        # погасить экран: аналог TurnOffDisplayIdleTimeoutWhenLockedSec=1,
+        # который в KDE приходилось форсировать сервисом powerdevil-lid-fix.
+        {
+          timeout = 1;
+          on-timeout = "hyprctl dispatch dpms off";
+          on-resume = "hyprctl dispatch dpms on";
+        }
+        # 20 минут общего простоя от сети → гарантированно OFF
+        # (аналог AC turnOffDisplay.idleTimeout = 1200 в PowerDevil).
+        {
+          timeout = 1200;
+          on-timeout = "hyprctl dispatch dpms off";
+          on-resume = "hyprctl dispatch dpms on";
+        }
+      ];
+    };
+  };
+
+  # Экран блокировки (аналог kscreenlocker Greeter): blur + поле пароля + часы.
+  programs.hyprlock = {
+    enable = true;
+    settings = {
+      # Общее: не отключать greeter (показываем нативный UI hyprlock).
+      general = {
+        disable_greeter = false;
+      };
+
+      # Затемнение фона (аналог размытия kscreenlocker).
+      background = {
+        color = "rgba(20,20,30,0.95)";
+        blur = true;
+      };
+
+      # input-field — список блоков в hyprlock.conf; HM-модуль принимает list.
+      input-field = [ {
+        size = "250, 60";
+        outline_thickness = 2;
+        dots_size = 0.2;
+        dots_spacing = 0.2;
+        outer_color = "rgb(60,60,80)";
+        inner_color = "rgb(30,30,45)";
+        font_color = "rgb(220,220,230)";
+        fade_on_empty = false;
+        placeholder_text = "<i>Password...</i>";
+        hide_input = false;
+        position = "0, -25";
+        halign = "center";
+        valign = "center";
+      } ];
+
+      # Часы над полем ввода (аналог виджета времени на lock-экране Plasma).
+      label = [ {
+        text = "cmd[update:3600000] date +'%H:%M'";
+        color = "rgba(230,230,240,0.95)";
+        font_size = 72;
+        font_family = "Noto Sans";
+        position = "0, 120";
+        halign = "center";
+        valign = "center";
+      } ];
+    };
+  };
 
   # Автозапуск полиkit-агента Hyprland (запросы пароля админа в GUI-приложениях;
   # в KDE это делал kcheckpass/polkit-kde-agent).
