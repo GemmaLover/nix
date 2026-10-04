@@ -25,7 +25,7 @@ let
   # Кэш моделей HuggingFace. Монтируется в /workspace/.cache/huggingface,
   # потому что HF_HOME внутри образа указывает именно туда.
   # Без этого монтирования модели исчезают после podman rm.
-  hfCache = "${config.home.homeDirectory}/llm/models";
+  hfCache = "${config.home.homeDirectory}/llm/models/unsloth";
 in
 {
   _module.args.unslothConfig = {

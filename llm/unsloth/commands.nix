@@ -66,9 +66,9 @@ in
             -p "$PORT_HOST:$PORT_CONTAINER" \
             -v "$HOST_PROJECTS:/workspace/host:Z" \
             -v "$DATA_VOLUME:/workspace/studio" \
-            -v "$HF_CACHE:/workspace/.cache/huggingface:Z" \
+            -v "$HF_CACHE:/workspace/models:Z" \
             -e JUPYTER_PASSWORD=unsloth \
-            -e HF_HOME=/workspace/.cache/huggingface \
+            -e HF_HOME=/workspace/models \
             "$IMAGE"
 
           echo "Контейнер создан. Запускаю..."
@@ -246,9 +246,9 @@ in
           -p "$PORT_HOST:$PORT_CONTAINER" \
           -v "$HOST_PROJECTS:/workspace/host:Z" \
           -v "$DATA_VOLUME:/workspace/studio" \
-          -v "$HF_CACHE:/workspace/.cache/huggingface:Z" \
+          -v "$HF_CACHE:/workspace/models:Z" \
           -e JUPYTER_PASSWORD=unsloth \
-          -e HF_HOME=/workspace/.cache/huggingface \
+          -e HF_HOME=/workspace/models \
           "$IMAGE"
 
         echo "Запускаю..."
