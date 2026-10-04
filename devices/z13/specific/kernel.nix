@@ -1,45 +1,67 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, inputs, ... }:
 
 let
   # =====================================================================
-  # Кастомное ядро 7.2.8.
+  # ЯДРО
   #
-  # В ветке nixos-unstable на момент настройки доступно только 7.2.7,
-  # но в 7.2.8 исправлен критический баг в TTM (use-after-free после
-  # гибернации) и добавлены фиксы для amdgpu на Strix Halo. Поэтому
-  # собираем 7.2.8 вручную поверх linux_latest.
+  # Активно: linux-cachyos-latest-lto-zen4 версии 7.2.8.
+  #
+  # Почему именно этот вариант:
+  #   - latest: свежее ядро, в текущем flake — 7.2.8 (совпадает с вашим
+  #     кастомным ядром, но с патчами и оптимизациями CachyOS)
+  #   - lto: Link-Time Optimization, +2–5% производительности
+  #   - zen4: оптимизация под микроархитектуру Zen 4 (Ryzen AI MAX+ 395)
+  #
+  # ВАЖНО про оверлей: в flake.nix подключаем overlays.pinned
+  # (а не overlays.default). pinned берёт nixpkgs, зашитый в самом
+  # nix-cachyos-kernel, поэтому версия ядра гарантированно 7.2.8,
+  # независимо от того, что в вашем nixpkgs. Если использовать default,
+  # версия может «уплыть» при обновлении вашего nixpkgs.
+  #
+  # Кастомное ядро 7.2.8 (сборка из kernel.org) закомментировано ниже —
+  # оставлено как резерв, если CachyOS по каким-то причинам не подойдёт
+  # (например, регрессия в патчах или несовместимость с amdgpu).
+  # =====================================================================
+
+  # ---------------------------------------------------------------------
+  # АКТИВНО: CachyOS LTO zen4 7.2.8
+  # ---------------------------------------------------------------------
+  cachyosKernel = pkgs.cachyosKernels.linuxPackages-cachyos-latest-lto-zen4;
+
+  # ---------------------------------------------------------------------
+  # ЗАКОММЕНТИРОВАНО: кастомное ядро 7.2.8 (сборка из kernel.org).
   #
   # version и modDirVersion должны совпадать.
   # src — тарбол с kernel.org.
-  # sha256 = lib.fakeHash — заглушка. При первой сборке Nix выдаст
-  # ошибку hash mismatch и покажет правильный хэш. Скопируйте его
-  # и подставьте вместо lib.fakeHash.
-  # =====================================================================
-  customKernel = pkgs.linuxPackagesFor (pkgs.linux_latest.override {
-    argsOverride = rec {
-      version = "7.2.8";
-      modDirVersion = version;
-      src = pkgs.fetchurl {
-        url = "mirror://kernel/linux/kernel/v7.x/linux-${version}.tar.xz";
-        sha256 = "sha256-EujVqXPRrXxaXGmILkAisTHtcV23AD/c12Dd+MPlGUE=";
-      };
-    };
-  });
+  # sha256 — реальный хэш, уже получен при первой сборке.
+  #
+  # Раскомментируйте и закомментируйте cachyosKernel выше, если
+  # захотите вернуться к ванильному ядру 7.2.8.
+  # ---------------------------------------------------------------------
+  # customKernel = pkgs.linuxPackagesFor (pkgs.linux_latest.override {
+  #   argsOverride = rec {
+  #     version = "7.2.8";
+  #     modDirVersion = version;
+  #     src = pkgs.fetchurl {
+  #       url = "mirror://kernel/linux/kernel/v7.x/linux-${version}.tar.xz";
+  #       sha256 = "sha256-EujVqXPRrXxaXGmILkAisTHtcV23AD/c12Dd+MPlGUE=";
+  #     };
+  #   };
+  # });
 in
 {
   # === Ядро ===
-  # Используем собранное вручную ядро 7.2.8 (вместо linuxPackages_latest,
-  # который пока указывает на 7.2.7 в текущем снимке nixpkgs).
-  boot.kernelPackages = customKernel;
+  boot.kernelPackages = cachyosKernel;
 
   # === Параметры ядра для AMD GPU ===
   # Эти параметры необходимы для работы LLM на полной скорости
   # и для стабильной гибернации на Strix Halo.
   boot.kernelParams = [
     # Размер GTT-памяти (в МБ). ~111 ГБ для 128 ГБ RAM.
-    "amdgpu.gttsize=113777"
+    "amdgpu.gttsize=126976"
     # Лимит страниц TTM. Соответствует ~111 ГБ.
-    "ttm.pages_limit=29126912"
+    "ttm.pages_limit=32505856"
+    "ttm.page_pool_size=32505856"
     # Увеличивает таймаут VPE (Video Processing Engine) до 2 секунд.
     # Устраняет soft lock после resume из гибернации на Strix Halo
     # (известный баг, проявляющийся в ~8% случаев).
@@ -56,16 +78,7 @@ in
   # asus_wmi — для ASUS-специфичных функций (подсветка, профили).
   boot.kernelModules = [ "kvm-amd" "asus_wmi" ];
 
-  # === Специализация CachyOS LTO 7.2.8 ===
-  # Создаёт отдельную запись в меню systemd-boot. Выбор этой записи
-  # загружает систему с ядром CachyOS (LTO, latest). Все остальные
-  # настройки наследуются из основной конфигурации.
-  #
-  # ВАЖНО: ядра из overlay доступны как pkgs.cachyosKernels.*
-  # Вариант linuxPackages-cachyos-latest-lto соответствует
-  # LTO-сборке ядра 7.2.8 (проверено через `nix flake show`).
-#   specialisation.cachyos-lto.configuration = {
-#     inheritParentConfig = true;
-#     boot.kernelPackages = pkgs.cachyosKernels.linuxPackages-cachyos-latest-lto;
-#   };
+  # === Специализация CachyOS — не нужна ===
+  # CachyOS теперь основное ядро, отдельная запись в systemd-boot
+  # не требуется. Кастомное 7.2.8 остаётся в комментарии выше.
 }

@@ -62,6 +62,12 @@ nixpkgs.lib.nixosSystem {
   # `kda` — attrset осей, доступен каждому модулю как аргумент функции.
   specialArgs = { inherit inputs; kda = kdaAxes; };
   modules = [
+   # Оверлей CachyOS-ядер. overlays.pinned берёт nixpkgs самого flake,
+  # а не наш — это гарантирует, что linux-cachyos-latest-lto-zen4
+  # останется 7.2.8 независимо от обновлений нашего nixpkgs.
+  { nixpkgs.overlays = [ inputs.nix-cachyos-kernel.overlays.pinned ]; }
+
+
     # Общие модули-инпуты.
     disko.nixosModules.disko
     home-manager.nixosModules.home-manager

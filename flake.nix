@@ -34,10 +34,18 @@
     };
 
     # Ядра CachyOS (LTO, BORE, LTS и т.д.) с собственным бинарным кэшем.
-#     nix-cachyos-kernel = {
-#       url = "github:xddxdd/nix-cachyos-kernel/release";
-#       inputs.nixpkgs.follows = "nixpkgs";
-#     };
+#      nix-cachyos-kernel = {
+#        url = "github:xddxdd/nix-cachyos-kernel/release";
+#        inputs.nixpkgs.follows = "nixpkgs";
+#      };
+
+
+ # CachyOS-ядра с патчами (BORE, LTO, zen4-оптимизация) и бинарным кэшем.
+  # release-ветка — стабильные ядра, синхронизированные с nixpkgs.
+  nix-cachyos-kernel.url = "github:xddxdd/nix-cachyos-kernel/release";
+  # ВАЖНО: НЕ ставим inputs.nixpkgs.follows = "nixpkgs" — иначе версия
+  # ядра будет зависеть от вашего nixpkgs и может «уплыть» с 7.2.8
+  # на что-то другое. pinned-оверлей использует nixpkgs самого flake.
   };
 
   outputs = {
@@ -46,7 +54,7 @@
   home-manager,
   disko,
   plasma-manager,
-#   nix-cachyos-kernel,
+   nix-cachyos-kernel,
   ... }@inputs:
 let
   # Фабрика нод nixosConfigurations (см. lib/mkSystem.nix):
