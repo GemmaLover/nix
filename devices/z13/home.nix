@@ -51,8 +51,10 @@
     };
   };
 
-    # =====================================================================
+  # =====================================================================
   # Автоматическое исправление ярлыков KDE на панели задач.
+  # (KDE-специфично: подключается только при kda.opts.ui = "kde",
+  # см. home-specific/plasma-launchers-fix.nix.)
   #
   # KDE сохраняет ярлыки как абсолютные пути к .desktop-файлам
   # в /nix/store. После обновления системы или nix-collect-garbage
@@ -64,12 +66,8 @@
   #
   # Запускается при каждой пересборке (nixos-rebuild switch)
   # после записи конфигов, но до старта Plasma.
+  # Сам activation-хук вынесен в home-specific/plasma-launchers-fix.nix
+  # (подключается диспетчером только при ui = "kde") — здесь оставлено
+  # описание для документации; на Hyprland ярлыки plasma не используются.
   # =====================================================================
-  home.activation.fix-plasma-launchers = config.lib.dag.entryAfter [ "writeBoundary" ] ''
-    APPSRC="$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
-    if [ -f "$APPSRC" ]; then
-      sed -i 's|file:///nix/store/[^/]*/share/applications/|applications:|g' \
-        "$APPSRC" || true
-    fi
-  '';
 }

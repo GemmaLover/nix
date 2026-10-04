@@ -18,10 +18,14 @@ in
       ./power-lock.nix           # PowerDevil / kscreenlocker / plasma-manager
       ./caffeine-kde.nix         # трей caffeine-ng (home.packages + xdg.autostart)
       ./asus-backlight-kde.nix   # гашение подсветки по сигналу kscreenlocker
+      ./plasma-launchers-fix.nix # activation-хук ярлыков KDE (вынесен из home.nix)
     ]
     ++ lib.optionals (cfg.ui == "hyprland") [
-      # TODO(миграция): ./power-lock-hyprland.nix (hypridle/hyprlock)
-      # TODO(миграция): ./caffeine-hyprland.nix (inhibit через hypridle)
-      # TODO(миграция): ./asus-backlight-hyprland.nix (сокет hyprlock)
+      # Миграция выполнена: DE-специфичные модули Hyprland лежат рядом.
+      ../../../ui/hyprland/home.nix # композитор, hyprlock, аналоги KDE-утилит
+      ./power-lock-hyprland.nix   # hypridle/hyprlock (аналог power-lock.nix)
+      ./asus-backlight-hyprland.nix # подсветка по IPC hyprlock (аналог kde-версии)
+      # caffeine на Hyprland НЕ нужен: ингибирование сна делает сам
+      # hyprland (windowrule v1/v2 -> inhibit_idle), см. ui/hyprland/home.nix.
     ];
 }

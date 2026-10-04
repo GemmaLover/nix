@@ -10,7 +10,12 @@ let
   #
   # Логика:
   #   - От сети:      loginctl lock-sessions (kscreenlocker покажет экран).
-  #   - От батареи:   systemctl hibernate.
+  #   - От батареи:   systemctl suspend.
+  #
+  # ВАЖНО: гибернация (systemctl hibernate) намеренно ОТКАЗАНА — она
+  # ломала систему (проблемы с TTM/amdgpu после resume, порча данных).
+  # Используем только сон (suspend-to-RAM). Не возвращать hibernate
+  # без отдельной проверки.
   # =====================================================================
   lidDaemonPy = pkgs.writeText "z13-lid-daemon.py" ''
     import struct
@@ -57,8 +62,8 @@ let
             # От сети — блокировка сессии.
             subprocess.run(['loginctl', 'lock-sessions'], check=False)
         else:
-            # От батареи — гибернация.
-            subprocess.run(['systemctl', 'hibernate'], check=False)
+            # От батареи — сон (suspend). Гибернация отключена: ломала систему.
+            subprocess.run(['systemctl', 'suspend'], check=False)
 
     def main():
         device = find_lid_device()
