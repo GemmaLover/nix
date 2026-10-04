@@ -308,6 +308,44 @@ in
         fi
       '';
     })
+
+        # --- Сброс пароля Studio ---
+    # Полезно, если контейнер уже запущен и нужно получить/сменить пароль
+    # без перезапуска. Сохраняет результат в ~/.local/share/unsloth/password.txt.
+    (pkgs.writeShellApplication {
+      name = "unsloth-reset-password";
+      runtimeInputs = [ pkgs.podman pkgs.coreutils ];
+      text = ''
+        set -euo pipefail
+
+        CONTAINER_NAME="unsloth"
+        PASSWORD_LOG="''${HOME}/.local/share/unsloth/password.txt"
+        mkdir -p "$(dirname "$PASSWORD_LOG")"
+
+        if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+          echo "Контейнер '$CONTAINER_NAME' не найден. Запустите: unsloth-start" >&2
+          exit 1
+        fi
+
+        STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        if [ "$STATUS" != "running" ]; then
+          echo "Контейнер не запущен (статус: $STATUS). Запустите: unsloth-start" >&2
+          exit 1
+        fi
+
+        echo "Сбрасываю пароль Studio..."
+        if podman exec "$CONTAINER_NAME" unsloth studio reset-password 2>&1 | tee "$PASSWORD_LOG"; then
+          :
+        else
+          echo "reset-password не сработал, читаю bootstrap-пароль..."
+          podman exec "$CONTAINER_NAME" cat /opt/unsloth-studio/auth/.bootstrap_password | tee "$PASSWORD_LOG"
+        fi
+
+        echo
+        echo "Пароль сохранён: $PASSWORD_LOG"
+        echo "Имя пользователя: unsloth"
+      '';
+    })
   ];
 
   # === Ярлыки в меню приложений ===
