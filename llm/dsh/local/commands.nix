@@ -10,6 +10,15 @@
 #
 # Конфиг DSH хранится в ~/.dsh (DSH_HOME) — вне репозитория, при
 # обновлении не затрагивается.
+#
+# ВАЖНО: `npm_config_manage_package_manager_versions=false` обязателен.
+# В package.json DSH прописан `packageManager: "pnpm@<X.Y.Z>"`. Без этой
+# переменной Nix-версия pnpm пытается скачать и запустить другую версию
+# pnpm в ~/.local/share/pnpm/package-manager-store/, а та — динамически
+# слинкованный бинарник, который NixOS запускать не умеет:
+#   "Could not start dynamically linked executable: .../pnpm"
+# Переменная говорит pnpm игнорировать `packageManager` и использовать
+# собственную версию из /nix/store.
 { config, pkgs, lib, dshLocalConfig, ... }:
 
 let
@@ -34,6 +43,10 @@ in
       runtimeInputs = buildInputs;
       text = ''
         set -euo pipefail
+
+        # Отключаем самоуправление версиями pnpm. См. комментарий в шапке файла.
+        export npm_config_manage_package_manager_versions=false
+
         REPO_URL="${repoUrl}"
         REPO_DIR="${repoDir}"
 
@@ -84,6 +97,8 @@ in
       runtimeInputs = buildInputs;
       text = ''
         set -euo pipefail
+        export npm_config_manage_package_manager_versions=false
+
         REPO_DIR="${repoDir}"
 
         if [ ! -d "$REPO_DIR" ]; then
@@ -124,13 +139,24 @@ in
       ];
       text = ''
         set -euo pipefail
+        export npm_config_manage_package_manager_versions=false
+
         REPO_DIR="${repoDir}"
         PORT=${toString port}
         LOG_FILE="/tmp/dsh-local.log"
         PROC_PATTERN="apps/cli/lib/bin.js web"
+        ENTRY="${repoDir}/apps/cli/lib/bin.js"
 
         if [ ! -d "$REPO_DIR" ]; then
           echo "Репозиторий не найден. Сначала: dsh-local-install" >&2
+          exit 1
+        fi
+
+        # Проверяем, что сборка выполнена. Если нет — подсказываем.
+        if [ ! -f "$ENTRY" ]; then
+          echo "Не найден собранный бинарник: $ENTRY" >&2
+          echo "Похоже, сборка не выполнялась или упала." >&2
+          echo "Запустите: dsh-local-install" >&2
           exit 1
         fi
 
@@ -232,6 +258,8 @@ in
       runtimeInputs = buildInputs;
       text = ''
         set -euo pipefail
+        export npm_config_manage_package_manager_versions=false
+
         REPO_DIR="${repoDir}"
 
         if [ ! -d "$REPO_DIR" ]; then
