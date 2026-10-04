@@ -27,6 +27,14 @@
   #
   # Если нужно принудительно перезапустить — вручную:
   #   sudo systemctl restart nfqws2 sing-box
+  #
+  # ИЗМЕНЕНИЕ (доработка): в самом начале скрипт выполняет `nix flake check`.
+  # Это ловит ошибки eval (несуществующие опции, битые импорты, синтаксис)
+  # ДО git commit/push и до sudo nixos-rebuild switch — раньше битый конфиг
+  # коммитился, пушился и только потом падал на сборке, засоряя историю git.
+  # При неуспешной проверке скрипт прерывается (set -e) и ничего не меняет.
+  # Флаг --extra-experimental-features не нужен: nix-command/flakes включены
+  # системно (base/system/nix-settings.nix).
   # =====================================================================
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "n13rebuild" ''
@@ -46,6 +54,18 @@
 
       cd "$REPO"
 
+      # --- Шаг 0: проверка конфигурации ДО любых изменений -----------------
+      # Проверяем текущее состояние дерева (включая незакоммиченные правки —
+      # flake работает с рабочим деревом, а не с HEAD). Если eval падает —
+      # выходим сразу: коммита, пуша и сборки не будет.
+      echo "==> nix flake check (валидация конфига перед коммитом)"
+      if ! nix flake check --no-build; then
+        echo ""
+        echo "ОШИБКА: 'nix flake check' не пройден — конфиг битый." >&2
+        echo "Исправьте ошибки выше, затем повторите запуск." >&2
+        exit 1
+      fi
+
       echo "==> git add ."
       git add .
 
@@ -58,6 +78,20 @@
 
       echo "==> git push"
       git push
+
+      # --- Шаг 1.5: dry-build ПОСЛЕ коммита --------------------------------
+      # Теперь в рабочем дереве нет незакоммиченных правок, и nixos-rebuild
+      # видит чистый git HEAD. dry-build проверяет сборку derivation'ов для
+      # конкретного устройства (.#z13), ничего не применяя к системе.
+      # Падение здесь = пуш уже сделан, но система НЕ переключена — история
+      # git остаётся последовательной (каждый закоммиченный шаг проверен).
+      echo "==> sudo nixos-rebuild dry-build --flake $FLAKE_ATTR"
+      if ! sudo nixos-rebuild dry-build --flake "$FLAKE_ATTR"; then
+        echo ""
+        echo "ОШИБКА: dry-build не прошёл — коммит и push выполнены," >&2
+        echo "но система НЕ переключена. Исправьте конфиг и повторите." >&2
+        exit 1
+      fi
 
       echo "==> sudo nixos-rebuild switch --flake $FLAKE_ATTR"
       sudo nixos-rebuild switch --flake "$FLAKE_ATTR"
