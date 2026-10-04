@@ -29,4 +29,6 @@
   # Контейнер для DeepSeek Harness: https://github.com/deepseek-ai/deepseek-harness
   # Git-проект качается в ~/llm/dsharness
   # Запуск: podman run --rm -it -v ~/llm/dsharness:/app dsharness-container
+
+  users.users.lexi.extraGroups = [ "video" "render" ];
 }

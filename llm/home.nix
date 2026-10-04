@@ -14,10 +14,8 @@
 {
   imports = [
     ./dsh/default.nix
-    # ./unsloth/default.nix
-    # ./gufo/default.nix
-    # ./cockpit/default.nix
-    # ./cockpit-toolboxes.nix
-    # ./system.nix
+    ./unsloth/default.nix
+    ./unsloth/commands.nix
+    # остальные подключим позже
   ];
 }
