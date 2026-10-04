@@ -175,6 +175,139 @@ in
         echo "Готово."
       '';
     })
+
+        # --- Обновление образа и пересоздание контейнера ---
+    # Скачивает свежий образ с тем же тегом, сравнивает ID.
+    # Если образ изменился — пересоздаёт контейнер с теми же параметрами.
+    # Volume unsloth-data и папка моделей ~/llm/models не трогаются.
+    (pkgs.writeShellApplication {
+      name = "unsloth-update";
+      runtimeInputs = [ pkgs.podman pkgs.curl pkgs.xdg-utils pkgs.coreutils ];
+      text = ''
+        set -euo pipefail
+
+        CONTAINER_NAME="unsloth"
+        IMAGE="${image}"
+        PORT_HOST=${toString portHost}
+        PORT_CONTAINER=${toString portContainer}
+        DATA_VOLUME="${dataVolume}"
+        HOST_PROJECTS="${hostProjects}"
+        HF_CACHE="${hfCache}"
+
+        if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+          echo "Контейнер '$CONTAINER_NAME' не найден." >&2
+          echo "Сначала запустите: unsloth-start" >&2
+          exit 1
+        fi
+
+        # Запоминаем ID образа, который сейчас у контейнера.
+        OLD_ID=$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME" 2>/dev/null)
+        echo "Текущий образ у контейнера: $OLD_ID"
+
+        echo "Скачиваю свежий образ '$IMAGE'..."
+        podman pull --quiet "$IMAGE" >/dev/null
+
+        NEW_ID=$(podman image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null)
+        echo "Свежий образ в реестре:     $NEW_ID"
+        echo
+
+        if [ "$OLD_ID" = "$NEW_ID" ]; then
+          echo "Обновление не требуется — у вас последняя версия."
+          exit 0
+        fi
+
+        echo "Доступно обновление."
+        read -r -p "Пересоздать контейнер сейчас? (volume и модели сохранятся) [y/N] " answer
+        if [[ "''${answer,,}" != "y" ]]; then
+          echo "Отменено. Свежий образ скачан, но контейнер не тронут."
+          echo "Позже можно повторить: unsloth-update"
+          exit 0
+        fi
+
+        echo "Останавливаю и удаляю старый контейнер..."
+        podman rm -f "$CONTAINER_NAME"
+
+        # Volume мог не существовать, если контейнер был создан вручную.
+        if ! podman volume exists "$DATA_VOLUME" 2>/dev/null; then
+          podman volume create "$DATA_VOLUME"
+        fi
+
+        # Папка моделей — на случай, если её вдруг не было.
+        mkdir -p "$HF_CACHE"
+
+        echo "Создаю новый контейнер на свежем образе..."
+        podman create \
+          --name "$CONTAINER_NAME" \
+          --device /dev/kfd \
+          --device /dev/dri \
+          --group-add keep-groups \
+          --security-opt label=disable \
+          --shm-size=8g \
+          -p "$PORT_HOST:$PORT_CONTAINER" \
+          -v "$HOST_PROJECTS:/workspace/host:Z" \
+          -v "$DATA_VOLUME:/workspace/studio" \
+          -v "$HF_CACHE:/workspace/.cache/huggingface:Z" \
+          -e JUPYTER_PASSWORD=unsloth \
+          -e HF_HOME=/workspace/.cache/huggingface \
+          "$IMAGE"
+
+        echo "Запускаю..."
+        podman start "$CONTAINER_NAME"
+
+        URL="http://localhost:$PORT_HOST"
+        echo -n "Ожидание сервиса"
+        for _ in {1..90}; do
+          if curl -fsS -o /dev/null "$URL" 2>/dev/null; then
+            echo " — готов."
+            break
+          fi
+          echo -n "."
+          sleep 1
+        done
+
+        echo
+        echo "Обновление завершено."
+        echo "Открываю $URL"
+        xdg-open "$URL" &
+      '';
+    })
+
+    # --- Проверка обновления без изменений ---
+    # Просто говорит «есть/нет», ничего не трогает. Полезно для крона
+    # или ручной проверки, когда не хочется пересоздавать контейнер.
+    (pkgs.writeShellApplication {
+      name = "unsloth-check-update";
+      runtimeInputs = [ pkgs.podman ];
+      text = ''
+        set -euo pipefail
+
+        CONTAINER_NAME="unsloth"
+        IMAGE="${image}"
+
+        if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
+          echo "Контейнер '$CONTAINER_NAME' не найден." >&2
+          exit 1
+        fi
+
+        OLD_ID=$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME")
+        echo "Текущий образ у контейнера: $OLD_ID"
+
+        echo -n "Проверяю реестр... "
+        podman pull --quiet "$IMAGE" >/dev/null
+        NEW_ID=$(podman image inspect --format '{{.Id}}' "$IMAGE")
+        echo "готово."
+        echo "Свежий образ в реестре:     $NEW_ID"
+        echo
+
+        if [ "$OLD_ID" = "$NEW_ID" ]; then
+          echo "Обновление не требуется."
+          exit 0
+        else
+          echo "Доступно обновление. Применить: unsloth-update"
+          exit 2   # код 2 — «есть обновление», удобно для скриптов
+        fi
+      '';
+    })
   ];
 
   # === Ярлыки в меню приложений ===
