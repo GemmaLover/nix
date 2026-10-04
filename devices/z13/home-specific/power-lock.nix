@@ -58,12 +58,16 @@
         idleTimeoutWhenLocked = "immediately";
       };
 
-      # Автосон: сон (suspend) через 5 минут простоя.
+      # Автосон: сон через 5 минут простоя.
       # При закрытии крышки lid-демон запустит systemctl suspend.
+      # ВАЖНО: plasma-manager принимает только "hibernate" | "nothing" |
+      # "shutDown" | "sleep". Значение "suspend" — ошибка типа (nix flake
+      # check падал на нём). "sleep" = SuspendAndShutdownActionType=Suspend
+      # в PowerDevil, т.е. именно обычный сон (RAM), НЕ гибернация.
       # ВАЖНО: action = "hibernate" не использовать — гибернация
       # ломала систему (TTM/amdgpu после resume, порча данных).
       autoSuspend = {
-        action = "suspend";
+        action = "sleep";
         idleTimeout = 300;
       };
     };
@@ -88,9 +92,10 @@
     batteryLevels = {
       lowLevel = 20;               # Считать батарею низкой при 20%.
       criticalLevel = 5;            # Критический уровень — 5%.
-      criticalAction = "suspend";   # Действие при критическом уровне.
+      criticalAction = "sleep";       # Действие при критическом уровне.
                                     # (было "hibernate" — отказ от гибернации:
-                                    # ломала систему; suspend безопаснее,
+                                    # ломала систему; "sleep" = обычный сон
+                                    # (suspend-to-RAM), безопаснее,
                                     # но при полном разряде данные теряются —
                                     # не оставлять надолго на батарейке)
     };
