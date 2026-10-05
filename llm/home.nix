@@ -16,6 +16,8 @@
     ./dsh/default.nix
     ./unsloth/default.nix
     ./unsloth/commands.nix
+    ./cockpit/default.nix
+    ./cockpit/commands.nix
     # остальные подключим позже
   ];
 }
