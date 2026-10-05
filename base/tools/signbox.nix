@@ -233,37 +233,4 @@
       ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
     '';
   };
-
-    # =====================================================================
-  # NetworkManager dispatcher: перезапускает sing-box при смене сети.
-  #
-  # Почему: sing-box с auto_detect_interface = true теряет внутреннюю
-  # переменную defaultInterface при переключении между Wi-Fi-сетями
-  # (особенно когда имя интерфейса не меняется — wlp194s0 остаётся тем же).
-  # netlink-мониторинг sing-box не всегда восстанавливает её. Тогда
-  # direct-out и zapret-out падают с "missing default interface" /
-  # "no route to internet", а dns-out продолжает работать (DNS идёт
-  # через правило dport 53 → main table, минуя TUN).
-  #
-  # Симптом: старые сайты открываются (DNS-кэш), новые — нет.
-  # В браузере выглядит как "интернет не работает", хотя ping/DNS живы.
-  #
-  # Перезапуск sing-box на события NetworkManager заставляет его заново
-  # определить defaultInterface через netlink — 1-2 секунды downtime,
-  # соединение восстанавливается гарантированно, без хардкода имени
-  # интерфейса (работает на любом ПК с любым Wi-Fi/Ethernet).
-  # =====================================================================
-  environment.etc."NetworkManager/dispatcher.d/99-sing-box-restart" = {
-    source = pkgs.writeShellScript "99-sing-box-restart" ''
-      #!/bin/sh
-      # $1 = interface, $2 = action
-      case "$2" in
-        up|dhcp4-change|dhcp6-change|connectivity-change|vpn-up|vpn-down)
-          logger -t sing-box-dispatcher "Restarting sing-box (iface=$1, action=$2)"
-          ${pkgs.systemd}/bin/systemctl restart sing-box.service
-          ;;
-      esac
-    '';
-    mode = "0755";
-  };
 }
