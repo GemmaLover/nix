@@ -10,9 +10,11 @@ let
   #   каждой модели с её параметрами (ctx-size, temp, top-p, ...).
   #   Клиент выбирает модель по алиасу секции в API-запросе ("model": "...").
   #
-  #   Шаблон models.ini создаётся автоматически при первом запуске
-  #   (home.activation ниже). Существующий файл НЕ перезаписывается —
-  #   это пользовательские данные, не декларативная конфигурация.
+  #   Шаблон models.ini.example обновляется декларативно через home.file
+  #   при каждом rebuild. Пользовательский models.ini создаётся
+  #   автоматически при первом запуске llama-rocm-start / llama-vulkan-start
+  #   копией из .example. После создания models.ini НИКОГДА не
+  #   перезаписывается — пользовательские правки сохраняются.
   #
   # Папка моделей: ~/llm/models/llama-cpp — общая для обоих контейнеров,
   # монтируется в /models. GGUF-файлы и models.ini лежат здесь.
@@ -39,8 +41,10 @@ let
 
   modelsDir = "${config.home.homeDirectory}/llm/models/llama-cpp";
 
-  # Шаблон models.ini. Записывается, если файл отсутствует.
-  modelsIniTemplate = pkgs.writeText "llama-cpp-models.ini.template" ''
+  # Шаблон models.ini. Кладётся как models.ini.example через home.file
+  # (см. commands.nix). Пользовательский models.ini копируется из него
+  # при первом запуске контейнера.
+  modelsIniTemplate = pkgs.writeText "llama-cpp-models.ini.example" ''
     version = 1
 
     [*]

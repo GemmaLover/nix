@@ -5,27 +5,17 @@ let
 in
 {
   # =====================================================================
-  # Создание шаблона models.ini при первом запуске (если файла нет).
+  # Шаблон models.ini.example через home.file.
   #
-  # home.activation выполняется при каждом nixos-rebuild / home-manager
-  # switch, но `[ -f ... ] ||` гарантирует, что существующий файл
-  # НЕ перезаписывается. Если пользователь накопил свои модели в
-  # models.ini — они сохранятся.
+  # home.file — декларативный механизм HM, работает надёжнее home.activation
+  # (последняя иногда не выполняется при nixos-rebuild switch, если
+  # home-manager-lexi.service не перезапускается).
   #
-  # Если файл удалён вручную — при следующем switch шаблон восстановится.
+  # Файл .example перезаписывается при каждом rebuild — это шаблон,
+  # не пользовательские данные. Пользовательский models.ini создаётся
+  # автоматически при первом запуске контейнера (см. llama-*-start ниже).
   # =====================================================================
-  home.activation.cockpitModelsIni = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    MODELS_DIR="${modelsDir}"
-    INI_FILE="$MODELS_DIR/models.ini"
-
-    $DRY_RUN_CMD mkdir -p "$MODELS_DIR"
-
-    if [ ! -f "$INI_FILE" ]; then
-      $DRY_RUN_CMD install -m 644 ${modelsIniTemplate} "$INI_FILE"
-      echo "Создан шаблон models.ini: $INI_FILE"
-      echo "Отредактируйте его — добавьте секции для своих GGUF-файлов."
-    fi
-  '';
+  home.file."llm/models/llama-cpp/models.ini.example".source = modelsIniTemplate;
 
   home.packages = [
     ai-toolbox-cockpit
@@ -127,13 +117,23 @@ in
         PORT_CONTAINER=${toString rocm.portContainer}
         MODELS_DIR="${modelsDir}"
         INI_FILE="$MODELS_DIR/models.ini"
+        INI_EXAMPLE="$MODELS_DIR/models.ini.example"
 
         mkdir -p "$MODELS_DIR"
 
+        # Создаём models.ini из шаблона при первом запуске.
+        # Шаблон .example обновляется декларативно через home.file при
+        # каждом rebuild. Если models.ini уже существует — не трогаем
+        # (пользовательские правки сохраняются).
         if [ ! -f "$INI_FILE" ]; then
-          echo "ОШИБКА: не найден $INI_FILE" >&2
-          echo "Создайте его или запустите nixos-rebuild — шаблон появится автоматически." >&2
-          exit 1
+          if [ ! -f "$INI_EXAMPLE" ]; then
+            echo "ОШИБКА: не найден $INI_EXAMPLE" >&2
+            echo "Пересоберите систему: n13rebuild" >&2
+            exit 1
+          fi
+          cp "$INI_EXAMPLE" "$INI_FILE"
+          echo "Создан $INI_FILE из шаблона."
+          echo "Отредактируйте его под свои модели: nano $INI_FILE"
         fi
 
         if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
@@ -153,7 +153,6 @@ in
 
           # --entrypoint /bin/bash — переопределяем ENTRYPOINT образа,
           # чтобы самим запустить llama-server с --models-preset.
-          # Без этого образа запустил бы свою команду и проигнорировал INI.
           podman create \
             --name "$CONTAINER_NAME" \
             --device /dev/kfd \
@@ -252,13 +251,21 @@ in
         PORT_CONTAINER=${toString vulkan.portContainer}
         MODELS_DIR="${modelsDir}"
         INI_FILE="$MODELS_DIR/models.ini"
+        INI_EXAMPLE="$MODELS_DIR/models.ini.example"
 
         mkdir -p "$MODELS_DIR"
 
+        # Создаём models.ini из шаблона при первом запуске.
+        # См. комментарий в llama-rocm-start.
         if [ ! -f "$INI_FILE" ]; then
-          echo "ОШИБКА: не найден $INI_FILE" >&2
-          echo "Создайте его или запустите nixos-rebuild — шаблон появится автоматически." >&2
-          exit 1
+          if [ ! -f "$INI_EXAMPLE" ]; then
+            echo "ОШИБКА: не найден $INI_EXAMPLE" >&2
+            echo "Пересоберите систему: n13rebuild" >&2
+            exit 1
+          fi
+          cp "$INI_EXAMPLE" "$INI_FILE"
+          echo "Создан $INI_FILE из шаблона."
+          echo "Отредактируйте его под свои модели: nano $INI_FILE"
         fi
 
         if podman container exists "$CONTAINER_NAME" 2>/dev/null; then
