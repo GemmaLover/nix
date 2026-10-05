@@ -57,6 +57,29 @@
   # Включаем поддержку гибернации в NixOS.
 #   powerManagement.enable = true;
 
+
+# Запрещаем systemd использовать гибернацию на уровне системы.
+# Это делает невозможным вызов `systemctl hibernate` и подобных команд.
+systemd.sleep.settings.Sleep = {
+  AllowHibernation = "no";
+  AllowHybridSleep = "no";
+  AllowSuspendThenHibernate = "no";
+};
+
+# Запрещаем любым приложениям инициировать гибернацию через polkit.
+# Это предотвращает случайный запуск гибернации из меню.
+security.polkit.extraConfig = ''
+  polkit.addRule(function(action, subject) {
+      if (action.id == "org.freedesktop.login1.hibernate" ||
+          action.id == "org.freedesktop.login1.hibernate-multiple-sessions") {
+          return polkit.Result.NO;
+      }
+  });
+'';
+
+# Игнорируем нажатие аппаратной клавиши гибернации.
+services.logind.settings.Login.HandleHibernateKey = "ignore";
+
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
 }
