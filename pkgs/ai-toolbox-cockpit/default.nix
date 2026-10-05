@@ -16,7 +16,7 @@ python3.pkgs.buildPythonApplication rec {
     repo = "ai-toolbox-cockpit";
     rev = "main";
     # Хеш-заглушка: Nix выдаст правильный при первой сборке.
-    hash = "sha256-7ZCbk3ILAc6UkkL6zkMI9rB6bbS6q7E21jq4teyrJmw=";
+    hash = "sha256-nwF44Io/LHiL5jeP1lJAGjHeprB2YStAOC+5sHcsKMA=";
   };
 
   # Сборочная система (из pyproject.toml: requires = ["setuptools>=69"]).
