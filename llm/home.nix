@@ -18,6 +18,8 @@
     ./unsloth/commands.nix
     ./cockpit/default.nix
     ./cockpit/commands.nix
+    ./strata/default.nix
+    ./strata/commands.nix
     # остальные подключим позже
   ];
 }
