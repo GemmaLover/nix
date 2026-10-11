@@ -305,13 +305,6 @@ PYEOF
           exit 1
         fi
 
-        # Проверяем, что в /data есть хоть один конфиг.
-        if ! ls "$DATA_DIR/config"/strata-*.json >/dev/null 2>&1; then
-          echo "Конфиг не найден в $DATA_DIR/config/" >&2
-          echo "Сначала: strata-setup" >&2
-          exit 1
-        fi
-
         podman rm -f "${containerName}" 2>/dev/null || true
 
         echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
