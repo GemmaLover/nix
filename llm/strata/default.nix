@@ -26,7 +26,7 @@ let
   # Порт: 5747.
   # =====================================================================
 
-  image = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-10.0_20261005T170050";
+    image = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-10.0_20261010T195700";
 
   portHost = 5747;
   portContainer = 5747;

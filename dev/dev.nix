@@ -37,36 +37,32 @@
     #
     # Podman пробует зеркала в порядке перечисления. Если первое
     # возвращает 404 или таймаутит — переходит к следующему.
+    #
+    # ПРОВЕРЕНО НА Z13 (2026-10-11):
+    #   ✓ dockerhub.timeweb.cloud — работает, стабильный pull
+    #   ✓ dockerhub1.beget.com    — работает, стабильный pull
+    #
+    # УДАЛЕНЫ как нерабочие:
+    #   ✗ dh-mirror.gitverse.ru    — зависает на 0 B/s
+    #   ✗ docker.m.daocloud.io     — таймаут
+    #   ✗ huecker.io               — недоступен
     containers.registries.settings = {
       registry = [
         {
           prefix = "docker.io";
           location = "docker.io";
-          # Зеркала. Порядок: сначала самые быстрые/надёжные, потом резерв.
+          # Зеркала. Порядок: сначала самое быстрое, потом резерв.
           mirror = [
             {
-              # GitVerse — российское зеркало (СберТех), обычно самое быстрое из РФ.
-              location = "dh-mirror.gitverse.ru";
-              insecure = true;
-            }
-            {
-              # Timeweb Cloud — российский хостинг, стабильное, но иногда медленнее GitVerse.
+              # Timeweb Cloud — российский хостинг.
+              # Проверено: стабильный pull из РФ.
               location = "dockerhub.timeweb.cloud";
               insecure = true;
             }
             {
-              # Beget — российский хостер, резервный вариант.
+              # Beget — российский хостер.
+              # Проверено: стабильный pull из РФ, резервный вариант.
               location = "dockerhub1.beget.com";
-              insecure = true;
-            }
-            {
-              # Daocloud — китайское зеркало, часто работает быстро из РФ.
-              location = "docker.m.daocloud.io";
-              insecure = true;
-            }
-            {
-              # Huecker.io — публичное зеркало без ограничений.
-              location = "huecker.io";
               insecure = true;
             }
           ];
