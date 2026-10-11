@@ -21,6 +21,14 @@ in
     #      - dnf5 install cmake ninja-build gcc-c++
     #      - cmake с флагами из STRIX_HALO.md
     #      - cmake --build --target strata
+    #
+    # ПОДВОДНЫЕ КАМНИ:
+    #   - Прокси-переменные НЕ нужны: когда активен waydroid-vpn-connect,
+    #     весь трафик хоста (curl, git, podman pull) уже идёт через VPN
+    #     автоматически. Прокси создаст петлю (curl → sing-box → selector
+    #     → waydroid-out → SOCKS5 внутри Android → VPN).
+    #   - На хосте (NixOS) clang из therock-dist НЕ запустится
+    #     (динамически слинкован под FHS). Поэтому сборка в контейнере.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
@@ -30,7 +38,7 @@ in
       text = ''
         set -euo pipefail
 
-               IMAGE="${image}"
+        IMAGE="${image}"
         STRATA_DIR="${strataDir}"
         ROCM_DIR="$STRATA_DIR/rocm"
         ROCM_TGZ="$ROCM_DIR/therock-dist-linux-gfx1151-${rocmVersion}.tar.gz"
@@ -350,13 +358,15 @@ in
     })
 
     # === Обновление (git pull + пересборка) ===
+    # IMAGE здесь НЕ объявляется — переменная не используется в теле
+    # (git pull и вызов strata-setup работают без неё). Раньше была
+    # объявлена, но не использовалась — shellcheck ругался SC2034.
     (pkgs.writeShellApplication {
       name = "strata-update";
       runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
       text = ''
         set -euo pipefail
 
-        IMAGE="${image}"
         STRATA_DIR="${strataDir}"
 
         if [ ! -d "$STRATA_DIR/.git" ]; then
