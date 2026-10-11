@@ -8,8 +8,7 @@ let
   inherit (strataConfig)
     containerName imageName imageTag
     portHost portContainer
-    strataDir dataDir ggufDir
-    family modelSize contextTokens backend
+    strataDir dataDir modelsDir
     rocmVersion rocmUrl rocmSha256
     gpuArgs;
 
@@ -21,8 +20,7 @@ in
 
     # =====================================================================
     # strata-image-build — собрать/пересобрать тонкий образ.
-    # Нужно один раз и потом только при правках Containerfile
-    # (например, при апдейте Ubuntu или добавлении зависимостей).
+    # Нужно один раз и потом только при правках Containerfile.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-image-build";
@@ -49,20 +47,22 @@ in
     })
 
     # =====================================================================
-    # strata-setup — установка.
+    # strata-setup — установка (интерактивная).
     #
     # Порядок:
-    #   1. mkdir data/
+    #   1. mkdir data/, models/
     #   2. ROCm (если нет): curl + sha256 + tar → ~/llm/strata/rocm/install
     #   3. git clone Strata (если нет) → ~/llm/strata/src
     #   4. Образ (если нет) — через strata-image-build
     #   5. venv + pip install requirements.txt (в контейнере, ~2 мин)
     #   6. Движок: если build-halo/strata нет — собрать (25+ мин)
     #   7. engine/strata + engine/BUILD.json (source=local, backend=hip)
-    #   8. python setup.py --setup --yes ... --no-start
-    #      (скачивает MTP, строит pack из GGUF — 30-60 мин)
+    #   8. python setup.py --setup  (ИНТЕРАКТИВНО: спросит family,
+    #      model, context, vision; качает модель в /models; строит
+    #      pack в /data; скачивает MTP)
     #
-    # Всё идемпотентно. Повторный запуск ничего не переделывает.
+    # setup.py получает stdin от -it podman run, поэтому вопросы
+    # работают. Всё идемпотентно.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
@@ -83,9 +83,9 @@ in
         SDK="$ROCM_DIR/install"
         SRC="$STRATA_DIR/src"
         DATA_DIR="${dataDir}"
-        GGUF_DIR="${ggufDir}"
+        MODELS_DIR="${modelsDir}"
 
-        mkdir -p "$STRATA_DIR" "$ROCM_DIR" "$DATA_DIR" "$DATA_DIR/home"
+        mkdir -p "$STRATA_DIR" "$ROCM_DIR" "$DATA_DIR" "$DATA_DIR/home" "$MODELS_DIR"
 
         # === Информация о VPN ===
         if EXT_IP=$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null); then
@@ -147,11 +147,20 @@ in
         echo "   1) venv + pip install requirements.txt (2 мин)"
         echo "   2) сборка движка при необходимости (~25 мин, если нет)"
         echo "   3) engine/BUILD.json (source=local, backend=hip, gfx1151)"
-        echo "   4) python setup.py --setup --yes ..."
-        echo "      (проверка SHA-256 GGUF + построение pack — 30-60 мин)"
+        echo "   4) python setup.py --setup — ИНТЕРАКТИВНО"
+        echo "      спросит family/model/context/vision, скачает модель"
+        echo "      в /models (~94 ГБ для UD-IQ4_XS), построит pack,"
+        echo "      скачает MTP (~5 ГБ). Всё это идёт через VPN."
         echo "═══════════════════════════════════════════════════════════════"
         echo
 
+        # Монтирования:
+        #   src/        → /strata       (rw: бинарь, venv, build-halo)
+        #   rocm/       → /opt/rocm     (rw: setup.py может писать)
+        #   data/       → /data         (rw: pack, конфиг, MTP, HOME)
+        #   models/     → /models       (rw: setup.py качает сюда)
+        #
+        # -it обязателен: setup.py задаёт вопросы через stdin.
         podman run --rm -it \
           ${gpuArgs} \
           -e STRATA_DATA=/data \
@@ -163,7 +172,7 @@ in
           -v "$STRATA_DIR:/strata:Z" \
           -v "$SDK:/opt/rocm" \
           -v "$DATA_DIR:/data:Z" \
-          -v "$GGUF_DIR:/gguf:Z" \
+          -v "$MODELS_DIR:/models:Z" \
           -w /strata/src \
           "${imageName}:${imageTag}" \
           bash -lc '
@@ -232,36 +241,51 @@ print("  src:    ", meta["src"])
 print("  archs:  ", meta["archs"])
 PYEOF
 
-            # ── setup.py --setup ──────────────────────────────────
-            echo ">>> python setup.py --setup --yes (долгая часть)"
-            .venv/bin/python setup.py --setup --yes \
-              --family "${family}" \
-              --model  "${modelSize}" \
-              --context "${toString contextTokens}" \
-              --backend "${backend}" \
+            # ── setup.py --setup (ИНТЕРАКТИВНО) ───────────────────
+            # Без --yes: setup.py спросит family, model, context,
+            # vision и т.д. Ты выбираешь сам.
+            #
+            # --models-dir /models — качает GGUF сюда, а не в /data.
+            #   На хосте это ~/llm/models/strata/.
+            # --data-dir /data — pack, конфиг, MTP, HOME.
+            # --backend hip — без этого setup.py пойдёт искать CUDA.
+            # --host 0.0.0.0 --port 5747 — контейнер слушает внутри;
+            #   наружу пробрасывается через podman -p.
+            # --no-start — не поднимать сервер сразу.
+            echo
+            echo ">>> python setup.py --setup (интерактивно)"
+            echo
+            .venv/bin/python setup.py --setup \
+              --backend hip \
+              --models-dir /models \
               --data-dir /data \
-              --gguf-dir /gguf \
               --host 0.0.0.0 \
               --port ${toString portContainer} \
               --no-start
 
+            echo
             echo ">>> Готово."
           '
 
         echo
         echo "═══════════════════════════════════════════════════════════════"
         echo "  Установка завершена."
-        echo "  Конфиг: $DATA_DIR/config/strata-${family}-$(echo '${modelSize}' | tr '[:upper:]' '[:lower:]').json"
-        echo "  Запуск:  strata-start"
+        echo "  Модели: $MODELS_DIR"
+        echo "  Конфиг: $DATA_DIR/config/"
+        echo "  Запуск: strata-start"
         echo "═══════════════════════════════════════════════════════════════"
       '';
     })
 
     # =====================================================================
     # strata-start — запуск сервера.
-    # setup.py без --setup читает готовый конфиг и поднимает
-    # serve/server.py, который сам спавнит strata --serve.
-    # Сервер слушает 0.0.0.0:PORT, конфиг уже содержит host/port.
+    #
+    # setup.py без --setup читает готовый конфиг из /data/config/ и
+    # поднимает serve/server.py. Конфиг создан на этапе --setup.
+    #
+    # Имя конфига setup.py выбирает сам (по family+model, которые ты
+    # выбрал интерактивно), поэтому здесь мы не проверяем конкретное
+    # имя — просто запускаем setup.py, он сам найдёт конфиг.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -273,7 +297,7 @@ PYEOF
         ROCM_DIR="$STRATA_DIR/rocm"
         SDK="$ROCM_DIR/install"
         DATA_DIR="${dataDir}"
-        GGUF_DIR="${ggufDir}"
+        MODELS_DIR="${modelsDir}"
         PORT_HOST=${toString portHost}
 
         if [ ! -x "$STRATA_DIR/src/engine/strata" ]; then
@@ -281,9 +305,9 @@ PYEOF
           exit 1
         fi
 
-        CFG="$DATA_DIR/config/strata-${family}-$(echo '${modelSize}' | tr '[:upper:]' '[:lower:]').json"
-        if [ ! -f "$CFG" ]; then
-          echo "Конфиг не найден: $CFG" >&2
+        # Проверяем, что в /data есть хоть один конфиг.
+        if ! ls "$DATA_DIR/config"/strata-*.json >/dev/null 2>&1; then
+          echo "Конфиг не найден в $DATA_DIR/config/" >&2
           echo "Сначала: strata-setup" >&2
           exit 1
         fi
@@ -305,7 +329,7 @@ PYEOF
           -v "$STRATA_DIR:/strata:Z" \
           -v "$SDK:/opt/rocm" \
           -v "$DATA_DIR:/data:Z" \
-          -v "$GGUF_DIR:/gguf:Z" \
+          -v "$MODELS_DIR:/models:Z" \
           -w /strata/src \
           "${imageName}:${imageTag}" \
           /strata/src/.venv/bin/python /strata/src/setup.py \
@@ -342,8 +366,8 @@ PYEOF
 
     # =====================================================================
     # strata-stop — мягкая остановка.
-    # Движок держит десятки ГБ page-locked RAM, поэтому SIGTERM
-    # может занять до 30-60 с. Даём 60, потом kill.
+    # Движок держит десятки ГБ page-locked RAM, SIGTERM может занять
+    # до 60 с. Даём 60, потом kill.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-stop";
@@ -376,9 +400,9 @@ PYEOF
     # =====================================================================
     # strata-logs — смотреть лог сервера.
     # Что искать в логе:
-    #   - «backend: hip» или «HIP» — движок на AMD.
+    #   - «backend: hip» — движок на AMD.
     #   - «prefill gemm: hipBLASLt tuning enabled» — таблица подхвачена.
-    #   - строку про expert-cache (auto или число).
+    #   - строку про expert-cache.
     #   - «listening on» или финальный URL.
     # =====================================================================
     (pkgs.writeShellApplication {
@@ -415,18 +439,15 @@ PYEOF
           -v "$STRATA_DIR:/strata:Z" \
           -v "$SDK:/opt/rocm" \
           -v "${dataDir}:/data:Z" \
-          -v "${ggufDir}:/gguf:Z" \
+          -v "${modelsDir}:/models:Z" \
           --entrypoint /bin/bash \
           "${imageName}:${imageTag}"
       '';
     })
 
     # =====================================================================
-    # strata-update — git pull + пересборка движка + пересборка pack.
-    # Pack НЕ пересобирается (setup.py видит уже готовый).
-    # Если нужен новый ROCm — обнови rocmUrl/rocmSha256 в default.nix,
-    # удали ~/llm/strata/rocm/therock-*.tar.gz и rocm/install/,
-    # потом запусти strata-setup заново.
+    # strata-update — git pull + пересборка движка.
+    # Pack и модели НЕ трогаются.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-update";
@@ -452,7 +473,7 @@ PYEOF
     })
 
     # =====================================================================
-    # strata-remove — снести контейнер, образ, src, rocm, data.
+    # strata-remove — снести контейнер, образ, src, rocm, data, models.
     # Спрашивает подтверждения на каждый пункт.
     # =====================================================================
     (pkgs.writeShellApplication {
@@ -463,6 +484,7 @@ PYEOF
         IMAGE="${imageName}:${imageTag}"
         STRATA_DIR="${strataDir}"
         DATA_DIR="${dataDir}"
+        MODELS_DIR="${modelsDir}"
 
         podman rm -f "${containerName}" 2>/dev/null || true
 
@@ -498,6 +520,15 @@ PYEOF
           case "$answer" in
             y|Y) rm -rf "$DATA_DIR"; echo "data удалён." ;;
             *)   echo "data сохранён." ;;
+          esac
+        fi
+
+        if [ -d "$MODELS_DIR" ]; then
+          SIZE=$(du -sh "$MODELS_DIR" 2>/dev/null | cut -f1 || echo "?")
+          read -r -p "Удалить $MODELS_DIR ($SIZE — GGUF-модели)? [y/N] " answer
+          case "$answer" in
+            y|Y) rm -rf "$MODELS_DIR"; echo "models удалены." ;;
+            *)   echo "models сохранены." ;;
           esac
         fi
 

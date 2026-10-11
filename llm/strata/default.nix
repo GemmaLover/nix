@@ -4,62 +4,49 @@ let
   # =====================================================================
   # Strata — движок Qwen3.8-Flash-Next (125B MoE) на gfx1151.
   #
-  # Архитектура проекта (важно понимать, чтобы не путаться):
+  # Архитектура проекта:
+  #   1. strata (наш build-halo/strata) — низкоуровневый движок, работает
+  #      с PACK-каталогом (не GGUF), общается с сервером через stdio.
+  #   2. serve/server.py — HTTP-сервер (OpenAI- и Anthropic-совместимый).
+  #      Спавнит strata --serve как subprocess.
+  #   3. setup.py — оркестратор: определяет GPU, качает модель с HF,
+  #      строит pack, пишет конфиг, ставит Python-зависимости в .venv,
+  #      при необходимости собирает движок, и запускает serve/server.py.
   #
-  #   1. strata (наш build-halo/strata) — низкоуровневый движок.
-  #      Работает с PACK-каталогом (не GGUF), общается с сервером
-  #      через stdin/stdout. Запускается флагом --serve.
+  # Схема запуска:
+  #   первый раз  → python setup.py --setup [интерактивные вопросы] --no-start
+  #   каждый раз  → python setup.py --port N
   #
-  #   2. serve/server.py — HTTP-сервер (OpenAI- и Anthropic-
-  #      совместимый API). Спавнит strata --serve как subprocess.
-  #      Отвечает на :8080 (у нас :5747) эндпоинтами
-  #      /v1/chat/completions, /v1/messages, /v1/models, /health.
-  #
-  #   3. setup.py — оркестратор: определяет GPU, находит готовые
-  #      GGUF через --gguf-dir, СТРОИТ PACK из них, пишет
-  #      конфиг strata-<model>.json, ставит Python-зависимости
-  #      в .venv, при необходимости собирает движок, и запускает
-  #      serve/server.py.
-  #
-  #   Схема запуска:
-  #     первый раз  → python setup.py --setup --yes ... --no-start
-  #     каждый раз  → python setup.py --port N
-  #
-  #   Пересборка движка: setup.py смотрит на engine/BUILD.json.
-  #   Если backend=hip, src совпадает с source_hash(ENGINE_SOURCES),
-  #   archs содержит gfx1151 — компиляцию пропустит. Это позволяет
-  #   использовать уже собранный нами build-halo/strata.
+  # Пересборка движка: setup.py смотрит на engine/BUILD.json. Если
+  # backend=hip, src совпадает с source_hash(ENGINE_SOURCES) и archs
+  # содержит gfx1151 — компиляцию пропустит. Мы генерим BUILD.json в
+  # strata-setup, поэтому setup.py использует уже собранный build-halo.
   #
   # ПОЧЕМУ UBUNTU: TheRock-clang слинкован под FHS
-  # (/lib64/ld-linux-x86-64.so.2, /usr/lib/x86_64-linux-gnu),
-  # которых на NixOS нет. Плюс setup.py требует python3-venv и
-  # стандартную FHS-раскладку для pip и venv.
+  # (/lib64/ld-linux-x86-64.so.2, /usr/lib/x86_64-linux-gnu), которых
+  # на NixOS нет. Плюс setup.py требует python3-venv и стандартную
+  # FHS-раскладку для pip и venv.
   #
-  # Данные на хосте:
+  # Каталоги на хосте:
   #   ~/llm/strata/
   #   ├── Containerfile        — symlink в store
   #   ├── src/                 — git clone Strata
-  #   │   ├── .venv/           — Python venv (numpy и пр.)
+  #   │   ├── .venv/           — Python venv (numpy, jinja2, ...)
   #   │   ├── build-halo/      — скомпилированный движок
   #   │   ├── engine/          — setup.py ждёт бинарь здесь
   #   │   └── tools/hip/gfx1151-hipblaslt-100401.txt
   #   ├── rocm/
-  #   │   └── install/         — распакованный TheRock (монтируется в /opt/rocm)
+  #   │   └── install/         — распакованный TheRock (монтируется как /opt/rocm)
   #   └── data/                — volume /data: pack, конфиг, MTP, HOME
-  #       ├── config/          — strata-<model>.json
-  #       ├── pack/full/       — распакованные тензоры
-  #       ├── models/          — копии GGUF (или оригиналы)
-  #       ├── mtp/             — MTP draft layer (~5 ГБ)
-  #       └── home/            — HOME= для settings.json setup.py
   #
-  # Модель: монтируем ~/llm/models/unsloth-model/q3.8fn/ как /gguf:rw
-  #   (setup.py пишет рядом <shard>.done после проверки SHA-256).
+  #   ~/llm/models/strata/     — volume /models: GGUF-модели (setup.py
+  #                              качает сюда через --models-dir /models)
   # =====================================================================
 
   # ── Контейнер ────────────────────────────────────────────────
   containerName = "strata-server";
   imageName     = "localhost/strata-gfx1151";
-  imageTag      = "u24-rocm7141-v2";   # v2: добавили python3+venv+setup.py
+  imageTag      = "u24-rocm7141-v3";   # v3: интерактивный setup, --models-dir
 
   # ── Сеть ─────────────────────────────────────────────────────
   portHost      = 5747;
@@ -68,24 +55,10 @@ let
   # ── Каталоги на хосте ────────────────────────────────────────
   home      = config.home.homeDirectory;
   strataDir = "${home}/llm/strata";
-  dataDir   = "${strataDir}/data";
-  # Готовые GGUF Unsloth (multi-part + mmproj + MTP). setup.py сам
-  # выделит нужные по regex -00001-of-0000N.gguf и найденному quant.
-  ggufDir   = "${home}/llm/models/unsloth-model/q3.8fn";
+  dataDir   = "${strataDir}/data";              # pack, конфиг, MTP, HOME
+  modelsDir = "${home}/llm/models/strata";      # GGUF-модели
 
-  # ── Модель (setup.py аргументы) ──────────────────────────────
-  # family+model задают имя конфига: strata-<family>-<model>.json
-  # (для family=qwen префикс пустой, для остальных — «family-»).
-  family      = "unsloth";
-  modelSize   = "UD-IQ4_XS";
-  # Контекст. 65536 безопасно для 128 ГБ unified: 32K мало, 128K
-  # местами уже перебор. При желании поднять до 131072.
-  contextTokens = 65536;
-  # backend=hip обязателен: у нас нет NVIDIA, а setup.py без него
-  # пойдёт искать CUDA.
-  backend     = "hip";
-
-  # ── ROCm TheRock 7.14.1 (для сборки движка, если понадобится) ─
+  # ── ROCm TheRock 7.14.1 (нужен для сборки движка) ────────────
   rocmVersion = "7.14.1";
   rocmUrl     = "https://repo.amd.com/rocm/tarball-multi-arch/therock-dist-linux-gfx1151-${rocmVersion}.tar.gz";
   rocmSha256  = "c40e8f2bd6630a7d11557c762b99c6fa8afb04c9bd0e51ed1675ee1ca24afb00";
@@ -108,7 +81,7 @@ let
     ENV PYTHONUNBUFFERED=1
     ENV LANG=C.UTF-8
 
-    # python3-venv — для pip install requirements.txt (~50 МБ).
+    # python3-venv — для pip install requirements.txt.
     # Тулчейн (build-essential/cmake/ninja) — если setup.py решит
     # всё-таки собирать движок сам (мы этого избегаем через
     # engine/BUILD.json, но пусть будет).
@@ -135,8 +108,7 @@ in
   _module.args.strataConfig = {
     inherit containerName imageName imageTag
             portHost portContainer
-            home strataDir dataDir ggufDir
-            family modelSize contextTokens backend
+            home strataDir dataDir modelsDir
             rocmVersion rocmUrl rocmSha256
             gpuArgs;
   };
