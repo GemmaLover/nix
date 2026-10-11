@@ -38,7 +38,7 @@ stdenv.mkDerivation rec {
   # Распаковывается через zstd (не tar.gz).
   src = fetchurl {
       url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3089beta7-1-x86_64.pkg.tar.zst";
-    hash = "sha256-K/Yb/I1HIqlkh08zCoWqMDr61iLpgxiGr7lm5lAmd3c=";
+    hash = "sha256-9kHs6Qfw8+lfDqZdghfdkKVJT2LT6xLaoaGkzskv/9k=";
   };
 
   nativeBuildInputs = [
