@@ -9,28 +9,17 @@ in
     # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
     #
     # ПОДВОДНЫЕ КАМНИ ОБРАЗА kyuz0/amd-strix-halo-toolboxes:
-    #   1. В образе НЕТ git — репозиторий клонируется НА ХОСТЕ,
-    #      а внутрь контейнера монтируется готовое дерево.
-    #   2. В образе НЕТ инструментов сборки (gcc-c++, make) — они
-    #      ставятся через dnf5 внутри контейнера перед setup.sh.
-    #      Образ — Fedora 44 Container Image с dnf5 (новое поколение).
-    #   3. Fedora-репозитории и AMD ROCm-репозиторий недоступны из РФ:
-    #      fedora.ip-connect.info и stable.repo.amd.com дают timeout.
-    #      Поэтому ПЕРЕД установкой переключаем зеркала Fedora на
-    #      доступные (ftp.fau.de + mirror.yandex.ru как резерв),
-    #      а ROCm-репозиторий отключаем (ROCm уже в образе).
+    #   1. В образе НЕТ git — репозиторий клонируется НА ХОСТЕ.
+    #   2. В образе НЕТ инструментов сборки (gcc-c++, make) — ставятся
+    #      через dnf5 внутри контейнера перед setup.sh.
+    #   3. Fedora-репозитории и AMD ROCm-репозиторий недоступны из РФ.
+    #      Переключаем зеркала на ftp.fau.de, отключаем ROCm-repo
+    #      и fedora-cisco-openh264 (не нужны для сборки).
     #
     # Порядок:
     #   1. git clone на хосте → ~/llm/strata
     #   2. podman run --rm -it с монтированием ~/llm/strata → /opt/Strata
-    #   3. Внутри контейнера: смена зеркал → dnf5 install → ./setup.sh
-    #
-    # setup.sh спросит модель, размер, контекст, KV cache, vision.
-    # Когда спросит путь для моделей — указывать /opt/Strata/models
-    # (это = ~/llm/strata/models на хосте).
-    #
-    # После выхода контейнер удаляется (--rm), но ВСЁ остаётся в
-    # ~/llm/strata: исходники, скомпилированный движок, модели.
+    #   3. Внутри: смена зеркал → dnf5 install → ./setup.sh
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
@@ -45,9 +34,6 @@ in
 
         mkdir -p "$STRATA_DIR"
 
-        # === Шаг 1: клонируем/обновляем Strata НА ХОСТЕ ===
-        # В образе kyuz0 нет git — поэтому клонируем здесь, где git есть.
-        # Дальше монтируем готовое дерево в контейнер.
         if [ ! -d "$STRATA_DIR/.git" ]; then
           echo "Клонирую Strata в $STRATA_DIR..."
           git clone https://github.com/Niko1221/Strata.git "$STRATA_DIR"
@@ -58,7 +44,6 @@ in
 
         if [ ! -x "$STRATA_DIR/setup.sh" ]; then
           echo "ОШИБКА: в $STRATA_DIR нет setup.sh" >&2
-          echo "Проверьте содержимое: ls $STRATA_DIR" >&2
           exit 1
         fi
 
@@ -74,20 +59,9 @@ in
         echo "  Исходники, движок и модели будут в: $STRATA_DIR"
         echo "  Когда setup.sh спросит путь для моделей — укажи:"
         echo "    /opt/Strata/models"
-        echo "  (это то же самое, что $STRATA_DIR/models на хосте)"
         echo "═══════════════════════════════════════════════════════════════"
         echo
 
-        # === Шаг 2: запускаем setup.sh ВНУТРИ контейнера ===
-        # Репозиторий уже на месте (через bind mount).
-        # Перед setup.sh:
-        #   a) переключаем Fedora-зеркала на доступные из РФ,
-        #   b) отключаем AMD ROCm-репозиторий (недоступен + ROCm уже в образе),
-        #   c) ставим gcc-c++, make, git через dnf5,
-        #   d) запускаем setup.sh.
-        #
-        # -it для интерактивного setup.sh (спрашивает модель и параметры).
-        # --rm: контейнер удаляется после setup, всё ценное в $STRATA_DIR.
         podman run --rm -it \
           --device /dev/kfd \
           --device /dev/dri \
@@ -102,55 +76,47 @@ in
             set -e
 
             # === Шаг A: смена зеркал Fedora ===
-            # По умолчанию в /etc/yum.repos.d/fedora*.repo стоит metalink=,
-            # который сам выбирает зеркало и часто выбирает недоступное
-            # из РФ (fedora.ip-connect.info — timeout).
-            # Отключаем metalink, включаем baseurl с зеркалом, которое
-            # проверено как доступное (см. результаты теста скорости).
-            #
-            # Выбор зеркала:
-            #   ftp.fau.de       — 0.49s (самое быстрое из проверенных)
-            #   mirror.yandex.ru — 2.07s (надёжный резерв, если FAU упадёт)
-            #
-            # Заменяем $releasever на 44 — в образе Fedora 44, а переменная
-            # в некоторых зеркалах может не подставляться.
+            # Отключаем metalink (выбирает недоступные из РФ зеркала),
+            # включаем baseurl с ftp.fau.de (проверено, 0.49s).
+            # Обрабатываем только реальные Fedora-репы, у которых есть
+            # паттерн download.example в baseurl. fedora-cisco-openh264
+            # имеет другую структуру — его отдельно отключаем.
             echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
-            for repo in /etc/yum.repos.d/fedora*.repo; do
+            for repo in /etc/yum.repos.d/fedora.repo \
+                        /etc/yum.repos.d/fedora-updates.repo \
+                        /etc/yum.repos.d/fedora-updates-archive.repo; do
               [ -f "$repo" ] || continue
-              # Отключаем metalink
               sed -i "s|^metalink=|#metalink=|g" "$repo"
-              # Заменяем placeholder-baseurl на реальный URL зеркала.
-              # Формат по умолчанию: baseurl=http://download.example/pub/fedora/linux/...
-              # Меняем только те baseurl, что начинаются с download.example,
-              # и только если они раскомментированы.
               sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
               sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
             done
 
+            # Отключаем fedora-cisco-openh264 — не нужен для сборки,
+            # его metalink недоступен из РФ.
+            echo "=== Отключаю fedora-cisco-openh264 ==="
+            for repo in /etc/yum.repos.d/fedora-cisco-openh264.repo; do
+              [ -f "$repo" ] || continue
+              sed -i "s|^enabled=1|enabled=0|g" "$repo"
+            done
+
             # === Шаг B: отключение AMD ROCm-репозитория ===
             # stable.repo.amd.com недоступен из РФ (timeout >30s).
-            # ROCm уже вшит в образ, дополнительно тянуть не нужно.
-            # Отключаем, чтобы dnf не висел на нём.
-            echo "=== Отключаю AMD ROCm-репозиторий (недоступен из РФ) ==="
+            # ROCm уже вшит в образ.
+            echo "=== Отключаю AMD ROCm-репозиторий ==="
             for repo in /etc/yum.repos.d/rocm*.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^enabled=1|enabled=0|g" "$repo"
             done
 
             # === Шаг C: установка инструментов сборки ===
-            # dnf5 — новый менеджер Fedora 44+. Пробуем по убыванию:
-            # dnf5 → microdnf → dnf (на случай другого образа).
-            # install_weak_deps=False экономит ~200 МБ.
             if command -v dnf5 >/dev/null 2>&1; then
               echo "=== Установка gcc-c++, make, git через dnf5 ==="
               dnf5 install -y --setopt=install_weak_deps=False \
                 gcc-c++ make git
             elif command -v microdnf >/dev/null 2>&1; then
-              echo "=== Установка gcc-c++, make, git через microdnf ==="
               microdnf install -y --setopt=install_weak_deps=0 \
                 gcc-c++ make git
             elif command -v dnf >/dev/null 2>&1; then
-              echo "=== Установка gcc-c++, make, git через dnf ==="
               dnf install -y --setopt=install_weak_deps=False \
                 gcc-c++ make git
             else
@@ -170,16 +136,11 @@ in
     })
 
     # =====================================================================
-    # Сервисный контейнер. Использует уже собранный движок из ~/llm/strata.
+    # Сервисный контейнер. Использует готовый движок из ~/llm/strata.
+    # Создаётся один раз, потом только start/stop.
     #
-    # Создаётся один раз (при первом вызове), потом только start/stop.
-    # Entrypoint НЕ запускает setup.sh — только сервер.
-    #
-    # ВАЖНО: команда запуска сервера (`./start.sh --host ... --port ...`)
-    # взята из общего описания. Если в репозитории Strata нет start.sh —
-    # замените на ту, что описана в README. Проверить после setup:
-    #   ls ~/llm/strata/*.sh
-    #   cat ~/llm/strata/README.md | grep -i 'run\|start\|serve'
+    # Команда запуска сервера (`./start.sh --host ... --port ...`) —
+    # предположение. Проверьте после setup: ls ~/llm/strata/*.sh
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -240,8 +201,6 @@ in
     })
 
     # === Остановка ===
-    # Плавно шлёт SIGTERM, ждёт до 60 секунд. Если не сработало — SIGKILL.
-    # Файлы в ~/llm/strata не затрагиваются.
     (pkgs.writeShellApplication {
       name = "strata-stop";
       runtimeInputs = [ pkgs.podman ];
@@ -272,8 +231,6 @@ in
     })
 
     # === Удаление ===
-    # Удаляет контейнер, опционально образ, опционально ~/llm/strata
-    # (исходники + модели). Спрашивает подтверждение на каждый шаг.
     (pkgs.writeShellApplication {
       name = "strata-remove";
       runtimeInputs = [ pkgs.podman pkgs.coreutils ];
@@ -309,11 +266,7 @@ in
       '';
     })
 
-    # === Обновление (git pull + пересборка) ===
-    # Клонирование и pull делает ХОСТ (где есть git), в контейнере
-    # запускается только setup.sh — та же схема, что в strata-setup.
-    # Зеркала Fedora переключаются заново (контейнер --rm, состояние
-    # не сохраняется между запусками).
+    # === Обновление ===
     (pkgs.writeShellApplication {
       name = "strata-update";
       runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
@@ -333,7 +286,6 @@ in
 
         echo
         echo "Пересборка (setup.sh в контейнере)..."
-        echo "setup.sh снова спросит модель — можно оставить ту же."
         echo
 
         podman run --rm -it \
@@ -348,16 +300,21 @@ in
           -c '
             set -e
 
-            # Та же смена зеркал, что в strata-setup.
             echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
-            for repo in /etc/yum.repos.d/fedora*.repo; do
+            for repo in /etc/yum.repos.d/fedora.repo \
+                        /etc/yum.repos.d/fedora-updates.repo \
+                        /etc/yum.repos.d/fedora-updates-archive.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^metalink=|#metalink=|g" "$repo"
               sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
               sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
             done
 
-            echo "=== Отключаю AMD ROCm-репозиторий ==="
+            for repo in /etc/yum.repos.d/fedora-cisco-openh264.repo; do
+              [ -f "$repo" ] || continue
+              sed -i "s|^enabled=1|enabled=0|g" "$repo"
+            done
+
             for repo in /etc/yum.repos.d/rocm*.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^enabled=1|enabled=0|g" "$repo"
@@ -387,7 +344,7 @@ in
       name = "Strata Setup (first time)";
       exec = "strata-setup";
       icon = "system-software-install";
-      terminal = true;   # setup интерактивный, нужен терминал
+      terminal = true;
       categories = [ "Development" "Science" ];
     };
     strata-start = {
