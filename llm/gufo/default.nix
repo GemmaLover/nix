@@ -4,40 +4,46 @@ let
   # =====================================================================
   # Gufo — движок инференса для AMD Strix Halo (gfx1151).
   #
-  # Структура:
-  #   ~/llm/gufo/          — репозиторий (клонируется на хосте).
-  #                          Монтируется в контейнер как /opt/gufo.
-  #   ~/llm/models/gufo/   — .gguf-модели.
-  #                          Монтируется в контейнер как /models (ro).
-  #   ~/llm/gufo/.pip-cache/ — persistent pip-кэш (переживает обрывы).
+  # Установка — через готовый Podman-образ, БЕЗ git clone и сборки:
+  #   ghcr.io/gufo-org/toolboxes/gufo-runtime:latest
   #
-  # Образ-база: kyuz0/amd-strix-halo-toolboxes (ROCm 10.0, gfx1151) —
-  # в нём уже есть ROCm runtime и все GPU-драйверы. Плюс инструменты
-  # сборки ставятся через dnf5 внутри entrypoint.
+  # Модель: Qwen3.8-Flash-Next GSQ-RCO Q2_0 (ISTA-DASLab, 125B MoE).
+  # Файлов два (-00001-of-00002 и -00002-of-00002), оба должны быть в
+  # одной папке. Gufo сам подтянет второй по имени первого.
   #
-  # Двухэтапный workflow:
-  #   1. gufo-setup  — интерактивная установка (сборка движка).
-  #   2. gufo-start  — запуск сервера.
+  # API-ключ: Gufo требует ключ при запуске сервера. Ключ НЕ хранится
+  # в Nix-конфиге. Лежит в файле:
+  #   ~/.config/gufo/api-key
+  # Создать один раз:
+  #   mkdir -p ~/.config/gufo
+  #   echo "ваш-ключ" > ~/.config/gufo/api-key
+  #   chmod 600 ~/.config/gufo/api-key
   #
-  # Порт: 8087 (наружу) → 8087 (внутри).
+  # Пути на хосте:
+  #   ~/llm/models/   — корень моделей, монтируется в /models (ro)
+  #
+  # Команды: gufo-start / gufo-stop / gufo-logs / gufo-models / gufo-remove.
   # =====================================================================
 
-  image = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-10.0_20261010T195700";
+  image = "ghcr.io/gufo-org/toolboxes/gufo-runtime:latest";
 
-  portHost = 8087;
-  portContainer = 8087;
+  # Порт на хосте. Внутри контейнера всегда 8080.
+  portHost = 8080;
+  portContainer = 8080;
 
-  # Репозиторий движка.
-  gufoDir = "${config.home.homeDirectory}/llm/gufo";
+  # Корень моделей. Монтируется как /models (ro).
+  modelsDir = "${config.home.homeDirectory}/llm/models";
 
-  # Модели.
-  modelsDir = "${config.home.homeDirectory}/llm/models/gufo";
+  # Путь к модели ВНУТРИ контейнера.
+  # Файл разбит на две части (-00001-of-00002 + -00002-of-00002),
+  # обе должны лежать в одной папке.
+  mainModel = "/models/ISTA-DASLab/q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf";
 
-  # Git-URL репозитория.
-  repoUrl = "https://github.com/gufo-org/gufo.git";
+  # Путь к файлу с API-ключом на хосте.
+  apiKeyFile = "${config.home.homeDirectory}/.config/gufo/api-key";
 in
 {
   _module.args.gufoConfig = {
-    inherit image portHost portContainer gufoDir modelsDir repoUrl;
+    inherit image portHost portContainer modelsDir mainModel apiKeyFile;
   };
 }
