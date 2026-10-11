@@ -13,8 +13,13 @@ in
     #   2. В образе НЕТ инструментов сборки (gcc-c++, make) — ставятся
     #      через dnf5 внутри контейнера перед setup.sh.
     #   3. Fedora-репозитории и AMD ROCm-репозиторий недоступны из РФ.
-    #      Переключаем зеркала на ftp.fau.de, отключаем ROCm-repo
-    #      и fedora-cisco-openh264 (не нужны для сборки).
+    #      Переключаем на ftp.fau.de, отключаем ROCm и cisco-openh264.
+    #
+    # ВАЖНО про ftp.fau.de: путь отличается от стандартного —
+    #   https://ftp.fau.de/fedora/linux/releases/44/...   (а не /fedora/releases/44)
+    #   https://ftp.fau.de/fedora/linux/updates/44/...    (а не /fedora/updates/44)
+    # Поэтому в baseurl добавляется сегмент /linux.
+    # Проверено вручную curl-ом: оба URL возвращают 200.
     #
     # Порядок:
     #   1. git clone на хосте → ~/llm/strata
@@ -76,19 +81,21 @@ in
             set -e
 
             # === Шаг A: смена зеркал Fedora ===
-            # Отключаем metalink (выбирает недоступные из РФ зеркала),
-            # включаем baseurl с ftp.fau.de (проверено, 0.49s).
-            # Обрабатываем только реальные Fedora-репы, у которых есть
-            # паттерн download.example в baseurl. fedora-cisco-openh264
-            # имеет другую структуру — его отдельно отключаем.
+            # ftp.fau.de использует путь /fedora/linux/... (в отличие от
+            # стандартного /fedora/...), поэтому добавляем /linux в baseurl.
+            # Проверено: ftp.fau.de/fedora/linux/releases/44/... = 200,
+            # ftp.fau.de/fedora/releases/44/... = 404.
+            # Обрабатываем только реальные Fedora-репы с паттерном
+            # download.example в baseurl. cisco-openh264 имеет другую
+            # структуру — его отдельно отключаем ниже.
             echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
             for repo in /etc/yum.repos.d/fedora.repo \
                         /etc/yum.repos.d/fedora-updates.repo \
                         /etc/yum.repos.d/fedora-updates-archive.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^metalink=|#metalink=|g" "$repo"
-              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
-              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
+              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
+              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
             done
 
             # Отключаем fedora-cisco-openh264 — не нужен для сборки,
@@ -306,8 +313,8 @@ in
                         /etc/yum.repos.d/fedora-updates-archive.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^metalink=|#metalink=|g" "$repo"
-              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
-              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
+              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
+              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
             done
 
             for repo in /etc/yum.repos.d/fedora-cisco-openh264.repo; do
