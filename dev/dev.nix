@@ -121,5 +121,54 @@
 
     # Утилиты
     wl-clipboard  # Буфер обмена для Wayland
+
+
+        # === Waydroid: маршрут от Android к хосту ===
+    # После включения VPN внутри Waydroid (SFA/sing-box) весь локально
+    # сгенерированный трафик Android уходит в tun0 (правило 13000
+    # `from all fwmark 0x0/0x20000 iif lo lookup tun0`). Из-за этого
+    # ответные пакеты от sing-box к хосту (например, на запросы к
+    # SOCKS5 192.168.240.112:1080) уходят в туннель и теряются —
+    # с хоста порт 1080 не отвечает.
+    #
+    # Лечится правилом с приоритетом 50: любой пакет к подсети
+    # 192.168.240.0/24 (bridge Waydroid↔хост) идёт через таблицу eth0,
+    # минуя tun0. Правило узкое — публичный трафик и VPN не затрагиваются.
+    #
+    # Сбрасывается при перезапуске Android-сессии (waydroid session stop),
+    # не при перезагрузке хоста. Запускать после каждого включения VPN.
+    (pkgs.writeShellScriptBin "waydroid-fix-route" ''
+      #!/usr/bin/env bash
+      set -e
+
+      # Проверка, что Waydroid запущен
+      if ! pgrep -f 'waydroid' >/dev/null 2>&1; then
+        echo "Ошибка: Waydroid не запущен." >&2
+        echo "Запустите сессию: waydroid session start" >&2
+        exit 1
+      fi
+
+      # Проверка, что внутри Android есть eth0 (bridge)
+      if ! sudo waydroid shell -- sh -c 'ip link show eth0 >/dev/null 2>&1'; then
+        echo "Ошибка: eth0 не найден внутри Waydroid." >&2
+        echo "Возможно, Waydroid ещё не полностью загрузился." >&2
+        exit 1
+      fi
+
+      # Удалить старое правило, если оно есть (идемпотентность)
+      sudo waydroid shell -- sh -c \
+        'ip rule del from 192.168.240.112 to 192.168.240.0/24 lookup eth0 priority 50' \
+        2>/dev/null || true
+
+      # Добавить правило
+      sudo waydroid shell -- sh -c \
+        'ip rule add from 192.168.240.112 to 192.168.240.0/24 lookup eth0 priority 50'
+
+      echo "Маршрут Waydroid → хост настроен."
+      echo
+      echo "Проверка:"
+      echo "  nc -zv 192.168.240.112 1080"
+      echo "  curl --socks5 192.168.240.112:1080 https://ifconfig.me"
+    '')
   ];
 }
