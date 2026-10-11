@@ -1,21 +1,43 @@
 { config, pkgs, lib, strataConfig, ... }:
 
 # Все константы — из strataConfig (см. default.nix).
-# В bash-скриптах путей и портов в хардкоде нет: всё через интерполяцию.
-# SC2034 (unused vars IMAGE/PORT_HOST/PORT_CONTAINER) убран: эти значения
-# стали Nix-константами и попадают в скрипты как строковые литералы.
+# SC2034 не возникает: константы в bash-скриптах не объявляются,
+# а подставляются интерполяцией.
 
 let
   inherit (strataConfig)
     containerName imageName imageTag
     portHost portContainer
-    strataDir modelsDir modelFile
+    strataDir dataDir ggufDir
+    family modelSize contextTokens backend
     rocmVersion rocmUrl rocmSha256
-    hipblasltTuning expertCache
-    gpuArgs fastEnvArgs;
+    gpuArgs;
 
-  # Куда home-manager положил Containerfile (см. default.nix).
   containerfilePath = "${strataDir}/Containerfile";
+
+  # Общие env-переменные для всех контейнеров strata.
+  # Передаём -e ..., а не через command, чтобы одинаково работало
+  # и в setup, и в serve, и в shell.
+  #
+  #   STRATA_DATA=/data      — setup.py берёт отсюда конфиг и pack.
+  #   HOME=/data/home        — ~/.config/strata/settings.json попадает
+  #                            в volume, а не теряется при перезапуске.
+  #   ROCM_PATH=/opt/rocm    — setup.py проверяет bin/hipcc +
+  #                            lib/libhipblas.so* и использует
+  #                            системный ROCm вместо pip-колёс.
+  #                            (Экономит ~10 ГБ в .venv.)
+  #   HIP_PATH, LD_LIBRARY_PATH — для runtime движка и hipcc.
+  commonEnv = "-e STRATA_DATA=/data -e HOME=/data/home -e ROCM_PATH=/opt/rocm -e HIP_PATH=/opt/rocm -e HIP_PLATFORM=amd -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib";
+
+  # Монтирования, общие для всех запусков:
+  #   src/     → /strata     (rw: бинарь, venv, кэш)
+  #   rocm/    → /opt/rocm   (rw: setup.py может что-то писать)
+  #   data/    → /data       (rw: pack, конфиг, MTP, HOME)
+  #   ggufDir  → /gguf       (rw: setup.py пишет <shard>.done)
+  #
+  # :Z на src и rocm — SELinux-метка (на NixOS не критично, но
+  # с ней podman не ругается при работе с хостовыми каталогами).
+  commonMounts = "-v \"$STRATA_DIR:/strata:Z\" -v \"$ROCM_DIR:/opt/rocm\" -v \"$DATA_DIR:/data:Z\" -v \"$GGUF_DIR:/gguf:Z\"";
 
 in
 {
@@ -23,10 +45,8 @@ in
 
     # =====================================================================
     # strata-image-build — собрать/пересобрать тонкий образ.
-    #
-    # Запускать один раз при первой установке и повторно — после правок
-    # Containerfile (например, при апдейте тулчейна). Обычно это не нужно:
-    # ROCm живёт на хосте, а не в образе.
+    # Нужно один раз и потом только при правках Containerfile
+    # (например, при апдейте Ubuntu или добавлении зависимостей).
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-image-build";
@@ -41,7 +61,6 @@ in
         fi
 
         echo "=== Собираю образ ${imageName}:${imageTag} ==="
-        # Контекст — сам каталог strataDir. Там лежит Containerfile.
         podman build \
           -t "${imageName}:${imageTag}" \
           -f "${containerfilePath}" \
@@ -54,21 +73,20 @@ in
     })
 
     # =====================================================================
-    # strata-setup — одноразовая установка и сборка.
+    # strata-setup — установка.
     #
     # Порядок:
-    #   1. Каталоги на хосте (~/llm/strata, ~/llm/strata/rocm).
-    #   2. Скачать TheRock ROCm 7.14.1 (~1.7 ГБ) с repo.amd.com.
-    #      Если активен waydroid-vpn-connect — идёт через VPN автоматически.
-    #      Отдельные прокси-переменные НЕ нужны (см. комментарий внизу).
-    #   3. Проверить sha256.
-    #   4. Распаковать в ~/llm/strata/rocm/install.
-    #   5. git clone Strata в ~/llm/strata/src (если ещё нет).
-    #   6. Собрать образ (если ещё нет).
-    #   7. Собрать движок в контейнере. ~25 минут в первый раз.
+    #   1. mkdir data/
+    #   2. ROCm (если нет): curl + sha256 + tar → ~/llm/strata/rocm/install
+    #   3. git clone Strata (если нет) → ~/llm/strata/src
+    #   4. Образ (если нет) — через strata-image-build
+    #   5. venv + pip install requirements.txt (в контейнере, ~2 мин)
+    #   6. Движок: если build-halo/strata нет — собрать (25+ мин)
+    #   7. engine/strata + engine/BUILD.json (source=local, backend=hip)
+    #   8. python setup.py --setup --yes ... --no-start
+    #      (скачивает MTP, строит pack из GGUF — 30-60 мин)
     #
-    # Идемпотентно: повторный запуск не качает и не пересобирает то,
-    # что уже готово. Для принудительной пересборки движка — strata-update.
+    # Всё идемпотентно. Повторный запуск ничего не переделывает.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
@@ -78,10 +96,9 @@ in
       ];
       text = ''
         # shellcheck disable=SC2016
-        # SC2016 здесь ложный: подстрока `bash -lc '...'` в конце скрипта
-        # намеренно в одинарных кавычках — внутренний скрипт должен
-        # разворачиваться контейнерным bash ($SDK, ''${LD_LIBRARY_PATH:-}
-        # и т.д.), а не внешним.
+        # SC2016 ложный: bash -lc '...' в конце скрипта намеренно в
+        # одинарных кавычках — внутренний скрипт разворачивается
+        # контейнерным bash, а не внешним.
         set -euo pipefail
 
         STRATA_DIR="${strataDir}"
@@ -89,275 +106,324 @@ in
         ROCM_TGZ="$ROCM_DIR/therock-dist-linux-gfx1151-${rocmVersion}.tar.gz"
         SDK="$ROCM_DIR/install"
         SRC="$STRATA_DIR/src"
+        DATA_DIR="${dataDir}"
+        GGUF_DIR="${ggufDir}"
 
-        mkdir -p "$STRATA_DIR" "$ROCM_DIR"
+        mkdir -p "$STRATA_DIR" "$ROCM_DIR" "$DATA_DIR" "$DATA_DIR/home"
 
         # === Информация о VPN ===
-        # Когда selector = waydroid-out (команда waydroid-vpn-connect),
-        # весь трафик хоста, включая curl и podman pull, уже идёт через
-        # SOCKS5 внутрь Waydroid. Отдельные http_proxy/https_proxy НЕ
-        # выставляем — они создадут петлю (curl → sing-box → selector →
-        # waydroid-out → SOCKS5 внутри Android → VPN).
         if EXT_IP=$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null); then
           echo "Внешний IP: $EXT_IP"
-          echo "(если это IP VPN — скачивание и сборка идут через VPN)"
         else
           echo "Внешний IP не определён (сеть недоступна?). Продолжаю."
         fi
         echo
 
-        # === Шаг 1: ROCm SDK ===
+        # === Шаг 1: ROCm ===
         if [ ! -f "$ROCM_TGZ" ]; then
           echo "=== Скачиваю ROCm ${rocmVersion} (~1.7 ГБ) ==="
-          echo "URL: ${rocmUrl}"
           curl -L --progress-bar -o "$ROCM_TGZ" "${rocmUrl}"
         else
-          echo "=== ROCm уже скачан: $ROCM_TGZ ==="
+          echo "=== ROCm уже скачан ==="
         fi
 
-        # === Шаг 2: sha256 ===
         echo "Проверяю sha256..."
         if ! echo "${rocmSha256}  $ROCM_TGZ" | sha256sum -c -; then
-          echo "ОШИБКА: sha256 не совпал. Файл скачался битым." >&2
-          echo "Удали и запусти снова:" >&2
+          echo "ОШИБКА: sha256 не совпал. Удали и запусти снова:" >&2
           echo "  rm '$ROCM_TGZ'" >&2
           exit 1
         fi
 
-        # === Шаг 3: распаковка ===
-        # Индикатор — наличие clang++ (главного бинаря, который используем).
-        if [ ! -x "$SDK/lib/llvm/bin/clang++" ]; then
+        if [ ! -x "$SDK/bin/hipcc" ]; then
           echo "=== Распаковываю ROCm в $SDK ==="
           mkdir -p "$SDK"
-          # TheRock-тарбол содержит один верхнеуровневый каталог — срезаем.
           tar -xzf "$ROCM_TGZ" -C "$SDK" --strip-components=1
         else
-          echo "=== ROCm уже распакован: $SDK ==="
+          echo "=== ROCm уже распакован ==="
         fi
 
-        if [ ! -x "$SDK/lib/llvm/bin/clang++" ]; then
-          echo "ОШИБКА: $SDK/lib/llvm/bin/clang++ не найден." >&2
-          echo "Проверь содержимое: ls '$SDK/lib/llvm/bin/' | head" >&2
+        if [ ! -x "$SDK/bin/hipcc" ] || [ ! -e "$SDK/lib/libhipblas.so" ]; then
+          echo "ОШИБКА: в $SDK нет hipcc или libhipblas.so —" >&2
+          echo "setup.py не признает его системным ROCm." >&2
           exit 1
         fi
 
-        # === Шаг 4: git clone ===
+        # === Шаг 2: git clone ===
         if [ ! -d "$SRC/.git" ]; then
           echo "=== Клонирую Strata в $SRC ==="
           git clone https://github.com/Niko1221/Strata.git "$SRC"
         else
-          echo "=== Исходники уже склонированы: $SRC ==="
+          echo "=== Исходники уже склонированы ==="
         fi
 
-        # === Шаг 5: образ ===
+        # === Шаг 3: образ ===
         if ! podman image exists "${imageName}:${imageTag}" 2>/dev/null; then
-          echo "=== Собираю образ ${imageName}:${imageTag} ==="
-          podman build \
-            -t "${imageName}:${imageTag}" \
-            -f "${containerfilePath}" \
-            "$STRATA_DIR"
+          echo "=== Собираю образ ==="
+          strata-image-build
         else
-          echo "=== Образ уже есть: ${imageName}:${imageTag} ==="
+          echo "=== Образ уже есть ==="
         fi
 
-        # === Шаг 6: сборка движка ===
-        if [ -x "$SRC/build-halo/strata" ]; then
-          echo "=== Движок уже собран: $SRC/build-halo/strata ==="
-          echo "Для пересборки: strata-update (git pull + rm build-halo + setup)"
-          exit 0
-        fi
-
+        # === Шаги 4-6: venv, движок, BUILD.json, setup.py ===
+        # Всё внутри одного podman run, чтобы иметь и ROCm, и venv.
         echo
         echo "═══════════════════════════════════════════════════════════════"
-        echo "  Сборка Strata (25+ минут, зависит от CPU)."
-        echo "  SDK:        $SDK"
-        echo "  Исходники:  $SRC"
+        echo "  Внутри контейнера:"
+        echo "   1) venv + pip install requirements.txt (2 мин)"
+        echo "   2) сборка движка при необходимости (~25 мин, если нет)"
+        echo "   3) engine/BUILD.json (source=local, backend=hip, gfx1151)"
+        echo "   4) python setup.py --setup --yes ..."
+        echo "      (проверка SHA-256 GGUF + построение pack — 30-60 мин)"
         echo "═══════════════════════════════════════════════════════════════"
         echo
 
-        # Внутри контейнера SDK смонтирован как /strata/rocm/install —
-        # пути в cmake-флагах контейнерные, не хостовые.
-        # --it нужен для прогресс-бара ninja. Если нет TTY — убери -t,
-        # cmake всё равно соберёт.
         podman run --rm -it \
           ${gpuArgs} \
+          -e STRATA_DATA=/data \
+          -e HOME=/data/home \
+          -e ROCM_PATH=/opt/rocm \
+          -e HIP_PATH=/opt/rocm \
+          -e HIP_PLATFORM=amd \
+          -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib \
           -v "$STRATA_DIR:/strata:Z" \
+          -v "$SDK:/opt/rocm" \
+          -v "$DATA_DIR:/data:Z" \
+          -v "$GGUF_DIR:/gguf:Z" \
           -w /strata/src \
           "${imageName}:${imageTag}" \
           bash -lc '
             set -euo pipefail
+            cd /strata/src
 
-            SDK=/strata/rocm/install
-            export ROCM_PATH=$SDK
-            export HIP_PATH=$SDK
-            export HIP_PLATFORM=amd
-            export PATH="$SDK/bin:$SDK/lib/llvm/bin:$PATH"
-            export LD_LIBRARY_PATH="$SDK/lib:$SDK/lib/rocm_sysdeps/lib:$SDK/lib/llvm/lib:''${LD_LIBRARY_PATH:-}"
+            # ── venv ────────────────────────────────────────────────
+            # Только если ещё нет. numpy+jinja2+cmake и прочее из
+            # requirements.txt — ~50 МБ, ставятся за минуту.
+            if [ ! -x .venv/bin/python ]; then
+              echo ">>> Создаю venv"
+              python3 -m venv .venv
+            fi
+            if ! .venv/bin/python -c "import numpy" 2>/dev/null; then
+              echo ">>> Ставлю requirements.txt"
+              .venv/bin/pip install --no-cache-dir --upgrade pip
+              .venv/bin/pip install --no-cache-dir -r requirements.txt
+            else
+              echo ">>> venv уже готов"
+            fi
 
-            echo "=== Версия clang ==="
-            "$SDK/lib/llvm/bin/clang++" --version | head -3
+            # ── сборка движка (если нет) ───────────────────────────
+            if [ ! -x build-halo/strata ]; then
+              echo ">>> Собираю движок (25+ мин)"
+              cmake -S . -B build-halo -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DSTRATA_ENABLE_HIP=ON \
+                -DSTRATA_ENABLE_CUDA=OFF \
+                -DSTRATA_PREFILL_MMQ=ON \
+                -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+                -DCMAKE_HIP_COMPILER=/opt/rocm/lib/llvm/bin/clang++ \
+                -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/rocm \
+                "-DCMAKE_PREFIX_PATH=/opt/rocm;/opt/rocm/lib/rocm_sysdeps;/opt/rocm/lib/llvm" \
+                "-DCMAKE_HIP_FLAGS=--rocm-path=/opt/rocm --rocm-device-lib-path=/opt/rocm/lib/llvm/amdgcn/bitcode"
+              cmake --build build-halo --target strata -j "$(nproc)"
+            else
+              echo ">>> Движок уже собран: build-halo/strata"
+            fi
 
-            echo "=== CMake конфигурация ==="
-            # Флаги из docs/STRIX_HALO.md (раздел 2 «The engine»).
-            # --gcc-toolchain НЕ нужен: у нас есть системный gcc из apt.
-            cmake -S . -B build-halo -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DSTRATA_ENABLE_HIP=ON \
-              -DSTRATA_ENABLE_CUDA=OFF \
-              -DSTRATA_PREFILL_MMQ=ON \
-              -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
-              -DCMAKE_HIP_COMPILER="$SDK/lib/llvm/bin/clang++" \
-              -DCMAKE_HIP_COMPILER_ROCM_ROOT="$SDK" \
-              "-DCMAKE_PREFIX_PATH=$SDK;$SDK/lib/rocm_sysdeps;$SDK/lib/llvm" \
-              "-DCMAKE_HIP_FLAGS=--rocm-path=$SDK --rocm-device-lib-path=$SDK/lib/llvm/amdgcn/bitcode"
+            # ── engine/strata + BUILD.json ─────────────────────────
+            # setup.py ищет бинарь в engine/strata и метаданные в
+            # engine/BUILD.json. Если backend=hip, src совпадает
+            # с source_hash(ENGINE_SOURCES) и archs=[1151] — он
+            # НЕ пересобирает движок, а использует наш.
+            # Генерируем ровно как Dockerfile Strata.
+            echo ">>> Готовлю engine/strata + BUILD.json"
+            .venv/bin/python - <<PYEOF
+import json, pathlib, shutil, sys
+sys.path.insert(0, "/strata/src")
+import setup
 
-            echo "=== Сборка target strata ==="
-            cmake --build build-halo --target strata -j "$(nproc)"
+eng = setup.ROOT / "engine"
+eng.mkdir(exist_ok=True)
+shutil.copy2(setup.ROOT / "build-halo" / setup.EXE, eng / setup.EXE)
+
+meta = {
+    "source":     "local",
+    "version":    setup.source_version(),
+    "archs":      [1151],
+    "backend":    "hip",
+    "src":        setup.source_hash(setup.ENGINE_SOURCES),
+    "vision":     "none",
+    "vision_src": None,
+    "isa_floor":  "",
+}
+(eng / "BUILD.json").write_text(json.dumps(meta, indent=1))
+print("  backend:", meta["backend"])
+print("  src:    ", meta["src"])
+print("  archs:  ", meta["archs"])
+PYEOF
+
+            # ── setup.py --setup ──────────────────────────────────
+            # Идемпотентно: если конфиг уже есть и model совпадает,
+            # setup.py просто перезапустит движок или скажет что
+            # всё готово. Мы даём --setup чтобы явно запросить
+            # подготовку, но с --no-start — сервер поднимем отдельно.
+            #
+            # --family unsloth --model UD-IQ4_XS → конфиг
+            #   /data/config/strata-unsloth-ud_iq4_xs.json
+            # --gguf-dir /gguf → берёт готовые GGUF (никаких 70 ГБ
+            #   заново); но помни: setup проверяет SHA-256 первого
+            #   шарда и пишет рядом <shard>.done.
+            # --data-dir /data → pack, mtp, configs.
+            # --no-start → не поднимать сервер.
+            echo ">>> python setup.py --setup --yes (долгая часть)"
+            .venv/bin/python setup.py --setup --yes \
+              --family "${family}" \
+              --model  "${modelSize}" \
+              --context "${toString contextTokens}" \
+              --backend "${backend}" \
+              --data-dir /data \
+              --gguf-dir /gguf \
+              --host 0.0.0.0 \
+              --port ${toString portContainer} \
+              --no-start
+
+            echo ">>> Готово."
           '
 
         echo
         echo "═══════════════════════════════════════════════════════════════"
         echo "  Установка завершена."
-        echo "  Движок: $SRC/build-halo/strata"
+        echo "  Конфиг: $DATA_DIR/config/strata-${family}-$(echo ${modelSize} | tr 'A-Z' 'a-z').json"
         echo "  Запуск:  strata-start"
         echo "═══════════════════════════════════════════════════════════════"
       '';
     })
 
     # =====================================================================
-    # strata-start — запуск сервера в фоне.
+    # strata-start — запуск сервера.
     #
-    # Передаёт движку:
-    #   -m /models/<modelFile>   — модель (multi-part GGUF: первый файл)
-    #   --serve --host 0.0.0.0 --port <portContainer>
-    #   --expert-cache <N>       — иначе auto может уйти в OOM (#1715)
+    # setup.py без --setup читает готовый конфиг и поднимает
+    # serve/server.py, который сам спавнит strata --serve.
+    # Сервер слушает 0.0.0.0:PORT, конфиг уже содержит host/port.
     #
-    # Модель монтируется read-only из modelsDir (см. default.nix).
-    # Исходники и ROCm — read-write, потому что движок может писать
-    # кэш в каталог сборки.
-    #
-    # Дополнительные аргументы можно передать вручную:
-    #   strata-start -- --spec 4 --mtp
+    # В фоне (podman run -d), потому что setup.py в foreground
+    # блокирует shell. Логи — strata-logs.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
-      runtimeInputs = [ pkgs.podman pkgs.curl pkgs.xdg-utils pkgs.coreutils ];
+      runtimeInputs = [ pkgs.podman pkgs.curl pkgs.coreutils ];
       text = ''
         set -euo pipefail
 
-        CONTAINER_NAME="${containerName}"
         STRATA_DIR="${strataDir}"
-        MODELS_DIR="${modelsDir}"
-        MODEL_FILE="${modelFile}"
+        ROCM_DIR="$STRATA_DIR/rocm"
+        SDK="$ROCM_DIR/install"
+        DATA_DIR="${dataDir}"
+        GGUF_DIR="${ggufDir}"
         PORT_HOST=${toString portHost}
-        PORT_CONTAINER=${toString portContainer}
 
-        BIN="$STRATA_DIR/src/build-halo/strata"
-        MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
+        if [ ! -x "$STRATA_DIR/src/engine/strata" ]; then
+          echo "Движок не установлен. Сначала: strata-setup" >&2
+          exit 1
+        fi
 
-        if [ ! -x "$BIN" ]; then
-          echo "Движок не собран: $BIN" >&2
+        CFG="$DATA_DIR/config/strata-${family}-$(echo "${modelSize}" | tr 'A-Z' 'a-z').json"
+        if [ ! -f "$CFG" ]; then
+          echo "Конфиг не найден: $CFG" >&2
           echo "Сначала: strata-setup" >&2
           exit 1
         fi
 
-        if [ ! -f "$MODEL_PATH" ]; then
-          echo "Модель не найдена: $MODEL_PATH" >&2
-          echo "Проверь modelFile в llm/strata/default.nix." >&2
-          exit 1
-        fi
+        podman rm -f "${containerName}" 2>/dev/null || true
 
-        # Пересоздаём контейнер каждый раз — так проще менять env
-        # и не ловить stale-конфиг.
-        podman rm -f "$CONTAINER_NAME" 2>/dev/null || true
+        echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
 
-        echo "=== Запуск $CONTAINER_NAME (порт $PORT_HOST) ==="
-
-        # Монтирования:
-        #   $STRATA_DIR     → /strata     (rw: бинарь + ROCm + кэш)
-        #   $MODELS_DIR     → /models     (ro: модели)
-        #
-        # LD_LIBRARY_PATH: сначала ROCm, потом sysdeps (zlib, elfutils),
-        # потом LLVM/AMDGPU. Порядок важен.
-        #
-        # STRATA_HIPBLASLT_TUNING — таблица автотюнинга hipBLASLt для
-        # gfx1151, лежит в самом репозитории.
-        #
-        # env из fastEnvArgs — быстрый профиль (см. default.nix).
-        podman run -d --name "$CONTAINER_NAME" \
+        podman run -d --name "${containerName}" \
           ${gpuArgs} \
-          -p "$PORT_HOST:$PORT_CONTAINER" \
-          -v "$STRATA_DIR:/strata:Z" \
-          -v "$MODELS_DIR:/models:ro" \
-          -e ROCM_PATH=/strata/rocm/install \
-          -e HIP_PATH=/strata/rocm/install \
+          -p "$PORT_HOST:${toString portContainer}" \
+          -e STRATA_DATA=/data \
+          -e HOME=/data/home \
+          -e ROCM_PATH=/opt/rocm \
+          -e HIP_PATH=/opt/rocm \
           -e HIP_PLATFORM=amd \
-          -e LD_LIBRARY_PATH=/strata/rocm/install/lib:/strata/rocm/install/lib/rocm_sysdeps/lib:/strata/rocm/install/lib/llvm/lib \
-          -e STRATA_HIPBLASLT_TUNING="/strata/src/${hipblasltTuning}" \
-          ${fastEnvArgs} \
+          -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib \
+          -e STRATA_HIPBLASLT_TUNING=/strata/src/tools/hip/gfx1151-hipblaslt-100401.txt \
+          -v "$STRATA_DIR:/strata:Z" \
+          -v "$SDK:/opt/rocm" \
+          -v "$DATA_DIR:/data:Z" \
+          -v "$GGUF_DIR:/gguf:Z" \
+          -w /strata/src \
           "${imageName}:${imageTag}" \
-          /strata/src/build-halo/strata serve \
-            -m "/models/$MODEL_FILE" \
-            --host 0.0.0.0 \
-            --port "$PORT_CONTAINER" \
-            --expert-cache ${toString expertCache} \
+          /strata/src/.venv/bin/python /strata/src/setup.py \
+            --port ${toString portContainer} \
             "$@"
 
-        # Короткая пауза и проверка, что контейнер не упал на старте.
-        sleep 3
-        STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        # Проверка что контейнер не упал сразу.
+        sleep 5
+        STATUS=$(podman inspect "${containerName}" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
         if [ "$STATUS" != "running" ]; then
           echo "Контейнер упал (статус: $STATUS). Логи:" >&2
-          podman logs "$CONTAINER_NAME" 2>&1 | tail -40 >&2 || true
+          podman logs "${containerName}" 2>&1 | tail -60 >&2 || true
           exit 1
         fi
 
         URL="http://localhost:$PORT_HOST"
         echo "=== Запущено. Логи: strata-logs ==="
         echo "=== URL:  $URL ==="
-        xdg-open "$URL" >/dev/null 2>&1 &
+        echo "=== Модель грузится 1-3 минуты; страница откроется, когда сервер ответит ==="
+
+        # Ждём HTTP-ответа и открываем браузер.
+        (
+          for _ in $(seq 1 600); do
+            if curl -fsS -o /dev/null "$URL/health" 2>/dev/null \
+              || curl -fsS -o /dev/null "$URL/" 2>/dev/null; then
+              ${pkgs.xdg-utils}/bin/xdg-open "$URL" >/dev/null 2>&1 || true
+              exit 0
+            fi
+            sleep 2
+          done
+        ) &
       '';
     })
 
     # =====================================================================
     # strata-stop — мягкая остановка.
+    # Движок держит десятки ГБ page-locked RAM, поэтому SIGTERM
+    # может занять до 30-60 с. Даём 60, потом kill.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-stop";
       runtimeInputs = [ pkgs.podman pkgs.coreutils ];
       text = ''
         set -euo pipefail
-        CONTAINER_NAME="${containerName}"
-
-        if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
-          echo "Контейнер $CONTAINER_NAME не найден."
+        if ! podman container exists "${containerName}" 2>/dev/null; then
+          echo "Контейнер ${containerName} не найден."
           exit 0
         fi
 
-        STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+        STATUS=$(podman inspect "${containerName}" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
         case "$STATUS" in
           running|paused|restarting)
-            echo "Останавливаю $CONTAINER_NAME..."
-            podman stop -t 30 "$CONTAINER_NAME" 2>/dev/null || {
+            echo "Останавливаю ${containerName} (SIGTERM, до 60 с)..."
+            podman stop -t 60 "${containerName}" 2>/dev/null || {
               echo "SIGTERM не сработал, kill..."
-              podman kill "$CONTAINER_NAME" 2>/dev/null || true
+              podman kill "${containerName}" 2>/dev/null || true
             }
             ;;
           *)
             echo "Уже остановлен (статус: $STATUS)."
             ;;
         esac
-        podman rm -f "$CONTAINER_NAME" 2>/dev/null || true
+        podman rm -f "${containerName}" 2>/dev/null || true
         echo "Готово."
       '';
     })
 
     # =====================================================================
     # strata-logs — смотреть лог сервера.
-    # В логе ищи две строки:
-    #   - "prefill gemm: hipBLASLt tuning enabled (90 rows, gfx1151, version 100401)"
-    #     → таблица подхватилась.
-    #   - "gfx1151" в отчёте о дефолтах → движок узнал архитектуру.
+    # Что искать в логе:
+    #   - «backend: hip» или «HIP» — движок на AMD.
+    #   - «prefill gemm: hipBLASLt tuning enabled» — таблица подхвачена.
+    #   - строку про expert-cache (auto или число).
+    #   - «listening on» или финальный URL.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-logs";
@@ -370,8 +436,8 @@ in
 
     # =====================================================================
     # strata-shell — интерактивный bash внутри образа.
-    # Для отладки: проверить clinfo/rocminfo, потрогать бинарь, посмотреть
-    # переменные окружения.
+    # Для отладки: проверить clinfo/rocminfo, потрогать setup.py,
+    # запустить serve вручную.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-shell";
@@ -379,36 +445,39 @@ in
       text = ''
         set -euo pipefail
         STRATA_DIR="${strataDir}"
-        MODELS_DIR="${modelsDir}"
+        ROCM_DIR="$STRATA_DIR/rocm"
+        SDK="$ROCM_DIR/install"
 
         exec podman run --rm -it \
           ${gpuArgs} \
-          -v "$STRATA_DIR:/strata:Z" \
-          -v "$MODELS_DIR:/models:ro" \
-          -e ROCM_PATH=/strata/rocm/install \
-          -e HIP_PATH=/strata/rocm/install \
+          -e STRATA_DATA=/data \
+          -e HOME=/data/home \
+          -e ROCM_PATH=/opt/rocm \
+          -e HIP_PATH=/opt/rocm \
           -e HIP_PLATFORM=amd \
-          -e LD_LIBRARY_PATH=/strata/rocm/install/lib:/strata/rocm/install/lib/rocm_sysdeps/lib:/strata/rocm/install/lib/llvm/lib \
-          -e STRATA_HIPBLASLT_TUNING="/strata/src/${hipblasltTuning}" \
+          -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib \
+          -v "$STRATA_DIR:/strata:Z" \
+          -v "$SDK:/opt/rocm" \
+          -v "${dataDir}:/data:Z" \
+          -v "${ggufDir}:/gguf:Z" \
           --entrypoint /bin/bash \
           "${imageName}:${imageTag}"
       '';
     })
 
     # =====================================================================
-    # strata-update — git pull + пересборка движка.
-    # ROCm не трогаем: если нужен новый ROCm, обнови rocmUrl/rocmSha256
-    # в default.nix, удали ~/llm/strata/rocm/therock-*.tar.gz и
-    # ~/llm/strata/rocm/install, потом запусти strata-setup.
+    # strata-update — git pull + пересборка движка + пересборка pack.
+    # Pack НЕ пересобирается (setup.py видит уже готовый).
+    # Если нужен новый ROCm — обнови rocmUrl/rocmSha256 в default.nix,
+    # удали ~/llm/strata/rocm/therock-*.tar.gz и rocm/install/,
+    # потом запусти strata-setup заново.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-update";
       runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
       text = ''
         set -euo pipefail
-
-        STRATA_DIR="${strataDir}"
-        SRC="$STRATA_DIR/src"
+        SRC="${strataDir}/src"
 
         if [ ! -d "$SRC/.git" ]; then
           echo "Strata не установлена. Сначала: strata-setup" >&2
@@ -418,18 +487,16 @@ in
         echo "=== git pull ==="
         git -C "$SRC" pull --ff-only
 
-        echo "=== Удаляю build-halo для пересборки ==="
-        rm -rf "$SRC/build-halo"
+        echo "=== Сбрасываю build-halo и engine ==="
+        rm -rf "$SRC/build-halo" "$SRC/engine"
 
         echo "=== Пересборка через strata-setup ==="
-        # strata-setup идемпотентен: ROCm и образ уже на месте, скачает
-        # только то, чего нет, и пересоберёт движок.
         exec strata-setup
       '';
     })
 
     # =====================================================================
-    # strata-remove — снести контейнер, образ, ROCm и исходники.
+    # strata-remove — снести контейнер, образ, src, rocm, data.
     # Спрашивает подтверждения на каждый пункт.
     # =====================================================================
     (pkgs.writeShellApplication {
@@ -437,12 +504,11 @@ in
       runtimeInputs = [ pkgs.podman pkgs.coreutils ];
       text = ''
         set -euo pipefail
-
-        CONTAINER_NAME="${containerName}"
         IMAGE="${imageName}:${imageTag}"
         STRATA_DIR="${strataDir}"
+        DATA_DIR="${dataDir}"
 
-        podman rm -f "$CONTAINER_NAME" 2>/dev/null || true
+        podman rm -f "${containerName}" 2>/dev/null || true
 
         if podman image exists "$IMAGE" 2>/dev/null; then
           read -r -p "Удалить образ $IMAGE? [y/N] " answer
@@ -452,12 +518,30 @@ in
           esac
         fi
 
-        if [ -d "$STRATA_DIR" ]; then
-          SIZE=$(du -sh "$STRATA_DIR" 2>/dev/null | cut -f1 || echo "?")
-          read -r -p "Удалить $STRATA_DIR ($SIZE — src + ROCm + build)? [y/N] " answer
+        if [ -d "$STRATA_DIR/src" ]; then
+          SIZE=$(du -sh "$STRATA_DIR/src" 2>/dev/null | cut -f1 || echo "?")
+          read -r -p "Удалить $STRATA_DIR/src ($SIZE)? [y/N] " answer
           case "$answer" in
-            y|Y) rm -rf "$STRATA_DIR"; echo "$STRATA_DIR удалён." ;;
-            *)   echo "$STRATA_DIR сохранён." ;;
+            y|Y) rm -rf "$STRATA_DIR/src"; echo "src удалён." ;;
+            *)   echo "src сохранён." ;;
+          esac
+        fi
+
+        if [ -d "$STRATA_DIR/rocm" ]; then
+          SIZE=$(du -sh "$STRATA_DIR/rocm" 2>/dev/null | cut -f1 || echo "?")
+          read -r -p "Удалить $STRATA_DIR/rocm ($SIZE)? [y/N] " answer
+          case "$answer" in
+            y|Y) rm -rf "$STRATA_DIR/rocm"; echo "rocm удалён." ;;
+            *)   echo "rocm сохранён." ;;
+          esac
+        fi
+
+        if [ -d "$DATA_DIR" ]; then
+          SIZE=$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1 || echo "?")
+          read -r -p "Удалить $DATA_DIR ($SIZE — pack + конфиг + MTP)? [y/N] " answer
+          case "$answer" in
+            y|Y) rm -rf "$DATA_DIR"; echo "data удалён." ;;
+            *)   echo "data сохранён." ;;
           esac
         fi
 
