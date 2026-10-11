@@ -15,30 +15,6 @@ let
 
   containerfilePath = "${strataDir}/Containerfile";
 
-  # Общие env-переменные для всех контейнеров strata.
-  # Передаём -e ..., а не через command, чтобы одинаково работало
-  # и в setup, и в serve, и в shell.
-  #
-  #   STRATA_DATA=/data      — setup.py берёт отсюда конфиг и pack.
-  #   HOME=/data/home        — ~/.config/strata/settings.json попадает
-  #                            в volume, а не теряется при перезапуске.
-  #   ROCM_PATH=/opt/rocm    — setup.py проверяет bin/hipcc +
-  #                            lib/libhipblas.so* и использует
-  #                            системный ROCm вместо pip-колёс.
-  #                            (Экономит ~10 ГБ в .venv.)
-  #   HIP_PATH, LD_LIBRARY_PATH — для runtime движка и hipcc.
-  commonEnv = "-e STRATA_DATA=/data -e HOME=/data/home -e ROCM_PATH=/opt/rocm -e HIP_PATH=/opt/rocm -e HIP_PLATFORM=amd -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib";
-
-  # Монтирования, общие для всех запусков:
-  #   src/     → /strata     (rw: бинарь, venv, кэш)
-  #   rocm/    → /opt/rocm   (rw: setup.py может что-то писать)
-  #   data/    → /data       (rw: pack, конфиг, MTP, HOME)
-  #   ggufDir  → /gguf       (rw: setup.py пишет <shard>.done)
-  #
-  # :Z на src и rocm — SELinux-метка (на NixOS не критично, но
-  # с ней podman не ругается при работе с хостовыми каталогами).
-  commonMounts = "-v \"$STRATA_DIR:/strata:Z\" -v \"$ROCM_DIR:/opt/rocm\" -v \"$DATA_DIR:/data:Z\" -v \"$GGUF_DIR:/gguf:Z\"";
-
 in
 {
   home.packages = [
@@ -165,7 +141,6 @@ in
         fi
 
         # === Шаги 4-6: venv, движок, BUILD.json, setup.py ===
-        # Всё внутри одного podman run, чтобы иметь и ROCm, и venv.
         echo
         echo "═══════════════════════════════════════════════════════════════"
         echo "  Внутри контейнера:"
@@ -196,8 +171,6 @@ in
             cd /strata/src
 
             # ── venv ────────────────────────────────────────────────
-            # Только если ещё нет. numpy+jinja2+cmake и прочее из
-            # requirements.txt — ~50 МБ, ставятся за минуту.
             if [ ! -x .venv/bin/python ]; then
               echo ">>> Создаю venv"
               python3 -m venv .venv
@@ -233,7 +206,6 @@ in
             # engine/BUILD.json. Если backend=hip, src совпадает
             # с source_hash(ENGINE_SOURCES) и archs=[1151] — он
             # НЕ пересобирает движок, а использует наш.
-            # Генерируем ровно как Dockerfile Strata.
             echo ">>> Готовлю engine/strata + BUILD.json"
             .venv/bin/python - <<PYEOF
 import json, pathlib, shutil, sys
@@ -261,18 +233,6 @@ print("  archs:  ", meta["archs"])
 PYEOF
 
             # ── setup.py --setup ──────────────────────────────────
-            # Идемпотентно: если конфиг уже есть и model совпадает,
-            # setup.py просто перезапустит движок или скажет что
-            # всё готово. Мы даём --setup чтобы явно запросить
-            # подготовку, но с --no-start — сервер поднимем отдельно.
-            #
-            # --family unsloth --model UD-IQ4_XS → конфиг
-            #   /data/config/strata-unsloth-ud_iq4_xs.json
-            # --gguf-dir /gguf → берёт готовые GGUF (никаких 70 ГБ
-            #   заново); но помни: setup проверяет SHA-256 первого
-            #   шарда и пишет рядом <shard>.done.
-            # --data-dir /data → pack, mtp, configs.
-            # --no-start → не поднимать сервер.
             echo ">>> python setup.py --setup --yes (долгая часть)"
             .venv/bin/python setup.py --setup --yes \
               --family "${family}" \
@@ -291,7 +251,7 @@ PYEOF
         echo
         echo "═══════════════════════════════════════════════════════════════"
         echo "  Установка завершена."
-        echo "  Конфиг: $DATA_DIR/config/strata-${family}-$(echo ${modelSize} | tr 'A-Z' 'a-z').json"
+        echo "  Конфиг: $DATA_DIR/config/strata-${family}-$(echo '${modelSize}' | tr '[:upper:]' '[:lower:]').json"
         echo "  Запуск:  strata-start"
         echo "═══════════════════════════════════════════════════════════════"
       '';
@@ -299,13 +259,9 @@ PYEOF
 
     # =====================================================================
     # strata-start — запуск сервера.
-    #
     # setup.py без --setup читает готовый конфиг и поднимает
     # serve/server.py, который сам спавнит strata --serve.
     # Сервер слушает 0.0.0.0:PORT, конфиг уже содержит host/port.
-    #
-    # В фоне (podman run -d), потому что setup.py в foreground
-    # блокирует shell. Логи — strata-logs.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -325,7 +281,7 @@ PYEOF
           exit 1
         fi
 
-        CFG="$DATA_DIR/config/strata-${family}-$(echo "${modelSize}" | tr 'A-Z' 'a-z').json"
+        CFG="$DATA_DIR/config/strata-${family}-$(echo '${modelSize}' | tr '[:upper:]' '[:lower:]').json"
         if [ ! -f "$CFG" ]; then
           echo "Конфиг не найден: $CFG" >&2
           echo "Сначала: strata-setup" >&2
