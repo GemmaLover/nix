@@ -8,16 +8,25 @@ in
     # =====================================================================
     # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
     #
-    # Использует `podman run --rm -it`: контейнер создаётся, выполняется
-    # setup.sh (спрашивает модель/контекст/vision), после выхода
-    # контейнер удаляется. Но ВСЁ, что setup.sh записал в /opt/Strata,
-    # физически лежит в ~/llm/strata на хосте (bind mount) — не теряется.
+    # ВАЖНО: в образе kyuz0/amd-strix-halo-toolboxes НЕТ git.
+    # Поэтому репозиторий клонируется НА ХОСТЕ (где git есть),
+    # а внутрь контейнера монтируется готовое дерево через bind mount.
     #
-    # После успешного завершения: strata-start.
+    # Порядок:
+    #   1. git clone на хосте → ~/llm/strata
+    #   2. podman run --rm -it с монтированием ~/llm/strata → /opt/Strata
+    #   3. Внутри контейнера: cd /opt/Strata && ./setup.sh
+    #
+    # setup.sh спросит модель (IQ2_XS, Q4_K_M, ...), контекст, vision.
+    # Когда спросит путь для моделей — указывать /opt/Strata/models
+    # (это = ~/llm/strata/models на хосте).
+    #
+    # После выхода контейнер удаляется (--rm), но ВСЁ остаётся в
+    # ~/llm/strata: исходники, скомпилированный движок, модели.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
-      runtimeInputs = [ pkgs.podman pkgs.coreutils ];
+      runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
       text = ''
         set -euo pipefail
 
@@ -27,6 +36,23 @@ in
         PORT_CONTAINER=${toString portContainer}
 
         mkdir -p "$STRATA_DIR"
+
+        # === Шаг 1: клонируем/обновляем Strata НА ХОСТЕ ===
+        # В образе kyuz0 нет git — поэтому клонируем здесь, где git есть.
+        # Дальше монтируем готовое дерево в контейнер.
+        if [ ! -d "$STRATA_DIR/.git" ]; then
+          echo "Клонирую Strata в $STRATA_DIR..."
+          git clone https://github.com/Niko1221/Strata.git "$STRATA_DIR"
+        else
+          echo "Обновляю Strata (git pull)..."
+          git -C "$STRATA_DIR" pull --ff-only || echo "  (git pull пропущен)"
+        fi
+
+        if [ ! -x "$STRATA_DIR/setup.sh" ]; then
+          echo "ОШИБКА: в $STRATA_DIR нет setup.sh" >&2
+          echo "Проверьте содержимое: ls $STRATA_DIR" >&2
+          exit 1
+        fi
 
         if ! podman image exists "$IMAGE" 2>/dev/null; then
           echo "Образ '$IMAGE' отсутствует. Скачиваю..."
@@ -44,9 +70,10 @@ in
         echo "═══════════════════════════════════════════════════════════════"
         echo
 
-        # --rm: удаляем контейнер после setup, чтобы не мусорить.
-        # Всё ценное лежит в $STRATA_DIR (bind mount).
-        # --entrypoint /bin/bash переопределяет entrypoint образа.
+        # === Шаг 2: запускаем setup.sh ВНУТРИ контейнера ===
+        # Репозиторий уже на месте (через bind mount), поэтому git не нужен.
+        # -it для интерактивного setup.sh.
+        # --rm: контейнер удаляется после setup, всё ценное в $STRATA_DIR.
         podman run --rm -it \
           --device /dev/kfd \
           --device /dev/dri \
@@ -57,17 +84,7 @@ in
           -v "$STRATA_DIR:/opt/Strata:Z" \
           --entrypoint /bin/bash \
           "$IMAGE" \
-          -c "
-            cd /opt/Strata
-            if [ ! -d .git ]; then
-              echo 'Клонирую Strata...'
-              git clone https://github.com/Niko1221/Strata.git .
-            else
-              echo 'Strata уже есть, git pull...'
-              git pull --ff-only || true
-            fi
-            ./setup.sh
-          "
+          -c "cd /opt/Strata && ./setup.sh"
 
         echo
         echo "Установка завершена."
@@ -80,7 +97,11 @@ in
     # Сервисный контейнер. Использует уже собранный движок из ~/llm/strata.
     #
     # Создаётся один раз (при первом вызове), потом только start/stop.
-    # Entrypoint сервисного контейнера НЕ запускает setup.sh — только сервер.
+    # Entrypoint НЕ запускает setup.sh — только сервер.
+    #
+    # Если в репозитории Strata нет start.sh — замените команду в
+    # entrypoint на ту, что описана в README проекта (например,
+    # `python -m strata.server` или `./build/strata-server`).
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -120,7 +141,7 @@ in
         if [ "$STATUS" = "running" ]; then
           echo "Контейнер '$CONTAINER_NAME' уже запущен."
         else
-          echo "Запускаю сервер..."
+          echo "Запускаю сервер (статус был: $STATUS)..."
           podman start "$CONTAINER_NAME"
         fi
 
@@ -141,6 +162,8 @@ in
     })
 
     # === Остановка ===
+    # Плавно шлёт SIGTERM, ждёт до 60 секунд. Если не сработало — SIGKILL.
+    # Файлы в ~/llm/strata не затрагиваются.
     (pkgs.writeShellApplication {
       name = "strata-stop";
       runtimeInputs = [ pkgs.podman ];
@@ -171,6 +194,8 @@ in
     })
 
     # === Удаление ===
+    # Удаляет контейнер, опционально образ, опционально ~/llm/strata
+    # (исходники + модели). Спрашивает подтверждение на каждый шаг.
     (pkgs.writeShellApplication {
       name = "strata-remove";
       runtimeInputs = [ pkgs.podman pkgs.coreutils ];
@@ -207,9 +232,11 @@ in
     })
 
     # === Обновление (git pull + пересборка) ===
+    # Клонирование и pull делает ХОСТ (где есть git), в контейнере
+    # запускается только setup.sh — та же схема, что в strata-setup.
     (pkgs.writeShellApplication {
       name = "strata-update";
-      runtimeInputs = [ pkgs.podman pkgs.coreutils ];
+      runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
       text = ''
         set -euo pipefail
 
@@ -221,7 +248,11 @@ in
           exit 1
         fi
 
-        echo "Обновляю Strata (git pull + setup.sh)..."
+        echo "Обновляю исходники (git pull на хосте)..."
+        git -C "$STRATA_DIR" pull --ff-only
+
+        echo
+        echo "Пересборка (setup.sh в контейнере)..."
         echo "setup.sh снова спросит модель — можно оставить ту же."
         echo
 
@@ -234,9 +265,7 @@ in
           -v "$STRATA_DIR:/opt/Strata:Z" \
           --entrypoint /bin/bash \
           "$IMAGE" \
-          -c "
-            cd /opt/Strata && git pull --ff-only && ./setup.sh
-          "
+          -c "cd /opt/Strata && ./setup.sh"
 
         echo
         echo "Обновление завершено. Перезапустите сервер:"
