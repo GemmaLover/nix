@@ -30,13 +30,11 @@ in
       text = ''
         set -euo pipefail
 
-        IMAGE="${image}"
+               IMAGE="${image}"
         STRATA_DIR="${strataDir}"
         ROCM_DIR="$STRATA_DIR/rocm"
         ROCM_TGZ="$ROCM_DIR/therock-dist-linux-gfx1151-${rocmVersion}.tar.gz"
         SDK="$ROCM_DIR/install"
-        PORT_HOST=${toString portHost}
-        PORT_CONTAINER=${toString portContainer}
 
         mkdir -p "$STRATA_DIR" "$ROCM_DIR"
 
