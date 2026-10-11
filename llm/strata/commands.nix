@@ -9,22 +9,26 @@ in
     # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
     #
     # ПОДВОДНЫЕ КАМНИ ОБРАЗА kyuz0/amd-strix-halo-toolboxes:
-    #   1. НЕТ git — репозиторий клонируется НА ХОСТЕ.
-    #   2. НЕТ gcc-c++, make — ставятся через dnf5 в контейнере.
-    #   3. Fedora-репы и ROCm-репо недоступны из РФ — переключаем на
-    #      ftp.fau.de (path /fedora/linux, не /fedora!), отключаем
-    #      cisco-openh264 и rocm*.repo.
-    #   4. dev-файлов ROCm в образе НЕТ — setup.sh качает их с
-    #      rocm.nightlies.amd.com. Сайт доступен, но скачивание
-    #      больших файлов нестабильно (timeout на 1 МБ setuptools).
-    #      ЛЕЧЕНИЕ: увеличить PIP_RETRIES/PIP_TIMEOUT и добавить
-    #      pypi.org как extra-index — общие пакеты (setuptools, ninja,
-    #      cmake) пойдут с PyPI, ROCm-специфичные с nightlies.
+    #   1. НЕТ git → репозиторий клонируется НА ХОСТЕ.
+    #   2. НЕТ gcc-c++, make → ставятся через dnf5 в контейнере.
+    #   3. Fedora-репы и ROCm-репо недоступны из РФ → ftp.fau.de
+    #      (path /fedora/linux, не /fedora!), cisco-openh264 и
+    #      rocm*.repo отключаются.
+    #   4. Dev-файлов ROCm в образе НЕТ. setup.sh тянет их с
+    #      rocm.nightlies.amd.com (~10 ГБ, версии 7.14.0a20260608 —
+    #      на PyPI её НЕТ). Сайт доступен (200 OK за 0.67s), но
+    #      БОЛЬШИЕ файлы обрываются (timeout 120s).
     #
-    # Порядок:
-    #   1. git clone на хосте → ~/llm/strata
-    #   2. podman run --rm -it с монтированием ~/llm/strata → /opt/Strata
-    #   3. Внутри: смена зеркал → dnf5 install → setup.sh с pip-env.
+    # ЛЕЧЕНИЕ ОБРЫВОВ: persistent pip cache на хосте.
+    #   - Монтируем ~/llm/strata/.pip-cache внутрь контейнера
+    #     как /root/.cache/pip.
+    #   - pip сохраняет частично скачанные файлы.
+    #   - При повторном запуске setup.sh pip резюмирует, а не
+    #     качает заново.
+    #   - За N прогонов (каждый обрывается, но прогресс копится)
+    #     всё скачается.
+    #
+    # Плюс увеличенные retries (30) и timeout (120s) на каждый запрос.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
@@ -36,8 +40,9 @@ in
         STRATA_DIR="${strataDir}"
         PORT_HOST=${toString portHost}
         PORT_CONTAINER=${toString portContainer}
+        PIP_CACHE_DIR="$STRATA_DIR/.pip-cache"
 
-        mkdir -p "$STRATA_DIR"
+        mkdir -p "$STRATA_DIR" "$PIP_CACHE_DIR"
 
         if [ ! -d "$STRATA_DIR/.git" ]; then
           echo "Клонирую Strata в $STRATA_DIR..."
@@ -57,25 +62,31 @@ in
           podman pull "$IMAGE"
         fi
 
+        # Проверяем размер кэша pip — чтобы видеть прогресс между запусками.
+        if [ -d "$PIP_CACHE_DIR" ]; then
+          CACHE_SIZE=$(du -sh "$PIP_CACHE_DIR" 2>/dev/null | cut -f1 || echo "0")
+          echo "Кэш pip: $CACHE_SIZE (сохраняется между запусками)"
+        fi
+
         echo
         echo "═══════════════════════════════════════════════════════════════"
         echo "  Установка Strata (интерактивная)."
         echo
         echo "  Исходники, движок и модели будут в: $STRATA_DIR"
+        echo "  pip-кэш: $PIP_CACHE_DIR (резюмирует обрывы)"
         echo "  Когда setup.sh спросит путь для моделей — укажи:"
         echo "    /opt/Strata/models"
         echo "═══════════════════════════════════════════════════════════════"
         echo
 
-        # Переменные окружения для pip, чтобы обойти нестабильное
-        # скачивание с rocm.nightlies.amd.com:
-        #   PIP_RETRIES — сколько раз повторять при обрыве (по умолч. 5)
-        #   PIP_TIMEOUT / PIP_DEFAULT_TIMEOUT — таймаут на скачивание
-        #   PIP_EXTRA_INDEX_URL — PyPI как fallback. setuptools, wheel,
-        #     ninja, cmake, pillow есть на PyPI и скачаются быстро;
-        #     ROCm-специфичные пакеты (rocm, rocm-sdk-*) остаются на
-        #     nightlies, но их немного и они меньше страдают от обрывов.
-        #   PIP_PROGRESS_BAR=on — видеть прогресс скачивания.
+        # PIP_CACHE_DIR=/root/.cache/pip — внутри контейнера.
+        # Монтирование: $STRATA_DIR/.pip-cache → /root/.cache/pip.
+        #
+        # :Z на volume — SELinux-контекст (Fedora требует).
+        #
+        # -e PIP_RESUME_RETRIES=30 — 30 попыток резюма.
+        # -e PIP_RETRIES=30 — 30 попыток подключения.
+        # -e PIP_TIMEOUT=120 — 120с таймаут чтения.
         podman run --rm -it \
           --device /dev/kfd \
           --device /dev/dri \
@@ -84,10 +95,12 @@ in
           --shm-size=8g \
           -p "$PORT_HOST:$PORT_CONTAINER" \
           -v "$STRATA_DIR:/opt/Strata:Z" \
+          -v "$PIP_CACHE_DIR:/root/.cache/pip:Z" \
+          -e PIP_CACHE_DIR=/root/.cache/pip \
           -e PIP_RETRIES=30 \
           -e PIP_TIMEOUT=120 \
           -e PIP_DEFAULT_TIMEOUT=120 \
-          -e PIP_EXTRA_INDEX_URL=https://pypi.org/simple/ \
+          -e PIP_RESUME_RETRIES=30 \
           -e PIP_PROGRESS_BAR=on \
           --entrypoint /bin/bash \
           "$IMAGE" \
@@ -95,7 +108,6 @@ in
             set -e
 
             # === Шаг A: смена зеркал Fedora ===
-            # ftp.fau.de использует /fedora/linux/..., а не /fedora/...
             echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
             for repo in /etc/yum.repos.d/fedora.repo \
                         /etc/yum.repos.d/fedora-updates.repo \
@@ -119,10 +131,6 @@ in
             done
 
             # === Шаг B: установка инструментов сборки ===
-            # ВАЖНО: rocm-clang-devel, rocm-cmake и т.п. НЕ ставим —
-            # они от Fedora-сборки ROCm, несовместимой с /opt/rocm/core-10.0
-            # в образе. setup.sh сам поставит нужные dev-файлы через
-            # pip с rocm.nightlies.amd.com.
             if command -v dnf5 >/dev/null 2>&1; then
               echo "=== Установка gcc-c++, make, git через dnf5 ==="
               dnf5 install -y --setopt=install_weak_deps=False \
@@ -139,13 +147,14 @@ in
             fi
 
             # === Шаг C: setup.sh ===
-            # pip-переменные прокинуты через -e в podman run.
-            # setup.sh увидит их и будет использовать при pip install.
             cd /opt/Strata && ./setup.sh
           '
 
         echo
-        echo "Установка завершена."
+        echo "Установка завершена (или прервана — кэш pip сохранён)."
+        echo "Если обрывалось на скачивании ROCm — просто запустите strata-setup снова,"
+        echo "прогресс сохранится и скачивание продолжится с места обрыва."
+        echo
         echo "Всё лежит в: $STRATA_DIR"
         echo "Запуск сервера: strata-start"
       '';
@@ -155,8 +164,9 @@ in
     # Сервисный контейнер. Использует готовый движок из ~/llm/strata.
     # Создаётся один раз, потом только start/stop.
     #
-    # Команда запуска сервера — предположение. Проверьте после setup:
+    # Команда запуска сервера — предположение. После setup проверьте:
     #   ls ~/llm/strata/*.sh
+    #   grep -ri "start\|serve\|run" ~/llm/strata/README.md | head
     # Если сервер запускается иначе — поправьте entrypoint ниже.
     # =====================================================================
     (pkgs.writeShellApplication {
@@ -271,7 +281,7 @@ in
 
         if [ -d "$STRATA_DIR" ]; then
           SIZE=$(du -sh "$STRATA_DIR" 2>/dev/null | cut -f1 || echo "?")
-          read -r -p "Удалить $STRATA_DIR ($SIZE — исходники + модели)? [y/N] " answer
+          read -r -p "Удалить $STRATA_DIR ($SIZE — исходники + модели + pip-кэш)? [y/N] " answer
           if [[ "''${answer,,}" == "y" ]]; then
             rm -rf "$STRATA_DIR"
             echo "$STRATA_DIR удалён."
@@ -284,6 +294,8 @@ in
     })
 
     # === Обновление ===
+    # Persistent pip cache тоже применяется — если при обновлении
+    # придётся докачивать dev-пакеты ROCm, обрывы резюмируются.
     (pkgs.writeShellApplication {
       name = "strata-update";
       runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
@@ -292,11 +304,14 @@ in
 
         IMAGE="${image}"
         STRATA_DIR="${strataDir}"
+        PIP_CACHE_DIR="$STRATA_DIR/.pip-cache"
 
         if [ ! -d "$STRATA_DIR/.git" ]; then
           echo "Strata не установлена. Сначала: strata-setup" >&2
           exit 1
         fi
+
+        mkdir -p "$PIP_CACHE_DIR"
 
         echo "Обновляю исходники (git pull на хосте)..."
         git -C "$STRATA_DIR" pull --ff-only
@@ -312,10 +327,12 @@ in
           --security-opt label=disable \
           --shm-size=8g \
           -v "$STRATA_DIR:/opt/Strata:Z" \
+          -v "$PIP_CACHE_DIR:/root/.cache/pip:Z" \
+          -e PIP_CACHE_DIR=/root/.cache/pip \
           -e PIP_RETRIES=30 \
           -e PIP_TIMEOUT=120 \
           -e PIP_DEFAULT_TIMEOUT=120 \
-          -e PIP_EXTRA_INDEX_URL=https://pypi.org/simple/ \
+          -e PIP_RESUME_RETRIES=30 \
           -e PIP_PROGRESS_BAR=on \
           --entrypoint /bin/bash \
           "$IMAGE" \
