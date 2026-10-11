@@ -21,14 +21,12 @@
   # │ sing-box (TUN singtun0)                                      │
   # │ - DNS НЕ трогает (dns_mode = "disabled")                    │
   # │ - dnscrypt-proxy → dns-out (гарантированный обход TUN)       │
-  # │ - Firefox → direct-out (напрямую, мимо TUN/zapret — так      │
-  # │   задано явно; SOCKS-сервера нет, правила на socks-out       │
-  # │   удалены, чтобы не было петли/зависания)                    │
-  # │ - Brave и всё остальное → zapret-out (nfqws2, «база для      │
-  # │   всех»); chromium → vless-out — заглушка (деградирует в     │
-  # │   direct, реального сервера нет)                             │
-  # │ OUTBOUND "socks-out" оставлен в конфиге как заготовка, но    │
-  # │ НИКАКИЕ правила маршрутизации на него не направлены.         │
+  # │ - Chromium/Firefox/всё остальное → SELECTOR "system-out"     │
+  # │   Переключается между:                                       │
+  # │     * zapret-out   — обычный режим (обход DPI через nfqws2)  │
+  # │     * waydroid-out — SOCKS5 на 192.168.240.112:1080          │
+  # │                      (VPN внутри Waydroid, включается вручную)│
+  # │   Переключение — команды waydroid-vpn-connect / -disconnect. │
   # └─────────────────────────────────────────────────────────────┘
   #
   # ВАЖНО:
@@ -45,12 +43,40 @@
   #     * минимумом для gvisor (~1280);
   #     * необходимостью, чтобы nfqws2 не получал пакеты 1480+,
   #       которые не влезают в raw socket.
+  #
+  # === SELECTOR system-out ===
+  # Все правила маршрутизации (кроме DNS, NTP, loopback) направлены
+  # в selector "system-out". Переключение через Clash API
+  # (127.0.0.1:9090) — без перезапуска sing-box, текущие сессии
+  # не рвутся. Выбор сохраняется в /var/cache/sing-box/cache.db.
+  #
+  # Управление (в environment.systemPackages ниже):
+  #   waydroid-vpn-connect     — переключить на waydroid-out (VPN)
+  #   waydroid-vpn-disconnect  — вернуть на zapret-out (обычный)
+  #   waydroid-vpn-status      — показать текущий режим
   # =====================================================================
   services.sing-box = {
     enable = true;
     settings = {
       log = {
         level = "info";
+      };
+
+      # =============================================================
+      # Clash API + cache
+      # =============================================================
+      # Clash API — для управления selector'ом на лету (PUT /proxies).
+      # Слушает только на 127.0.0.1, доступен локально без аутентификации.
+      #
+      # cache_file — сохраняет выбор selector между перезапусками
+      # sing-box (например, при nixos-rebuild). Каталог создаётся
+      # через systemd.tmpfiles.rules (см. ниже).
+      experimental = {
+        clash_api.external_controller = "127.0.0.1:9090";
+        cache_file = {
+          enabled = true;
+          path = "/var/cache/sing-box/cache.db";
+        };
       };
 
       inbounds = [
@@ -86,9 +112,8 @@
 
       outbounds = [
         # socks-out — заготовка на будущее (реального SOCKS-сервера
-        # сейчас нет). ВНИМАНИЕ: правила маршрутизации на него НЕ
-        # направлены — через него ничего не ходит. Активировать можно,
-        # добавив process-правила, когда сервер появится.
+        # на 127.0.0.1 сейчас нет; есть waydroid-out ниже). ВНИМАНИЕ:
+        # правила маршрутизации на него НЕ направлены.
         {
           type = "socks";
           tag = "socks-out";
@@ -98,18 +123,40 @@
           username = "chelik";
           password = "pass11";
         }
+
+        # zapret-out — базовый режим: nfqws2 (обход DPI).
         {
           type = "direct";
           tag = "zapret-out";
           routing_mark = 110;
         }
+
+        # waydroid-out — SOCKS5 внутри Waydroid-контейнера.
+        # sing-box for Android (SFA) поднимает прокси на 0.0.0.0:1080,
+        # а весь его исходящий трафик идёт через VPN-туннель внутри
+        # Android. С хоста доступен по адресу 192.168.240.112 (bridge
+        # waydroid0), при условии что применено правило
+        # waydroid-fix-route (иначе ответные пакеты уходят в tun0).
+        #
+        # ВАЖНО: waydroid-out работает только когда:
+        #   1. Waydroid запущен,
+        #   2. VPN включён внутри Android,
+        #   3. Применено: waydroid-fix-route
+        # При подключении waydroid-vpn-connect всё это проверяется.
+        {
+          type = "socks";
+          tag = "waydroid-out";
+          server = "192.168.240.112";
+          server_port = 1080;
+          version = "5";
+        }
+
         # vless-out — ЗАГЛУШКА на будущее: реального сервера пока нет,
         # через него ничего не отправляем. Параметры хранятся в файле
         # ./sing-box/vless.nix (закоммичен как заглушка с enable = false;
         # flake из git-дерева копирует только отслеживаемые файлы, поэтому
         # файл ОБЯЗАН быть в git — иначе «Path does not exist»).
-        # Пока vless.enable = false — тег vless-out это обычный direct,
-        # и Chromium ходит напрямую без обрыва сайтов.
+        # Пока vless.enable = false — тег vless-out это обычный direct.
         (let
           v = import ./sing-box/vless.nix;
         in
@@ -132,6 +179,7 @@
             type = "direct";
             tag = "vless-out";
           })
+
         {
           type = "direct";
           tag = "direct-out";
@@ -139,6 +187,28 @@
         {
           type = "direct";
           tag = "dns-out";
+        }
+
+        # =============================================================
+        # SELECTOR system-out — главный переключатель
+        # =============================================================
+        # Один outbound, который переключается между двумя:
+        #   zapret-out   — обычный режим (обход DPI через nfqws2)
+        #   waydroid-out — VPN внутри Waydroid (SOCKS5)
+        #
+        # Переключение — через Clash API:
+        #   PUT /proxies/system-out  {"name": "waydroid-out"}
+        #   PUT /proxies/system-out  {"name": "zapret-out"}
+        # (см. команды waydroid-vpn-connect / -disconnect)
+        #
+        # default = "zapret-out" — стартовое значение, если cache
+        # пуст. После первого переключения cache_file запоминает
+        # выбор и восстанавливает его при рестарте.
+        {
+          type = "selector";
+          tag = "system-out";
+          outbounds = [ "zapret-out" "waydroid-out" ];
+          default = "zapret-out";
         }
       ];
 
@@ -158,6 +228,11 @@
             # но ip rule fwmark 8227 (см. sing-box-fwmark-rule) имеет
             # приоритет 100 и уводит пакеты в main table — на случай
             # гонки маршрутизации держим DNS на гарантированном пути.
+            #
+            # ВАЖНО: DNS идёт через dns-out (direct), НЕ через selector.
+            # Это значит, что при включённом VPN DNS всё равно резолвится
+            # напрямую — чтобы резолвинг работал, даже если VPN-туннель
+            # внутри Waydroid отвалится.
             process_name = ["dnscrypt-proxy"];
             outbound = "dns-out";
           }
@@ -166,29 +241,38 @@
             port = [123];
             outbound = "direct-out";
           }
+
+          # =========================================================
+          # Правила для приложений → SELECTOR system-out
+          # =========================================================
+          # Ранее Firefox ходил через direct-out специально, чтобы
+          # обойти race condition при старте. Сейчас это не нужно:
+          # selector даёт детерминированный выбор режима.
+          #
+          # Chromium и Firefox направлены в selector, чтобы
+          # waydroid-vpn-connect переключал и их тоже.
           {
             process_name = ["chromium"];
-            outbound = "vless-out";
+            outbound = "system-out";
           }
           {
             process_path_regex = [".*/chromium/chromium.*"];
-            outbound = "vless-out";
+            outbound = "system-out";
           }
-          # Firefox — напрямую (direct-out), мимо TUN и zapret.
-          # SOCKS-сервера нет: правила на socks-out удалены, чтобы
-          # трафик браузера не зависал на несуществующем прокси.
-          # Brave не имеет отдельного правила и попадает в базовый
-          # zapret-out (последнее правило по умолчанию).
           {
             process_name = ["firefox" "firefox-bin"];
-            outbound = "direct-out";
+            outbound = "system-out";
           }
           {
             process_path_regex = [".*/firefox/firefox.*" ".*/libexec/mozilla-firefox.*"];
-            outbound = "direct-out";
+            outbound = "system-out";
           }
+
+          # Catch-all: всё остальное — тоже в selector.
+          # По умолчанию selector = zapret-out (nfqws2, обход DPI);
+          # после waydroid-vpn-connect — waydroid-out (VPN).
           {
-            outbound = "zapret-out";
+            outbound = "system-out";
           }
         ];
       };
@@ -233,4 +317,125 @@
       ${pkgs.iproute2}/bin/ip -6 rule add fwmark 8227 lookup main priority 100
     '';
   };
+
+  # =====================================================================
+  # Каталог для cache_file selector'а.
+  # Cache переживает перезапуски sing-box (nixos-rebuild, reboot).
+  # =====================================================================
+  systemd.tmpfiles.rules = [
+    "d /var/cache/sing-box 0750 root root -"
+  ];
+
+  # =====================================================================
+  # Команды управления режимом
+  # =====================================================================
+  # waydroid-vpn-connect     — переключить всю систему на VPN (Waydroid)
+  # waydroid-vpn-disconnect  — вернуть zapret (обход DPI)
+  # waydroid-vpn-status      — показать текущий режим
+  #
+  # Все команды работают через Clash API sing-box (127.0.0.1:9090),
+  # переключение мгновенное, без перезапуска сервиса.
+  # =====================================================================
+  environment.systemPackages = [
+    # Переключить всю систему на VPN внутри Waydroid.
+    (pkgs.writeShellApplication {
+      name = "waydroid-vpn-connect";
+      runtimeInputs = [ pkgs.curl pkgs.jq pkgs.netcat pkgs.coreutils ];
+      text = ''
+        set -euo pipefail
+        API="http://127.0.0.1:9090"
+
+        # --- Проверка 1: Clash API sing-box доступен ---
+        if ! curl -fsS "$API/proxies/system-out" >/dev/null 2>&1; then
+          echo "ОШИБКА: Clash API sing-box недоступен на $API." >&2
+          echo "Проверьте: systemctl status sing-box" >&2
+          exit 1
+        fi
+
+        # --- Проверка 2: SOCKS5 в Waydroid отвечает ---
+        # Проверяем просто открытие TCP-порта, без аутентификации.
+        if ! nc -z -w 3 192.168.240.112 1080 2>/dev/null; then
+          echo "ОШИБКА: SOCKS5 192.168.240.112:1080 не отвечает." >&2
+          echo "Убедитесь, что:" >&2
+          echo "  1. Waydroid запущен." >&2
+          echo "  2. VPN включён ВНУТРИ Android (SFA → Start)." >&2
+          echo "  3. Применено правило: waydroid-fix-route" >&2
+          exit 1
+        fi
+
+        # --- Проверка 3: SOCKS5 реально работает (не только порт открыт) ---
+        # Короткий запрос через прокси к внешнему сайту.
+        if ! curl -fsS --max-time 5 --socks5-hostname 192.168.240.112:1080 \
+             https://ifconfig.me >/dev/null 2>&1; then
+          echo "ПРЕДУПРЕЖДЕНИЕ: SOCKS5 открыт, но не пропускает трафик." >&2
+          echo "VPN внутри Waydroid может быть не готов. Продолжаю переключение..." >&2
+        fi
+
+        # --- Переключение selector ---
+        curl -fsS -X PUT "$API/proxies/system-out" \
+          -H "Content-Type: application/json" \
+          -d '{"name":"waydroid-out"}' >/dev/null
+
+        echo "Система переключена на VPN (waydroid-out)."
+        echo
+        echo "Проверка: curl -s https://ifconfig.me"
+        echo "Откат:    waydroid-vpn-disconnect"
+      '';
+    })
+
+    # Вернуть систему на zapret (обычный режим обхода DPI).
+    (pkgs.writeShellApplication {
+      name = "waydroid-vpn-disconnect";
+      runtimeInputs = [ pkgs.curl pkgs.coreutils ];
+      text = ''
+        set -euo pipefail
+        API="http://127.0.0.1:9090"
+
+        if ! curl -fsS "$API/proxies/system-out" >/dev/null 2>&1; then
+          echo "ОШИБКА: Clash API sing-box недоступен." >&2
+          exit 1
+        fi
+
+        curl -fsS -X PUT "$API/proxies/system-out" \
+          -H "Content-Type: application/json" \
+          -d '{"name":"zapret-out"}' >/dev/null
+
+        echo "Система вернулась в режим zapret-out (обход DPI)."
+      '';
+    })
+
+    # Показать текущий режим и доступные outbound'ы selector'а.
+    (pkgs.writeShellApplication {
+      name = "waydroid-vpn-status";
+      runtimeInputs = [ pkgs.curl pkgs.jq ];
+      text = ''
+        set -euo pipefail
+        API="http://127.0.0.1:9090"
+
+        if ! curl -fsS "$API/proxies/system-out" >/dev/null 2>&1; then
+          echo "Clash API sing-box недоступен." >&2
+          exit 1
+        fi
+
+        CURRENT=$(curl -fsS "$API/proxies/system-out" | jq -r '.now')
+        echo "Текущий режим: $CURRENT"
+
+        case "$CURRENT" in
+          waydroid-out)
+            echo "→ Весь трафик идёт через VPN (Waydroid)"
+            ;;
+          zapret-out)
+            echo "→ Весь трафик идёт через zapret (обход DPI)"
+            ;;
+          *)
+            echo "→ Неизвестный режим: $CURRENT"
+            ;;
+        esac
+
+        echo
+        echo "Доступные outbound'ы:"
+        curl -fsS "$API/proxies/system-out" | jq -r '.all[]' | sed 's/^/  - /'
+      '';
+    })
+  ];
 }
