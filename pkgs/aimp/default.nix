@@ -43,7 +43,7 @@ stdenv.mkDerivation rec {
   # в usr/lib/, а в 3089 — их нет вообще (AIMP поломал сборку).
   src = fetchurl {
     url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3088beta7-1-x86_64.pkg.tar.zst";
-    hash = "sha256-1111111111111111111111111111111111111111111=";  # ЗАМЕНИТЬ
+    hash = "sha256-TVzatedYSQxXpisQxtbp4qBJ8lC2QxXJmQTsJLHL9I8=";
   };
 
   nativeBuildInputs = [
