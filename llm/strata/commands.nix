@@ -1,113 +1,165 @@
 { config, pkgs, lib, strataConfig, ... }:
 
 let
-  inherit (strataConfig) image portHost portContainer strataDir;
+  inherit (strataConfig) image portHost portContainer strataDir
+          rocmVersion rocmUrl rocmSha256 hipblasltTuning;
 in
 {
   home.packages = [
     # =====================================================================
-    # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
+    # Установка Strata (одноразовая).
     #
-    # ПОДВОДНЫЕ КАМНИ ОБРАЗА kyuz0/amd-strix-halo-toolboxes:
-    #   1. НЕТ git → репозиторий клонируется НА ХОСТЕ.
-    #   2. НЕТ gcc-c++, make → ставятся через dnf5 в контейнере.
-    #   3. Fedora-репы и ROCm-репо недоступны из РФ → ftp.fau.de
-    #      (path /fedora/linux, не /fedora!), cisco-openh264 и
-    #      rocm*.repo отключаются.
-    #   4. Dev-файлов ROCm в образе НЕТ. setup.sh тянет их с
-    #      rocm.nightlies.amd.com (~10 ГБ, версии 7.14.0a20260608 —
-    #      на PyPI её НЕТ). Сайт доступен (200 OK за 0.67s), но
-    #      БОЛЬШИЕ файлы обрываются (timeout 120s).
-    #
-    # ЛЕЧЕНИЕ ОБРЫВОВ: persistent pip cache на хосте.
-    #   - Монтируем ~/llm/strata/.pip-cache внутрь контейнера
-    #     как /root/.cache/pip.
-    #   - pip сохраняет частично скачанные файлы.
-    #   - При повторном запуске setup.sh pip резюмирует, а не
-    #     качает заново.
-    #   - За N прогонов (каждый обрывается, но прогресс копится)
-    #     всё скачается.
-    #
-    # Плюс увеличенные retries (30) и timeout (120s) на каждый запрос.
+    # Порядок:
+    #   1. Скачать ROCm SDK 7.14.1 для gfx1151 на хосте (curl через
+    #      системный VPN — когда selector = waydroid-out, весь трафик
+    #      хоста идёт через SOCKS5 Waydroid).
+    #   2. Проверить sha256 (если не сходится — файл скачался битым,
+    #      удалить и повторить).
+    #   3. Распаковать в ~/llm/strata/rocm/install/.
+    #   4. git clone Strata (если ещё нет).
+    #   5. Собрать движок в контейнере Fedora:
+    #      - dnf5 install cmake ninja-build gcc-c++
+    #      - cmake с флагами из STRIX_HALO.md
+    #      - cmake --build --target strata
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
-      runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
+      runtimeInputs = [
+        pkgs.podman pkgs.git pkgs.curl pkgs.coreutils
+      ];
       text = ''
         set -euo pipefail
 
         IMAGE="${image}"
         STRATA_DIR="${strataDir}"
+        ROCM_DIR="$STRATA_DIR/rocm"
+        ROCM_TGZ="$ROCM_DIR/therock-dist-linux-gfx1151-${rocmVersion}.tar.gz"
+        SDK="$ROCM_DIR/install"
         PORT_HOST=${toString portHost}
         PORT_CONTAINER=${toString portContainer}
-        PIP_CACHE_DIR="$STRATA_DIR/.pip-cache"
 
-        mkdir -p "$STRATA_DIR" "$PIP_CACHE_DIR"
+        mkdir -p "$STRATA_DIR" "$ROCM_DIR"
 
-        if [ ! -d "$STRATA_DIR/.git" ]; then
-          echo "Клонирую Strata в $STRATA_DIR..."
-          git clone https://github.com/Niko1221/Strata.git "$STRATA_DIR"
+        # === Информация о текущем VPN-режиме ===
+        # При waydroid-vpn-connect весь трафик хоста (включая curl и
+        # podman pull) идёт через VPN. Отдельные прокси-переменные
+        # НЕ НУЖНЫ — они создадут петлю (curl → sing-box → selector →
+        # waydroid-out → SOCKS5 внутри Android → VPN).
+        if curl -fsS --max-time 5 https://ifconfig.me >/dev/null 2>&1; then
+          CURRENT_IP=$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || echo "?")
+          echo "Внешний IP: $CURRENT_IP"
+          echo "(если это IP VPN — скачивание пойдёт через VPN автоматически)"
+        fi
+        echo
+
+        # === Шаг 1: скачать ROCm SDK ===
+        if [ ! -f "$ROCM_TGZ" ]; then
+          echo "=== Скачиваю ROCm ${rocmVersion} (~1.7 ГБ) ==="
+          echo "URL: ${rocmUrl}"
+          curl -L --progress-bar -o "$ROCM_TGZ" "${rocmUrl}"
         else
-          echo "Обновляю Strata (git pull)..."
-          git -C "$STRATA_DIR" pull --ff-only || echo "  (git pull пропущен)"
+          echo "=== ROCm уже скачан: $ROCM_TGZ ==="
         fi
 
-        if [ ! -x "$STRATA_DIR/setup.sh" ]; then
-          echo "ОШИБКА: в $STRATA_DIR нет setup.sh" >&2
+        # === Шаг 2: проверить sha256 ===
+        echo "Проверяю sha256..."
+        if ! echo "${rocmSha256}  $ROCM_TGZ" | sha256sum -c -; then
+          echo "ОШИБКА: неверный sha256 ROCm." >&2
+          echo "Файл скачался битым. Удалите и запустите снова:" >&2
+          echo "  rm $ROCM_TGZ" >&2
           exit 1
         fi
 
+        # === Шаг 3: распаковать ===
+        if [ ! -d "$SDK/lib/llvm" ]; then
+          echo "=== Распаковываю ROCm в $SDK ==="
+          mkdir -p "$SDK"
+          tar -xzf "$ROCM_TGZ" -C "$SDK"
+        else
+          echo "=== ROCm уже распакован: $SDK ==="
+        fi
+
+        if [ ! -x "$SDK/lib/llvm/bin/clang++" ]; then
+          echo "ОШИБКА: $SDK/lib/llvm/bin/clang++ не найден." >&2
+          echo "Проверьте содержимое: ls $SDK/lib/llvm/bin/" >&2
+          exit 1
+        fi
+
+        # === Шаг 4: клонировать Strata ===
+        if [ ! -d "$STRATA_DIR/.git" ]; then
+          echo "=== Клонирую Strata ==="
+          git clone https://github.com/Niko1221/Strata.git "$STRATA_DIR"
+        else
+          echo "=== Обновляю исходники (git pull) ==="
+          git -C "$STRATA_DIR" pull --ff-only || echo "  (git pull пропущен)"
+        fi
+
+        cd "$STRATA_DIR"
+
+        if [ ! -f "CMakeLists.txt" ]; then
+          echo "ОШИБКА: в $STRATA_DIR нет CMakeLists.txt — это не репозиторий Strata." >&2
+          exit 1
+        fi
+
+        # === Шаг 5: сборка движка в контейнере Fedora ===
+        # На хосте clang из therock-dist не запустится (NixOS), поэтому
+        # собираем в контейнере kyuz0 — Fedora 44 с полным ROCm runtime.
+        # Внутри ставим cmake+ninja+gcc-c++ (сам clang берётся из SDK).
+        if [ -f "build-halo/strata" ]; then
+          echo "=== Движок уже собран: build-halo/strata ==="
+          echo "Для пересборки удалите build-halo/ и запустите снова."
+          echo
+          echo "Запуск сервера: strata-start"
+          exit 0
+        fi
+
+        echo
+        echo "═══════════════════════════════════════════════════════════════"
+        echo "  Сборка Strata (может занять 25+ минут)."
+        echo "  SDK:    $SDK"
+        echo "  Исходники: $STRATA_DIR"
+        echo "═══════════════════════════════════════════════════════════════"
+        echo
+
+        # Если образ не скачан — pull.
+        # Он идёт через системный VPN автоматически (правила sing-box
+        # завернули дефолт-роут в TUN, NAT контейнера тоже идёт через
+        # этот роут). Отдельных прокси-переменных НЕ нужно.
         if ! podman image exists "$IMAGE" 2>/dev/null; then
-          echo "Образ '$IMAGE' отсутствует. Скачиваю..."
+          echo "=== Скачиваю образ $IMAGE ==="
           podman pull "$IMAGE"
         fi
 
-        # Проверяем размер кэша pip — чтобы видеть прогресс между запусками.
-        if [ -d "$PIP_CACHE_DIR" ]; then
-          CACHE_SIZE=$(du -sh "$PIP_CACHE_DIR" 2>/dev/null | cut -f1 || echo "0")
-          echo "Кэш pip: $CACHE_SIZE (сохраняется между запусками)"
-        fi
-
-        echo
-        echo "═══════════════════════════════════════════════════════════════"
-        echo "  Установка Strata (интерактивная)."
-        echo
-        echo "  Исходники, движок и модели будут в: $STRATA_DIR"
-        echo "  pip-кэш: $PIP_CACHE_DIR (резюмирует обрывы)"
-        echo "  Когда setup.sh спросит путь для моделей — укажи:"
-        echo "    /opt/Strata/models"
-        echo "═══════════════════════════════════════════════════════════════"
-        echo
-
-        # PIP_CACHE_DIR=/root/.cache/pip — внутри контейнера.
-        # Монтирование: $STRATA_DIR/.pip-cache → /root/.cache/pip.
+        # Сборка в контейнере.
         #
-        # :Z на volume — SELinux-контекст (Fedora требует).
+        # Монтирования:
+        #   $STRATA_DIR → /opt/Strata (исходники + SDK + билд)
         #
-        # -e PIP_RESUME_RETRIES=30 — 30 попыток резюма.
-        # -e PIP_RETRIES=30 — 30 попыток подключения.
-        # -e PIP_TIMEOUT=120 — 120с таймаут чтения.
+        # Флаги cmake — из docs/STRIX_HALO.md:
+        #   -DSTRATA_ENABLE_HIP=ON         — включить HIP/ROCm
+        #   -DSTRATA_ENABLE_CUDA=OFF       — выключить CUDA
+        #   -DSTRATA_PREFILL_MMQ=ON        — ускоренный prefill
+        #   -DCMAKE_HIP_ARCHITECTURES=gfx1151
+        #   -DCMAKE_HIP_COMPILER=$SDK/lib/llvm/bin/clang++
+        #   -DCMAKE_PREFIX_PATH=$SDK;$SDK/lib/rocm_sysdeps;$SDK/lib/llvm
+        #   -DCMAKE_HIP_FLAGS=--rocm-path=$SDK --rocm-device-lib-path=$SDK/lib/llvm/amdgcn/bitcode
+        #
+        # Внутри контейнера SDK смонтирован как /opt/Strata/rocm/install,
+        # поэтому пути ниже — контейнерные.
         podman run --rm -it \
           --device /dev/kfd \
           --device /dev/dri \
           --group-add keep-groups \
           --security-opt label=disable \
           --shm-size=8g \
-          -p "$PORT_HOST:$PORT_CONTAINER" \
           -v "$STRATA_DIR:/opt/Strata:Z" \
-          -v "$PIP_CACHE_DIR:/root/.cache/pip:Z" \
-          -e PIP_CACHE_DIR=/root/.cache/pip \
-          -e PIP_RETRIES=30 \
-          -e PIP_TIMEOUT=120 \
-          -e PIP_DEFAULT_TIMEOUT=120 \
-          -e PIP_RESUME_RETRIES=30 \
-          -e PIP_PROGRESS_BAR=on \
           --entrypoint /bin/bash \
           "$IMAGE" \
           -c '
             set -e
 
-            # === Шаг A: смена зеркал Fedora ===
+            SDK=/opt/Strata/rocm/install
+
             echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
             for repo in /etc/yum.repos.d/fedora.repo \
                         /etc/yum.repos.d/fedora-updates.repo \
@@ -117,57 +169,53 @@ in
               sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
               sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
             done
-
-            echo "=== Отключаю fedora-cisco-openh264 ==="
             for repo in /etc/yum.repos.d/fedora-cisco-openh264.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^enabled=1|enabled=0|g" "$repo"
             done
-
-            echo "=== Отключаю AMD ROCm-репозиторий ==="
             for repo in /etc/yum.repos.d/rocm*.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^enabled=1|enabled=0|g" "$repo"
             done
 
-            # === Шаг B: установка инструментов сборки ===
-            if command -v dnf5 >/dev/null 2>&1; then
-              echo "=== Установка gcc-c++, make, git через dnf5 ==="
-              dnf5 install -y --setopt=install_weak_deps=False \
-                gcc-c++ make git
-            elif command -v microdnf >/dev/null 2>&1; then
-              microdnf install -y --setopt=install_weak_deps=0 \
-                gcc-c++ make git
-            elif command -v dnf >/dev/null 2>&1; then
-              dnf install -y --setopt=install_weak_deps=False \
-                gcc-c++ make git
-            else
-              echo "Неизвестный пакетный менеджер." >&2
-              exit 1
-            fi
+            echo "=== Устанавливаю cmake, ninja, gcc-c++, git ==="
+            dnf5 install -y --setopt=install_weak_deps=False \
+              cmake ninja-build gcc-c++ make git
 
-            # === Шаг C: setup.sh ===
-            cd /opt/Strata && ./setup.sh
+            cd /opt/Strata
+
+            echo "=== Конфигурирую CMake ==="
+            cmake -S . -B build-halo -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DSTRATA_ENABLE_HIP=ON \
+              -DSTRATA_ENABLE_CUDA=OFF \
+              -DSTRATA_PREFILL_MMQ=ON \
+              -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+              -DCMAKE_HIP_COMPILER="$SDK/lib/llvm/bin/clang++" \
+              -DCMAKE_HIP_COMPILER_ROCM_ROOT="$SDK" \
+              "-DCMAKE_PREFIX_PATH=$SDK;$SDK/lib/rocm_sysdeps;$SDK/lib/llvm" \
+              "-DCMAKE_HIP_FLAGS=--rocm-path=$SDK --rocm-device-lib-path=$SDK/lib/llvm/amdgcn/bitcode"
+
+            echo "=== Собираю движок (может занять 25+ минут) ==="
+            cmake --build build-halo --target strata -j "$(nproc)"
           '
 
         echo
-        echo "Установка завершена (или прервана — кэш pip сохранён)."
-        echo "Если обрывалось на скачивании ROCm — просто запустите strata-setup снова,"
-        echo "прогресс сохранится и скачивание продолжится с места обрыва."
-        echo
-        echo "Всё лежит в: $STRATA_DIR"
-        echo "Запуск сервера: strata-start"
+        echo "═══════════════════════════════════════════════════════════════"
+        echo "  Установка завершена."
+        echo "  Движок: $STRATA_DIR/build-halo/strata"
+        echo "  Запуск: strata-start"
+        echo "═══════════════════════════════════════════════════════════════"
       '';
     })
 
     # =====================================================================
-    # Сервисный контейнер. Использует готовый движок из ~/llm/strata.
-    # Создаётся один раз, потом только start/stop.
+    # Запуск сервисного контейнера с готовым движком.
     #
-    # Команда запуска сервера — предположение. После setup проверьте:
-    #   ls ~/llm/strata/*.sh
-    #   grep -ri "start\|serve\|run" ~/llm/strata/README.md | head
-    # Если сервер запускается иначе — поправьте entrypoint ниже.
+    # Модель указывается флагами `--model` и (опционально) `--speculative`
+    # при первом запуске. Если модель уже лежит в ~/llm/strata/models/
+    # и вы хотите использовать её по умолчанию — правьте переменную
+    # MODEL_PATH ниже под свой файл.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -181,14 +229,20 @@ in
         PORT_HOST=${toString portHost}
         PORT_CONTAINER=${toString portContainer}
 
-        if [ ! -d "$STRATA_DIR/.git" ]; then
-          echo "Strata не установлена в $STRATA_DIR" >&2
-          echo "Сначала выполните: strata-setup" >&2
+        if [ ! -x "$STRATA_DIR/build-halo/strata" ]; then
+          echo "Движок не собран. Сначала: strata-setup" >&2
           exit 1
         fi
 
         if ! podman container exists "$CONTAINER_NAME" 2>/dev/null; then
           echo "Создаю сервисный контейнер..."
+          # Переменные ROCm-окружения передаются через -e.
+          # LD_LIBRARY_PATH содержит:
+          #   $SDK/lib                  — основные .so из ROCm
+          #   $SDK/lib/rocm_sysdeps/lib — системные .so (zlib, elfutils)
+          #   $SDK/lib/llvm/lib         — libLLVM/AMDGPU для clang
+          # STRATA_HIPBLASLT_TUNING — таблица автотюнинга hipBLASLt
+          # для gfx1151, лежит в самом репозитории Strata.
           podman create \
             --name "$CONTAINER_NAME" \
             --device /dev/kfd \
@@ -198,9 +252,13 @@ in
             --shm-size=8g \
             -p "$PORT_HOST:$PORT_CONTAINER" \
             -v "$STRATA_DIR:/opt/Strata:Z" \
+            -e ROCM_PATH=/opt/Strata/rocm/install \
+            -e HIP_PATH=/opt/Strata/rocm/install \
+            -e LD_LIBRARY_PATH=/opt/Strata/rocm/install/lib:/opt/Strata/rocm/install/lib/rocm_sysdeps/lib:/opt/Strata/rocm/install/lib/llvm/lib \
+            -e STRATA_HIPBLASLT_TUNING=/opt/Strata/${hipblasltTuning} \
             --entrypoint /bin/bash \
             "$IMAGE" \
-            -c "cd /opt/Strata && exec ./start.sh --host 0.0.0.0 --port ${toString portContainer}"
+            -c 'cd /opt/Strata && exec ./build-halo/strata serve --host 0.0.0.0 --port '"$PORT_CONTAINER"
         fi
 
         STATUS=$(podman inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
@@ -281,7 +339,7 @@ in
 
         if [ -d "$STRATA_DIR" ]; then
           SIZE=$(du -sh "$STRATA_DIR" 2>/dev/null | cut -f1 || echo "?")
-          read -r -p "Удалить $STRATA_DIR ($SIZE — исходники + модели + pip-кэш)? [y/N] " answer
+          read -r -p "Удалить $STRATA_DIR ($SIZE — исходники + ROCm + модели)? [y/N] " answer
           if [[ "''${answer,,}" == "y" ]]; then
             rm -rf "$STRATA_DIR"
             echo "$STRATA_DIR удалён."
@@ -293,9 +351,7 @@ in
       '';
     })
 
-    # === Обновление ===
-    # Persistent pip cache тоже применяется — если при обновлении
-    # придётся докачивать dev-пакеты ROCm, обрывы резюмируются.
+    # === Обновление (git pull + пересборка) ===
     (pkgs.writeShellApplication {
       name = "strata-update";
       runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
@@ -304,75 +360,22 @@ in
 
         IMAGE="${image}"
         STRATA_DIR="${strataDir}"
-        PIP_CACHE_DIR="$STRATA_DIR/.pip-cache"
 
         if [ ! -d "$STRATA_DIR/.git" ]; then
           echo "Strata не установлена. Сначала: strata-setup" >&2
           exit 1
         fi
 
-        mkdir -p "$PIP_CACHE_DIR"
-
-        echo "Обновляю исходники (git pull на хосте)..."
+        echo "Обновляю исходники (git pull)..."
         git -C "$STRATA_DIR" pull --ff-only
 
         echo
-        echo "Пересборка (setup.sh в контейнере)..."
-        echo
-
-        podman run --rm -it \
-          --device /dev/kfd \
-          --device /dev/dri \
-          --group-add keep-groups \
-          --security-opt label=disable \
-          --shm-size=8g \
-          -v "$STRATA_DIR:/opt/Strata:Z" \
-          -v "$PIP_CACHE_DIR:/root/.cache/pip:Z" \
-          -e PIP_CACHE_DIR=/root/.cache/pip \
-          -e PIP_RETRIES=30 \
-          -e PIP_TIMEOUT=120 \
-          -e PIP_DEFAULT_TIMEOUT=120 \
-          -e PIP_RESUME_RETRIES=30 \
-          -e PIP_PROGRESS_BAR=on \
-          --entrypoint /bin/bash \
-          "$IMAGE" \
-          -c '
-            set -e
-
-            echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
-            for repo in /etc/yum.repos.d/fedora.repo \
-                        /etc/yum.repos.d/fedora-updates.repo \
-                        /etc/yum.repos.d/fedora-updates-archive.repo; do
-              [ -f "$repo" ] || continue
-              sed -i "s|^metalink=|#metalink=|g" "$repo"
-              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
-              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
-            done
-
-            for repo in /etc/yum.repos.d/fedora-cisco-openh264.repo; do
-              [ -f "$repo" ] || continue
-              sed -i "s|^enabled=1|enabled=0|g" "$repo"
-            done
-
-            for repo in /etc/yum.repos.d/rocm*.repo; do
-              [ -f "$repo" ] || continue
-              sed -i "s|^enabled=1|enabled=0|g" "$repo"
-            done
-
-            if command -v dnf5 >/dev/null 2>&1; then
-              dnf5 install -y --setopt=install_weak_deps=False gcc-c++ make git
-            elif command -v microdnf >/dev/null 2>&1; then
-              microdnf install -y --setopt=install_weak_deps=0 gcc-c++ make git
-            elif command -v dnf >/dev/null 2>&1; then
-              dnf install -y --setopt=install_weak_deps=False gcc-c++ make git
-            fi
-
-            cd /opt/Strata && ./setup.sh
-          '
+        echo "Пересборка движка (удаляю build-halo/)..."
+        rm -rf "$STRATA_DIR/build-halo"
 
         echo
-        echo "Обновление завершено. Перезапустите сервер:"
-        echo "  strata-stop && strata-start"
+        echo "Запускаю strata-setup для пересборки (ROCm уже скачан)..."
+        strata-setup
       '';
     })
   ];
