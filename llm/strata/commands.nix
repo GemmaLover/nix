@@ -42,7 +42,6 @@ in
 
         echo "=== Собираю образ ${imageName}:${imageTag} ==="
         # Контекст — сам каталог strataDir. Там лежит Containerfile.
-        # README.md в контексте нет — сборка чистая.
         podman build \
           -t "${imageName}:${imageTag}" \
           -f "${containerfilePath}" \
@@ -78,6 +77,11 @@ in
         pkgs.gnutar pkgs.gnugrep
       ];
       text = ''
+        # shellcheck disable=SC2016
+        # SC2016 здесь ложный: подстрока `bash -lc '...'` в конце скрипта
+        # намеренно в одинарных кавычках — внутренний скрипт должен
+        # разворачиваться контейнерным bash ($SDK, ''${LD_LIBRARY_PATH:-}
+        # и т.д.), а не внешним.
         set -euo pipefail
 
         STRATA_DIR="${strataDir}"

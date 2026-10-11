@@ -100,19 +100,18 @@ let
   ];
 
   # ── Общие флаги Podman для доступа к GPU ─────────────────────
+  # ОДНОЙ СТРОКОЙ, без переносов. Раньше был многострочный литерал
+  # с `\` в конце строк — при подстановке в `podman run` последняя
+  # строка (`--shm-size=8g`) оставалась без continuation, и shellcheck
+  # ругался SC2215: следующая строка (`-v ...`) воспринималась как
+  # отдельная команда. Однострочная версия интерполируется безопасно.
+  #
   # keep-groups требует crun (в NixOS virtualisation.podman так и есть).
-  # --userns=keep-id не ставим: в rootless podman host-юзер уже маппится
-  # в root контейнера, файлы сборки остаются его же.
-  gpuArgs = ''
-    --device /dev/kfd \
-    --device /dev/dri \
-    --group-add keep-groups \
-    --security-opt label=disable \
-    --shm-size=8g
-  '';
+  gpuArgs = "--device /dev/kfd --device /dev/dri --group-add keep-groups --security-opt label=disable --shm-size=8g";
 
-  # Аргументы -e VAR=VAL из fastEnv (каждый на своей строке с продолжением).
-  fastEnvArgs = lib.concatMapStringsSep " \\\n          " (e: "-e ${e}") fastEnv;
+  # То же самое — одной строкой через пробел. Раньше был разделитель
+  # " \<newline> " — тоже давал SC2215 в местах подстановки.
+  fastEnvArgs = lib.concatMapStringsSep " " (e: "-e ${e}") fastEnv;
 
   # ── Containerfile (пишется home-manager-ом) ──────────────────
   # Ubuntu 24.04 + минимальный тулчейн. ROCm НЕ внутри — он монтируется.
