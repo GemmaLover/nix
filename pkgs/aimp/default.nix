@@ -37,7 +37,7 @@ stdenv.mkDerivation rec {
   # Содержит бинарь в opt/aimp/, .desktop и иконки в usr/share/.
   # Распаковывается через zstd (не tar.gz).
   src = fetchurl {
-      url = "https://www.aimp.ru/files/windows/builds/aimp-nightly-x86_64.pkg.tar.zst";
+      url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3089beta7-1-x86_64.pkg.tar.zst";
     hash = "sha256-K/Yb/I1HIqlkh08zCoWqMDr61iLpgxiGr7lm5lAmd3c=";
   };
 
