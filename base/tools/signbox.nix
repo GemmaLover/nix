@@ -48,7 +48,13 @@
   # Все правила маршрутизации (кроме DNS, NTP, loopback) направлены
   # в selector "system-out". Переключение через Clash API
   # (127.0.0.1:9090) — без перезапуска sing-box, текущие сессии
-  # не рвутся. Выбор сохраняется в /var/cache/sing-box/cache.db.
+  # не рвутся.
+  #
+  # Выбор selector сохраняется в /var/lib/sing-box/cache.db —
+  # это StateDirectory сервиса (systemd создаёт его сам и выставляет
+  # ownership под DynamicUser). Путь /var/cache/sing-box использовать
+  # НЕЛЬЗЯ: он не создаётся автоматически и даёт permission denied
+  # под DynamicUser.
   #
   # Управление (в environment.systemPackages ниже):
   #   waydroid-vpn-connect     — переключить на waydroid-out (VPN)
@@ -69,13 +75,19 @@
       # Слушает только на 127.0.0.1, доступен локально без аутентификации.
       #
       # cache_file — сохраняет выбор selector между перезапусками
-      # sing-box (например, при nixos-rebuild). Каталог создаётся
-      # через systemd.tmpfiles.rules (см. ниже).
+      # sing-box (например, при nixos-rebuild или reboot).
+      #
+      # Путь /var/lib/sing-box — это StateDirectory модуля sing-box в
+      # nixpkgs. systemd создаёт каталог сам и выставляет ownership
+      # под DynamicUser сервиса, поэтому запись разрешена без root.
+      # /var/cache/sing-box использовать нельзя — этот путь не
+      # создаётся автоматически (systemd.tmpfiles с root ownership
+      # не помогает — DynamicUser всё равно получит permission denied).
       experimental = {
         clash_api.external_controller = "127.0.0.1:9090";
         cache_file = {
           enabled = true;
-          path = "/var/cache/sing-box/cache.db";
+          path = "/var/lib/sing-box/cache.db";
         };
       };
 
@@ -140,7 +152,7 @@
         #
         # ВАЖНО: waydroid-out работает только когда:
         #   1. Waydroid запущен,
-        #   2. VPN включён внутри Android,
+        #   2. VPN включён ВНУТРИ Android,
         #   3. Применено: waydroid-fix-route
         # При подключении waydroid-vpn-connect всё это проверяется.
         {
@@ -279,22 +291,43 @@
     };
   };
 
-  systemd.services.sing-box.serviceConfig = {
-    AmbientCapabilities = [
-      "CAP_NET_ADMIN"
-      "CAP_NET_RAW"
-      "CAP_NET_BIND_SERVICE"
-      "CAP_SYS_PTRACE"
-    ];
-    CapabilityBoundingSet = [
-      "CAP_NET_ADMIN"
-      "CAP_NET_RAW"
-      "CAP_NET_BIND_SERVICE"
-      "CAP_SYS_PTRACE"
-    ];
-    path = [pkgs.nftables pkgs.iptables pkgs.iproute2];
+  # =====================================================================
+  # Systemd-настройки сервиса sing-box.
+  #
+  # `path` — это ОПЦИЯ NixOS ВЕРХНЕГО УРОВНЯ сервиса (не ключ systemd).
+  # Раньше лежала внутри serviceConfig — systemd писал в лог
+  # "Unknown key 'path' in section [Service], ignoring" и PATH не
+  # подставлялся. Из-за этого sing-box не мог найти iptables/nftables/ip
+  # при auto_route. Сейчас path стоит рядом с serviceConfig, NixOS
+  # сам разворачивает его в Environment="PATH=...".
+  # =====================================================================
+  systemd.services.sing-box = {
+    serviceConfig = {
+      AmbientCapabilities = [
+        "CAP_NET_ADMIN"
+        "CAP_NET_RAW"
+        "CAP_NET_BIND_SERVICE"
+        "CAP_SYS_PTRACE"
+      ];
+      CapabilityBoundingSet = [
+        "CAP_NET_ADMIN"
+        "CAP_NET_RAW"
+        "CAP_NET_BIND_SERVICE"
+        "CAP_SYS_PTRACE"
+      ];
+    };
+    # PATH для утилит, которые sing-box вызывает сам
+    # (ip route/rule, nftables для auto_route).
+    path = [ pkgs.nftables pkgs.iptables pkgs.iproute2 ];
   };
 
+  # =====================================================================
+  # Отдельный systemd-сервис: ip rule для fwmark sing-box.
+  #
+  # default_mark = 8227 помечает все исходящие сокеты самого sing-box,
+  # чтобы они не заворачивались обратно в TUN (иначе — петля).
+  # Правило fwmark 8227 → main table с приоритетом 100.
+  # =====================================================================
   systemd.services.sing-box-fwmark-rule = {
     description = "Add ip rule for sing-box default_mark (break TUN loop, v4+v6)";
     wantedBy = ["multi-user.target"];
@@ -319,14 +352,6 @@
   };
 
   # =====================================================================
-  # Каталог для cache_file selector'а.
-  # Cache переживает перезапуски sing-box (nixos-rebuild, reboot).
-  # =====================================================================
-  systemd.tmpfiles.rules = [
-    "d /var/cache/sing-box 0750 root root -"
-  ];
-
-  # =====================================================================
   # Команды управления режимом
   # =====================================================================
   # waydroid-vpn-connect     — переключить всю систему на VPN (Waydroid)
@@ -335,12 +360,17 @@
   #
   # Все команды работают через Clash API sing-box (127.0.0.1:9090),
   # переключение мгновенное, без перезапуска сервиса.
+  #
+  # ВАЖНО про pkgs.netcat-openbsd: в nixpkgs нет пакета pkgs.netcat —
+  # команда nc приходит из netcat-openbsd (или netcat-gnu, nmap).
+  # Используем netcat-openbsd — он даёт флаг -z для проверки открытия
+  # TCP-порта и -w для таймаута.
   # =====================================================================
   environment.systemPackages = [
     # Переключить всю систему на VPN внутри Waydroid.
     (pkgs.writeShellApplication {
       name = "waydroid-vpn-connect";
-      runtimeInputs = [ pkgs.curl pkgs.jq pkgs.netcat pkgs.coreutils ];
+      runtimeInputs = [ pkgs.curl pkgs.jq pkgs.netcat-openbsd pkgs.coreutils ];
       text = ''
         set -euo pipefail
         API="http://127.0.0.1:9090"
@@ -354,6 +384,8 @@
 
         # --- Проверка 2: SOCKS5 в Waydroid отвечает ---
         # Проверяем просто открытие TCP-порта, без аутентификации.
+        # -z: zero-I/O mode (только проверить соединение)
+        # -w 3: таймаут 3 секунды
         if ! nc -z -w 3 192.168.240.112 1080 2>/dev/null; then
           echo "ОШИБКА: SOCKS5 192.168.240.112:1080 не отвечает." >&2
           echo "Убедитесь, что:" >&2
@@ -365,6 +397,7 @@
 
         # --- Проверка 3: SOCKS5 реально работает (не только порт открыт) ---
         # Короткий запрос через прокси к внешнему сайту.
+        # --socks5-hostname: DNS тоже резолвится через прокси (без утечки).
         if ! curl -fsS --max-time 5 --socks5-hostname 192.168.240.112:1080 \
              https://ifconfig.me >/dev/null 2>&1; then
           echo "ПРЕДУПРЕЖДЕНИЕ: SOCKS5 открыт, но не пропускает трафик." >&2
