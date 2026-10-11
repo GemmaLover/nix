@@ -8,18 +8,22 @@ in
     # =====================================================================
     # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
     #
-    # ВАЖНО (два подводных камня образа kyuz0):
+    # ПОДВОДНЫЕ КАМНИ ОБРАЗА kyuz0/amd-strix-halo-toolboxes:
     #   1. В образе НЕТ git — репозиторий клонируется НА ХОСТЕ,
     #      а внутрь контейнера монтируется готовое дерево.
     #   2. В образе НЕТ инструментов сборки (gcc-c++, make) — они
     #      ставятся через dnf5 внутри контейнера перед setup.sh.
     #      Образ — Fedora 44 Container Image с dnf5 (новое поколение).
+    #   3. Fedora-репозитории и AMD ROCm-репозиторий недоступны из РФ:
+    #      fedora.ip-connect.info и stable.repo.amd.com дают timeout.
+    #      Поэтому ПЕРЕД установкой переключаем зеркала Fedora на
+    #      доступные (ftp.fau.de + mirror.yandex.ru как резерв),
+    #      а ROCm-репозиторий отключаем (ROCm уже в образе).
     #
     # Порядок:
     #   1. git clone на хосте → ~/llm/strata
     #   2. podman run --rm -it с монтированием ~/llm/strata → /opt/Strata
-    #   3. Внутри контейнера: dnf5 install gcc-c++ make git
-    #   4. cd /opt/Strata && ./setup.sh
+    #   3. Внутри контейнера: смена зеркал → dnf5 install → ./setup.sh
     #
     # setup.sh спросит модель, размер, контекст, KV cache, vision.
     # Когда спросит путь для моделей — указывать /opt/Strata/models
@@ -75,14 +79,12 @@ in
         echo
 
         # === Шаг 2: запускаем setup.sh ВНУТРИ контейнера ===
-        # Репозиторий уже на месте (через bind mount), поэтому clone не нужен.
-        # Но setup.sh сам вызывает git и компилирует движок llama.cpp —
-        # для этого нужны gcc-c++, make, git. Ставим их через dnf5
-        # (Fedora 44 Container Image использует dnf5, не dnf/microdnf).
-        #
-        # cmake и ninja setup.sh поставит сам через pip (шаг 3 в его выводе).
-        # install_weak_deps=False экономит ~200 МБ — не тянем необязательные
-        # зависимости (docs, локали и т.п.).
+        # Репозиторий уже на месте (через bind mount).
+        # Перед setup.sh:
+        #   a) переключаем Fedora-зеркала на доступные из РФ,
+        #   b) отключаем AMD ROCm-репозиторий (недоступен + ROCm уже в образе),
+        #   c) ставим gcc-c++, make, git через dnf5,
+        #   d) запускаем setup.sh.
         #
         # -it для интерактивного setup.sh (спрашивает модель и параметры).
         # --rm: контейнер удаляется после setup, всё ценное в $STRATA_DIR.
@@ -99,31 +101,64 @@ in
           -c '
             set -e
 
-            # Устанавливаем инструменты сборки.
+            # === Шаг A: смена зеркал Fedora ===
+            # По умолчанию в /etc/yum.repos.d/fedora*.repo стоит metalink=,
+            # который сам выбирает зеркало и часто выбирает недоступное
+            # из РФ (fedora.ip-connect.info — timeout).
+            # Отключаем metalink, включаем baseurl с зеркалом, которое
+            # проверено как доступное (см. результаты теста скорости).
+            #
+            # Выбор зеркала:
+            #   ftp.fau.de       — 0.49s (самое быстрое из проверенных)
+            #   mirror.yandex.ru — 2.07s (надёжный резерв, если FAU упадёт)
+            #
+            # Заменяем $releasever на 44 — в образе Fedora 44, а переменная
+            # в некоторых зеркалах может не подставляться.
+            echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
+            for repo in /etc/yum.repos.d/fedora*.repo; do
+              [ -f "$repo" ] || continue
+              # Отключаем metalink
+              sed -i "s|^metalink=|#metalink=|g" "$repo"
+              # Заменяем placeholder-baseurl на реальный URL зеркала.
+              # Формат по умолчанию: baseurl=http://download.example/pub/fedora/linux/...
+              # Меняем только те baseurl, что начинаются с download.example,
+              # и только если они раскомментированы.
+              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
+              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
+            done
+
+            # === Шаг B: отключение AMD ROCm-репозитория ===
+            # stable.repo.amd.com недоступен из РФ (timeout >30s).
+            # ROCm уже вшит в образ, дополнительно тянуть не нужно.
+            # Отключаем, чтобы dnf не висел на нём.
+            echo "=== Отключаю AMD ROCm-репозиторий (недоступен из РФ) ==="
+            for repo in /etc/yum.repos.d/rocm*.repo; do
+              [ -f "$repo" ] || continue
+              sed -i "s|^enabled=1|enabled=0|g" "$repo"
+            done
+
+            # === Шаг C: установка инструментов сборки ===
             # dnf5 — новый менеджер Fedora 44+. Пробуем по убыванию:
-            # dnf5 → microdnf → dnf → apt-get (если образ другой).
+            # dnf5 → microdnf → dnf (на случай другого образа).
+            # install_weak_deps=False экономит ~200 МБ.
             if command -v dnf5 >/dev/null 2>&1; then
-              echo "=== Fedora (dnf5): установка gcc-c++, make, git ==="
+              echo "=== Установка gcc-c++, make, git через dnf5 ==="
               dnf5 install -y --setopt=install_weak_deps=False \
                 gcc-c++ make git
             elif command -v microdnf >/dev/null 2>&1; then
-              echo "=== Fedora (microdnf): установка gcc-c++, make, git ==="
+              echo "=== Установка gcc-c++, make, git через microdnf ==="
               microdnf install -y --setopt=install_weak_deps=0 \
                 gcc-c++ make git
             elif command -v dnf >/dev/null 2>&1; then
-              echo "=== Fedora (dnf): установка gcc-c++, make, git ==="
+              echo "=== Установка gcc-c++, make, git через dnf ==="
               dnf install -y --setopt=install_weak_deps=False \
                 gcc-c++ make git
-            elif command -v apt-get >/dev/null 2>&1; then
-              echo "=== Debian/Ubuntu: установка build-essential, git ==="
-              apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-                build-essential git
             else
-              echo "Неизвестный пакетный менеджер. Установите g++ и git вручную." >&2
+              echo "Неизвестный пакетный менеджер." >&2
               exit 1
             fi
 
+            # === Шаг D: setup.sh ===
             cd /opt/Strata && ./setup.sh
           '
 
@@ -142,8 +177,9 @@ in
     #
     # ВАЖНО: команда запуска сервера (`./start.sh --host ... --port ...`)
     # взята из общего описания. Если в репозитории Strata нет start.sh —
-    # замените на ту, что описана в README (например, `python -m strata.server`
-    # или `./build/strata-server`). Проверить после setup: ls ~/llm/strata
+    # замените на ту, что описана в README. Проверить после setup:
+    #   ls ~/llm/strata/*.sh
+    #   cat ~/llm/strata/README.md | grep -i 'run\|start\|serve'
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -276,6 +312,8 @@ in
     # === Обновление (git pull + пересборка) ===
     # Клонирование и pull делает ХОСТ (где есть git), в контейнере
     # запускается только setup.sh — та же схема, что в strata-setup.
+    # Зеркала Fedora переключаются заново (контейнер --rm, состояние
+    # не сохраняется между запусками).
     (pkgs.writeShellApplication {
       name = "strata-update";
       runtimeInputs = [ pkgs.podman pkgs.git pkgs.coreutils ];
@@ -309,16 +347,30 @@ in
           "$IMAGE" \
           -c '
             set -e
+
+            # Та же смена зеркал, что в strata-setup.
+            echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
+            for repo in /etc/yum.repos.d/fedora*.repo; do
+              [ -f "$repo" ] || continue
+              sed -i "s|^metalink=|#metalink=|g" "$repo"
+              sed -i "s|^#baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
+              sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora|g" "$repo"
+            done
+
+            echo "=== Отключаю AMD ROCm-репозиторий ==="
+            for repo in /etc/yum.repos.d/rocm*.repo; do
+              [ -f "$repo" ] || continue
+              sed -i "s|^enabled=1|enabled=0|g" "$repo"
+            done
+
             if command -v dnf5 >/dev/null 2>&1; then
               dnf5 install -y --setopt=install_weak_deps=False gcc-c++ make git
             elif command -v microdnf >/dev/null 2>&1; then
               microdnf install -y --setopt=install_weak_deps=0 gcc-c++ make git
             elif command -v dnf >/dev/null 2>&1; then
               dnf install -y --setopt=install_weak_deps=False gcc-c++ make git
-            elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential git
             fi
+
             cd /opt/Strata && ./setup.sh
           '
 
