@@ -118,7 +118,7 @@ let
   # Образ получается ~600 МБ, собирается за 1–2 минуты.
   containerfile = pkgs.writeText "strata.Containerfile" ''
     # FHS-раскладка — обязательна для clang из TheRock.
-    FROM ubuntu:24.04
+        FROM docker.io/library/ubuntu:24.04
 
     ENV DEBIAN_FRONTEND=noninteractive
 
