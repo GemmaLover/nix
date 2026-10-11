@@ -33,6 +33,9 @@ stdenv.mkDerivation rec {
   pname = "aimp";
   version = "6.00.3086beta6";
 
+  # Arch-пакет с официального сайта AIMP (native Linux beta).
+  # Содержит бинарь в opt/aimp/, .desktop и иконки в usr/share/.
+  # Распаковывается через zstd (не tar.gz).
   src = fetchurl {
     url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3086beta6-1-x86_64.pkg.tar.zst";
     hash = "sha256-K/Yb/I1HIqlkh08zCoWqMDr61iLpgxiGr7lm5lAmd3c=";
@@ -45,6 +48,8 @@ stdenv.mkDerivation rec {
     zstd
   ];
 
+  # Библиотеки, от которых зависит AIMP (GTK3, curl, sqlite, аудио).
+  # autoPatchelfHook прописывает их в RPATH.
   buildInputs = [
     gtk3
     gdk-pixbuf
@@ -70,6 +75,8 @@ stdenv.mkDerivation rec {
     brotli
   ];
 
+  # Распаковка .pkg.tar.zst (Arch-формат) через zstd.
+  # Стандартный unpackPhase не умеет с zstd, поэтому явно.
   unpackPhase = ''
     tar --use-compress-program=${zstd}/bin/unzstd -xf $src
   '';
@@ -78,8 +85,26 @@ stdenv.mkDerivation rec {
     runHook preInstall
 
     mkdir -p $out
+
+    # opt/ — тут сам AIMP (бинарь, ресурсы, плагины).
+    # Это стандартный путь Arch-пакета: /opt/aimp/AIMP.
     cp -r opt $out/
+
+    # usr/ — тут .desktop-файл, иконки, но с префиксом usr/share.
+    # Просто копируем, чтобы ничего не потерять.
     [ -d usr ] && cp -r usr $out/ || true
+
+    # === КЛЮЧЕВОЙ МОМЕНТ ===
+    # Arch-пакет кладёт .desktop и иконки в usr/share/...
+    # NixOS ищет их в $out/share/... (без префикса usr).
+    # Без этого переноса ярлык AIMP не появится в меню KDE.
+    # Переносим содержимое usr/share в $out/share, сохраняя структуру,
+    # затем удаляем usr, чтобы не оставлять мёртвый путь.
+    if [ -d "$out/usr/share" ]; then
+      mkdir -p "$out/share"
+      cp -r "$out/usr/share/." "$out/share/"
+      rm -rf "$out/usr"
+    fi
 
     # Кладём симлинк на libcurl.so.4 прямо в директорию AIMP.
     # AIMP ищет её в $ORIGIN (директория бинарника) через свой dlopen.
@@ -93,11 +118,14 @@ stdenv.mkDerivation rec {
   preFixup = ''
     # Добавляем libcurl.so.4 в DT_NEEDED, чтобы autoPatchelfHook
     # прописал curl's lib в RPATH AIMP.
+    # Без этого AIMP падает при старте с "libcurl.so.4: not found".
     patchelf --add-needed libcurl.so.4 $out/opt/aimp/AIMP
   '';
 
   postFixup = ''
-    # Обёртка с LD_LIBRARY_PATH на все зависимости curl и GTK.
+    # Создаём wrapper /bin/aimp — чтобы команда `aimp` работала из PATH.
+    # wrapper выставляет LD_LIBRARY_PATH и GDK_PIXBUF_MODULE_FILE,
+    # иначе AIMP не находит curl/GTK/иконки.
     mkdir -p $out/bin
     makeWrapper $out/opt/aimp/AIMP $out/bin/aimp \
       --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib ]}" \
@@ -106,10 +134,19 @@ stdenv.mkDerivation rec {
       --prefix GIO_EXTRA_MODULES : "${glib}/lib/gio/modules" \
       --set GDK_PIXBUF_MODULE_FILE "${gdk-pixbuf}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
 
-    if [ -f $out/share/applications/aimp.desktop ]; then
-      substituteInPlace $out/share/applications/aimp.desktop \
-        --replace "/opt/aimp/AIMP" "$out/bin/aimp" \
-        --replace "/usr/bin/aimp" "$out/bin/aimp" || true
+    # Патчим .desktop — теперь файл точно в $out/share/applications.
+    # Arch-пакет прописывает Exec=/opt/aimp/AIMP, заменяем на наш wrapper
+    # ($out/bin/aimp), потому что /opt/aimp в NixOS не существует.
+    if [ -f "$out/share/applications/aimp.desktop" ]; then
+      substituteInPlace "$out/share/applications/aimp.desktop" \
+        --replace-fail "/opt/aimp/AIMP" "$out/bin/aimp" \
+        --replace-fail "/usr/bin/aimp" "$out/bin/aimp" || true
+
+      # Фоллбэк: если Exec=aimp (без пути) — тоже заменяем на наш.
+      if ! grep -q "$out/bin/aimp" "$out/share/applications/aimp.desktop"; then
+        substituteInPlace "$out/share/applications/aimp.desktop" \
+          --replace-fail "Exec=aimp" "Exec=$out/bin/aimp" || true
+      fi
     fi
   '';
 
