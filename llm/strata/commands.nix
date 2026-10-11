@@ -8,16 +8,20 @@ in
     # =====================================================================
     # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
     #
-    # ВАЖНО: в образе kyuz0/amd-strix-halo-toolboxes НЕТ git.
-    # Поэтому репозиторий клонируется НА ХОСТЕ (где git есть),
-    # а внутрь контейнера монтируется готовое дерево через bind mount.
+    # ВАЖНО (два подводных камня образа kyuz0):
+    #   1. В образе НЕТ git — репозиторий клонируется НА ХОСТЕ,
+    #      а внутрь контейнера монтируется готовое дерево.
+    #   2. В образе НЕТ инструментов сборки (gcc-c++, make) — они
+    #      ставятся через dnf5 внутри контейнера перед setup.sh.
+    #      Образ — Fedora 44 Container Image с dnf5 (новое поколение).
     #
     # Порядок:
     #   1. git clone на хосте → ~/llm/strata
     #   2. podman run --rm -it с монтированием ~/llm/strata → /opt/Strata
-    #   3. Внутри контейнера: cd /opt/Strata && ./setup.sh
+    #   3. Внутри контейнера: dnf5 install gcc-c++ make git
+    #   4. cd /opt/Strata && ./setup.sh
     #
-    # setup.sh спросит модель (IQ2_XS, Q4_K_M, ...), контекст, vision.
+    # setup.sh спросит модель, размер, контекст, KV cache, vision.
     # Когда спросит путь для моделей — указывать /opt/Strata/models
     # (это = ~/llm/strata/models на хосте).
     #
@@ -71,8 +75,16 @@ in
         echo
 
         # === Шаг 2: запускаем setup.sh ВНУТРИ контейнера ===
-        # Репозиторий уже на месте (через bind mount), поэтому git не нужен.
-        # -it для интерактивного setup.sh.
+        # Репозиторий уже на месте (через bind mount), поэтому clone не нужен.
+        # Но setup.sh сам вызывает git и компилирует движок llama.cpp —
+        # для этого нужны gcc-c++, make, git. Ставим их через dnf5
+        # (Fedora 44 Container Image использует dnf5, не dnf/microdnf).
+        #
+        # cmake и ninja setup.sh поставит сам через pip (шаг 3 в его выводе).
+        # install_weak_deps=False экономит ~200 МБ — не тянем необязательные
+        # зависимости (docs, локали и т.п.).
+        #
+        # -it для интерактивного setup.sh (спрашивает модель и параметры).
         # --rm: контейнер удаляется после setup, всё ценное в $STRATA_DIR.
         podman run --rm -it \
           --device /dev/kfd \
@@ -84,7 +96,36 @@ in
           -v "$STRATA_DIR:/opt/Strata:Z" \
           --entrypoint /bin/bash \
           "$IMAGE" \
-          -c "cd /opt/Strata && ./setup.sh"
+          -c '
+            set -e
+
+            # Устанавливаем инструменты сборки.
+            # dnf5 — новый менеджер Fedora 44+. Пробуем по убыванию:
+            # dnf5 → microdnf → dnf → apt-get (если образ другой).
+            if command -v dnf5 >/dev/null 2>&1; then
+              echo "=== Fedora (dnf5): установка gcc-c++, make, git ==="
+              dnf5 install -y --setopt=install_weak_deps=False \
+                gcc-c++ make git
+            elif command -v microdnf >/dev/null 2>&1; then
+              echo "=== Fedora (microdnf): установка gcc-c++, make, git ==="
+              microdnf install -y --setopt=install_weak_deps=0 \
+                gcc-c++ make git
+            elif command -v dnf >/dev/null 2>&1; then
+              echo "=== Fedora (dnf): установка gcc-c++, make, git ==="
+              dnf install -y --setopt=install_weak_deps=False \
+                gcc-c++ make git
+            elif command -v apt-get >/dev/null 2>&1; then
+              echo "=== Debian/Ubuntu: установка build-essential, git ==="
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+                build-essential git
+            else
+              echo "Неизвестный пакетный менеджер. Установите g++ и git вручную." >&2
+              exit 1
+            fi
+
+            cd /opt/Strata && ./setup.sh
+          '
 
         echo
         echo "Установка завершена."
@@ -99,9 +140,10 @@ in
     # Создаётся один раз (при первом вызове), потом только start/stop.
     # Entrypoint НЕ запускает setup.sh — только сервер.
     #
-    # Если в репозитории Strata нет start.sh — замените команду в
-    # entrypoint на ту, что описана в README проекта (например,
-    # `python -m strata.server` или `./build/strata-server`).
+    # ВАЖНО: команда запуска сервера (`./start.sh --host ... --port ...`)
+    # взята из общего описания. Если в репозитории Strata нет start.sh —
+    # замените на ту, что описана в README (например, `python -m strata.server`
+    # или `./build/strata-server`). Проверить после setup: ls ~/llm/strata
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -265,7 +307,20 @@ in
           -v "$STRATA_DIR:/opt/Strata:Z" \
           --entrypoint /bin/bash \
           "$IMAGE" \
-          -c "cd /opt/Strata && ./setup.sh"
+          -c '
+            set -e
+            if command -v dnf5 >/dev/null 2>&1; then
+              dnf5 install -y --setopt=install_weak_deps=False gcc-c++ make git
+            elif command -v microdnf >/dev/null 2>&1; then
+              microdnf install -y --setopt=install_weak_deps=0 gcc-c++ make git
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y --setopt=install_weak_deps=False gcc-c++ make git
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential git
+            fi
+            cd /opt/Strata && ./setup.sh
+          '
 
         echo
         echo "Обновление завершено. Перезапустите сервер:"
