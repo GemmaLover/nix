@@ -31,11 +31,19 @@
 
 stdenv.mkDerivation rec {
   pname = "aimp";
-  version = "6.00.3089beta7";
+  version = "6.00.3088beta7";
 
+  # Arch-пакет с официального сайта AIMP (native Linux beta).
+  # Содержимое:
+  #   opt/aimp/     — бинарь AIMP, плагины, скины, System/ (некоторые .so)
+  #   usr/lib/      — приватные библиотеки: libbass-aimp.so, libav*.so*
+  #   usr/share/    — .desktop-файлы и иконки
+  #
+  # Ключевое отличие от беты 3089: в 3088 и 3087 файлы libbass/libav лежат
+  # в usr/lib/, а в 3089 — их нет вообще (AIMP поломал сборку).
   src = fetchurl {
-    url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3089beta7-1-x86_64.pkg.tar.zst";
-    hash = "sha256-9kHs6Qfw8+lfDqZdghfdkKVJT2LT6xLaoaGkzskv/9k=";
+    url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3088beta7-1-x86_64.pkg.tar.zst";
+    hash = "sha256-1111111111111111111111111111111111111111111=";  # ЗАМЕНИТЬ
   };
 
   nativeBuildInputs = [
@@ -70,13 +78,14 @@ stdenv.mkDerivation rec {
     brotli
   ];
 
-  # Приватные библиотеки AIMP (libbass-aimp.so, libavcodec-aimp.so и др.)
-  # лежат в $out/opt/aimp/ и грузятся через RPATH=$ORIGIN. autoPatchelfHook
-  # их не найдёт в стандартных путях — это нормально, они не патчатся.
+  # Приватные библиотеки AIMP лежат в $out/usr/lib/ и грузятся через
+  # LD_LIBRARY_PATH wrapper-обёрток. autoPatchelfHook их не находит —
+  # игнорируем на этапе проверки.
   autoPatchelfIgnoreMissingDeps = [
     "libbass-aimp.so"
     "libavcodec-aimp.so.61"
     "libavutil-aimp.so.59"
+    "libavfilter-aimp.so.10"
   ];
 
   unpackPhase = ''
@@ -87,39 +96,45 @@ stdenv.mkDerivation rec {
     runHook preInstall
 
     mkdir -p $out
+
+    # opt/ — сам AIMP (бинарь, ресурсы, плагины).
     cp -r opt $out/
+
+    # usr/ — ВАЖНО: здесь usr/lib/ с приватными библиотеками AIMP
+    # (libbass-aimp.so, libavcodec-aimp.so.61 и др.) и usr/share/
+    # с .desktop-файлами. Копируем ЦЕЛИКОМ, не удаляем после.
     [ -d usr ] && cp -r usr $out/ || true
 
-    # Перенос usr/share → share (иначе NixOS не видит .desktop).
+    # Дублируем usr/share → share для NixOS (иначе .desktop не найдётся).
+    # usr/lib оставляем на месте — он нужен для LD_LIBRARY_PATH.
     if [ -d "$out/usr/share" ]; then
       mkdir -p "$out/share"
       cp -r "$out/usr/share/." "$out/share/"
-      rm -rf "$out/usr"
+      # usr/ НЕ удаляем — там usr/lib с приватными .so
     fi
 
+    # Симлинк на libcurl.so.4 в директории AIMP — AIMP ищет её в $ORIGIN.
     ln -sf "${lib.getLib curl}/lib/libcurl.so.4" "$out/opt/aimp/libcurl.so.4"
 
     runHook postInstall
   '';
 
   preFixup = ''
+    # libcurl.so.4 нужен в DT_NEEDED главного бинарника AIMP.
     patchelf --add-needed libcurl.so.4 $out/opt/aimp/AIMP
   '';
 
   postFixup = ''
     mkdir -p $out/bin
 
-    # === КЛЮЧЕВОЙ МОМЕНТ ===
-    # autoPatchelfHook перезаписывает RPATH бинарника на пути Nix store
-    # и ТЕРЯЕТ оригинальный $ORIGIN. AIMP через $ORIGIN ищет свои приватные
-    # библиотеки (libbass-aimp.so, libavcodec-aimp.so.61, libavutil-aimp.so.59)
-    # в директории рядом с бинарём ($out/opt/aimp/). После патча он их
-    # не находит и падает с "libbass-aimp.so: cannot open shared object file".
-    #
-    # Лечение: добавить $out/opt/aimp в LD_LIBRARY_PATH через wrapper.
-    # Динамический линкер смотрит LD_LIBRARY_PATH ДО RPATH, поэтому
-    # приватные библиотеки будут найдены в директории AIMP.
-    commonWrapArgs="--prefix LD_LIBRARY_PATH : $out/opt/aimp \
+    # === КЛЮЧЕВОЙ МОМЕНТ: LD_LIBRARY_PATH ===
+    # Приватные библиотеки AIMP лежат в $out/usr/lib/ (не в opt/aimp/!).
+    # autoPatchelfHook перезаписал RPATH бинарника на пути Nix store и
+    # стёр оригинальный $ORIGIN. Поэтому добавляем $out/usr/lib в
+    # LD_LIBRARY_PATH — линкер проверит его раньше RPATH и найдёт
+    # libbass-aimp.so, libavcodec-aimp.so.61 и т.д.
+    commonWrapArgs="--prefix LD_LIBRARY_PATH : $out/usr/lib \
+      --prefix LD_LIBRARY_PATH : $out/opt/aimp \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib ]} \
       --prefix XDG_DATA_DIRS : ${hicolor-icon-theme}/share \
       --prefix XDG_DATA_DIRS : ${gtk3}/share/gsettings-schemas/${gtk3.name} \
@@ -130,7 +145,7 @@ stdenv.mkDerivation rec {
     [ -x "$out/opt/aimp/AIMPate" ] && makeWrapper $out/opt/aimp/AIMPate $out/bin/aimp-ate $commonWrapArgs || true
     [ -x "$out/opt/aimp/AIMPac" ] && makeWrapper $out/opt/aimp/AIMPac $out/bin/aimp-ac $commonWrapArgs || true
 
-    # Патч .desktop для AIMPate/AIMPac.
+    # Патч .desktop для AIMPate/AIMPac (используем --replace, не --replace-fail).
     for desktop in "$out"/share/applications/aimpate.desktop \
                    "$out"/share/applications/aimpac.desktop; do
       [ -f "$desktop" ] || continue
@@ -141,7 +156,7 @@ stdenv.mkDerivation rec {
         --replace "/usr/bin/aimp-ac" "$out/bin/aimp-ac"
     done
 
-    # Создаём aimp.desktop (в Arch-пакете он пустой, 0 байт).
+    # Создаём aimp.desktop (в Arch-пакете он пустой).
     mkdir -p "$out/share/applications"
     cat > "$out/share/applications/aimp.desktop" <<EOF
 [Desktop Entry]
