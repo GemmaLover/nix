@@ -1,8 +1,24 @@
 { config, lib, pkgs, ... }:
 
 {
+
+ # =====================================================================
+  # Управление паролями
+  # =====================================================================
+  # mutableUsers = false:
+  #   NixOS жёстко управляет /etc/shadow из этого конфига при каждом
+  #   nixos-rebuild. Ручные `passwd` не выживают.
+  #
+  #   Зачем: при дефолте (true) NixOS применяет hashedPassword только
+  #   один раз при создании пользователя, дальше не отслеживает.
+  #   Из-за этого ручной `sudo passwd root` тихо перезаписывает пароль,
+  #   и конфиг перестаёт соответствовать реальности. С false такого нет.
+  #
+  #   Минус: `passwd` для смены пароля не работает — только через
+  #   правку этого файла + nixos-rebuild.
+  users.mutableUsers = false;
   # === Пользователи ===
-  users.users.root.hashedPassword = "$6$oXfnL06TMvmOp8c1$63doQt2SHhwRlwEJqmtSfmldfCM/0RvtzNIy3X.gDbjvA0G4c3FW98wmEXfMQSae56ZEzFICE/98fsqhX67Uj/";
+  users.users.root.hashedPassword = "$6$V7DATbxGeLD62uWF$UHymFJn2.A0Tu0KYtpXC8OWUhkb546qSowpljSdKxVyThD0UoLAuOgaTYyIyzIL4IzR7tdlM2BA2sb.iyxlt9.";
 
   users.users."lexi" = {
     isNormalUser = true;
