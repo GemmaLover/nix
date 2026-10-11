@@ -9,22 +9,22 @@ in
     # Одноразовая установка Strata. ИНТЕРАКТИВНАЯ.
     #
     # ПОДВОДНЫЕ КАМНИ ОБРАЗА kyuz0/amd-strix-halo-toolboxes:
-    #   1. В образе НЕТ git — репозиторий клонируется НА ХОСТЕ.
-    #   2. В образе НЕТ инструментов сборки (gcc-c++, make) — ставятся
-    #      через dnf5 внутри контейнера перед setup.sh.
-    #   3. Fedora-репозитории и AMD ROCm-репозиторий недоступны из РФ.
-    #      Переключаем на ftp.fau.de, отключаем ROCm и cisco-openh264.
-    #
-    # ВАЖНО про ftp.fau.de: путь отличается от стандартного —
-    #   https://ftp.fau.de/fedora/linux/releases/44/...   (а не /fedora/releases/44)
-    #   https://ftp.fau.de/fedora/linux/updates/44/...    (а не /fedora/updates/44)
-    # Поэтому в baseurl добавляется сегмент /linux.
-    # Проверено вручную curl-ом: оба URL возвращают 200.
+    #   1. НЕТ git — репозиторий клонируется НА ХОСТЕ.
+    #   2. НЕТ gcc-c++, make — ставятся через dnf5 в контейнере.
+    #   3. Fedora-репы и ROCm-репо недоступны из РФ — переключаем на
+    #      ftp.fau.de (path /fedora/linux, не /fedora!), отключаем
+    #      cisco-openh264 и rocm*.repo.
+    #   4. dev-файлов ROCm в образе НЕТ — setup.sh качает их с
+    #      rocm.nightlies.amd.com. Сайт доступен, но скачивание
+    #      больших файлов нестабильно (timeout на 1 МБ setuptools).
+    #      ЛЕЧЕНИЕ: увеличить PIP_RETRIES/PIP_TIMEOUT и добавить
+    #      pypi.org как extra-index — общие пакеты (setuptools, ninja,
+    #      cmake) пойдут с PyPI, ROCm-специфичные с nightlies.
     #
     # Порядок:
     #   1. git clone на хосте → ~/llm/strata
     #   2. podman run --rm -it с монтированием ~/llm/strata → /opt/Strata
-    #   3. Внутри: смена зеркал → dnf5 install → ./setup.sh
+    #   3. Внутри: смена зеркал → dnf5 install → setup.sh с pip-env.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-setup";
@@ -67,6 +67,15 @@ in
         echo "═══════════════════════════════════════════════════════════════"
         echo
 
+        # Переменные окружения для pip, чтобы обойти нестабильное
+        # скачивание с rocm.nightlies.amd.com:
+        #   PIP_RETRIES — сколько раз повторять при обрыве (по умолч. 5)
+        #   PIP_TIMEOUT / PIP_DEFAULT_TIMEOUT — таймаут на скачивание
+        #   PIP_EXTRA_INDEX_URL — PyPI как fallback. setuptools, wheel,
+        #     ninja, cmake, pillow есть на PyPI и скачаются быстро;
+        #     ROCm-специфичные пакеты (rocm, rocm-sdk-*) остаются на
+        #     nightlies, но их немного и они меньше страдают от обрывов.
+        #   PIP_PROGRESS_BAR=on — видеть прогресс скачивания.
         podman run --rm -it \
           --device /dev/kfd \
           --device /dev/dri \
@@ -75,19 +84,18 @@ in
           --shm-size=8g \
           -p "$PORT_HOST:$PORT_CONTAINER" \
           -v "$STRATA_DIR:/opt/Strata:Z" \
+          -e PIP_RETRIES=30 \
+          -e PIP_TIMEOUT=120 \
+          -e PIP_DEFAULT_TIMEOUT=120 \
+          -e PIP_EXTRA_INDEX_URL=https://pypi.org/simple/ \
+          -e PIP_PROGRESS_BAR=on \
           --entrypoint /bin/bash \
           "$IMAGE" \
           -c '
             set -e
 
             # === Шаг A: смена зеркал Fedora ===
-            # ftp.fau.de использует путь /fedora/linux/... (в отличие от
-            # стандартного /fedora/...), поэтому добавляем /linux в baseurl.
-            # Проверено: ftp.fau.de/fedora/linux/releases/44/... = 200,
-            # ftp.fau.de/fedora/releases/44/... = 404.
-            # Обрабатываем только реальные Fedora-репы с паттерном
-            # download.example в baseurl. cisco-openh264 имеет другую
-            # структуру — его отдельно отключаем ниже.
+            # ftp.fau.de использует /fedora/linux/..., а не /fedora/...
             echo "=== Переключаю Fedora на зеркало ftp.fau.de ==="
             for repo in /etc/yum.repos.d/fedora.repo \
                         /etc/yum.repos.d/fedora-updates.repo \
@@ -98,24 +106,23 @@ in
               sed -i "s|^baseurl=http://download.example/pub/fedora/linux|baseurl=https://ftp.fau.de/fedora/linux|g" "$repo"
             done
 
-            # Отключаем fedora-cisco-openh264 — не нужен для сборки,
-            # его metalink недоступен из РФ.
             echo "=== Отключаю fedora-cisco-openh264 ==="
             for repo in /etc/yum.repos.d/fedora-cisco-openh264.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^enabled=1|enabled=0|g" "$repo"
             done
 
-            # === Шаг B: отключение AMD ROCm-репозитория ===
-            # stable.repo.amd.com недоступен из РФ (timeout >30s).
-            # ROCm уже вшит в образ.
             echo "=== Отключаю AMD ROCm-репозиторий ==="
             for repo in /etc/yum.repos.d/rocm*.repo; do
               [ -f "$repo" ] || continue
               sed -i "s|^enabled=1|enabled=0|g" "$repo"
             done
 
-            # === Шаг C: установка инструментов сборки ===
+            # === Шаг B: установка инструментов сборки ===
+            # ВАЖНО: rocm-clang-devel, rocm-cmake и т.п. НЕ ставим —
+            # они от Fedora-сборки ROCm, несовместимой с /opt/rocm/core-10.0
+            # в образе. setup.sh сам поставит нужные dev-файлы через
+            # pip с rocm.nightlies.amd.com.
             if command -v dnf5 >/dev/null 2>&1; then
               echo "=== Установка gcc-c++, make, git через dnf5 ==="
               dnf5 install -y --setopt=install_weak_deps=False \
@@ -131,7 +138,9 @@ in
               exit 1
             fi
 
-            # === Шаг D: setup.sh ===
+            # === Шаг C: setup.sh ===
+            # pip-переменные прокинуты через -e в podman run.
+            # setup.sh увидит их и будет использовать при pip install.
             cd /opt/Strata && ./setup.sh
           '
 
@@ -146,8 +155,9 @@ in
     # Сервисный контейнер. Использует готовый движок из ~/llm/strata.
     # Создаётся один раз, потом только start/stop.
     #
-    # Команда запуска сервера (`./start.sh --host ... --port ...`) —
-    # предположение. Проверьте после setup: ls ~/llm/strata/*.sh
+    # Команда запуска сервера — предположение. Проверьте после setup:
+    #   ls ~/llm/strata/*.sh
+    # Если сервер запускается иначе — поправьте entrypoint ниже.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -302,6 +312,11 @@ in
           --security-opt label=disable \
           --shm-size=8g \
           -v "$STRATA_DIR:/opt/Strata:Z" \
+          -e PIP_RETRIES=30 \
+          -e PIP_TIMEOUT=120 \
+          -e PIP_DEFAULT_TIMEOUT=120 \
+          -e PIP_EXTRA_INDEX_URL=https://pypi.org/simple/ \
+          -e PIP_PROGRESS_BAR=on \
           --entrypoint /bin/bash \
           "$IMAGE" \
           -c '
