@@ -33,9 +33,6 @@ stdenv.mkDerivation rec {
   pname = "aimp";
   version = "6.00.3089beta7";
 
-  # Arch-пакет с официального сайта AIMP (native Linux beta).
-  # Содержит бинарь в opt/aimp/, .desktop и иконки в usr/share/.
-  # Распаковывается через zstd (не tar.gz).
   src = fetchurl {
     url = "https://aimp.ru/files/desktop/builds/aimp-6.00.3089beta7-1-x86_64.pkg.tar.zst";
     hash = "sha256-9kHs6Qfw8+lfDqZdghfdkKVJT2LT6xLaoaGkzskv/9k=";
@@ -73,21 +70,8 @@ stdenv.mkDerivation rec {
     brotli
   ];
 
-  # === КЛЮЧЕВОЙ МОМЕНТ ===
-  # AIMP использует приватные библиотеки, которые лежат ВНУТРИ пакета
-  # (в $out/opt/aimp/) и загружаются через $ORIGIN в рантайме:
-  #
-  #   libbass-aimp.so         — аудио-движок BASS (плагины bass_*)
-  #   libavcodec-aimp.so.61   — FFmpeg (плагин aimp_inputFFmpeg)
-  #   libavutil-aimp.so.59    — FFmpeg (плагин aimp_inputFFmpeg)
-  #
-  # У них нет SONAME и RPATH, поэтому autoPatchelfHook не может найти
-  # их в стандартных путях и падает с "could not satisfy dependency".
-  # Но AIMP находит их сам через $ORIGIN, так что патчить их не нужно —
-  # достаточно сказать autoPatchelfHook игнорировать.
-  #
-  # Если AIMP обновится и добавит другие приватные .so — смотри ошибки
-  # сборки, там будет список недостающих, добавляй сюда.
+  # Приватные библиотеки AIMP (лежат в $out/opt/aimp/, грузятся через $ORIGIN).
+  # autoPatchelfHook не может их найти — игнорируем.
   autoPatchelfIgnoreMissingDeps = [
     "libbass-aimp.so"
     "libavcodec-aimp.so.61"
@@ -104,63 +88,80 @@ stdenv.mkDerivation rec {
 
     mkdir -p $out
 
-    # opt/ — тут сам AIMP (бинарь, ресурсы, плагины).
+    # opt/ — сам AIMP (бинарь, ресурсы, плагины).
     cp -r opt $out/
 
-    # usr/ — тут .desktop-файл и иконки (с префиксом usr/share).
+    # usr/ — .desktop-файлы, иконки (с префиксом usr/share).
     [ -d usr ] && cp -r usr $out/ || true
 
-    # === КЛЮЧЕВОЙ МОМЕНТ ДЛЯ ЯРЛЫКА ===
+    # === Перенос usr/share → share ===
     # Arch-пакет кладёт .desktop и иконки в usr/share/...
     # NixOS ищет их в $out/share/... (без префикса usr).
-    # Без этого переноса ярлык AIMP не появится в меню KDE.
+    # Без этого переноса ярлыки не появятся в меню KDE.
     if [ -d "$out/usr/share" ]; then
       mkdir -p "$out/share"
       cp -r "$out/usr/share/." "$out/share/"
       rm -rf "$out/usr"
     fi
 
-    # Кладём симлинк на libcurl.so.4 прямо в директорию AIMP.
-    # AIMP ищет её в $ORIGIN (директория бинарника) через свой dlopen.
-    # Используем lib.getLib curl — не ${curl}, потому что у curl
-    # split output: .so файлы в -lib output, бинарники в -bin.
+    # Симлинк на libcurl.so.4 в директории AIMP — AIMP ищет её в $ORIGIN.
     ln -sf "${lib.getLib curl}/lib/libcurl.so.4" "$out/opt/aimp/libcurl.so.4"
 
     runHook postInstall
   '';
 
   preFixup = ''
-    # Добавляем libcurl.so.4 в DT_NEEDED, чтобы autoPatchelfHook
-    # прописал curl's lib в RPATH AIMP.
+    # libcurl.so.4 нужен в DT_NEEDED главного бинарника AIMP.
     patchelf --add-needed libcurl.so.4 $out/opt/aimp/AIMP
   '';
 
   postFixup = ''
-    # Создаём wrapper /bin/aimp — чтобы команда `aimp` работала из PATH.
-    # wrapper выставляет LD_LIBRARY_PATH и GDK_PIXBUF_MODULE_FILE,
-    # иначе AIMP не находит curl/GTK/иконки.
+    # === Wrapper-обёртки для трёх исполняемых файлов AIMP ===
+    # Без обёрток команды не работают из PATH и не находят curl/GTK.
     mkdir -p $out/bin
-    makeWrapper $out/opt/aimp/AIMP $out/bin/aimp \
-      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib ]}" \
-      --prefix XDG_DATA_DIRS : "${hicolor-icon-theme}/share" \
-      --prefix XDG_DATA_DIRS : "${gtk3}/share/gsettings-schemas/${gtk3.name}" \
-      --prefix GIO_EXTRA_MODULES : "${glib}/lib/gio/modules" \
-      --set GDK_PIXBUF_MODULE_FILE "${gdk-pixbuf}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
 
-    # Патчим .desktop — Arch-пакет прописывает Exec=/opt/aimp/AIMP,
-    # заменяем на наш wrapper ($out/bin/aimp), потому что /opt/aimp
-    # в NixOS не существует.
-    if [ -f "$out/share/applications/aimp.desktop" ]; then
-      substituteInPlace "$out/share/applications/aimp.desktop" \
-        --replace-fail "/opt/aimp/AIMP" "$out/bin/aimp" \
-        --replace-fail "/usr/bin/aimp" "$out/bin/aimp" || true
+    commonWrapArgs="--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib ]} \
+      --prefix XDG_DATA_DIRS : ${hicolor-icon-theme}/share \
+      --prefix XDG_DATA_DIRS : ${gtk3}/share/gsettings-schemas/${gtk3.name} \
+      --prefix GIO_EXTRA_MODULES : ${glib}/lib/gio/modules \
+      --set GDK_PIXBUF_MODULE_FILE ${gdk-pixbuf}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
 
-      # Фоллбэк: если Exec=aimp (без пути) — тоже заменяем на наш.
-      if ! grep -q "$out/bin/aimp" "$out/share/applications/aimp.desktop"; then
-        substituteInPlace "$out/share/applications/aimp.desktop" \
-          --replace-fail "Exec=aimp" "Exec=$out/bin/aimp" || true
-      fi
-    fi
+    makeWrapper $out/opt/aimp/AIMP $out/bin/aimp $commonWrapArgs
+    [ -x "$out/opt/aimp/AIMPate" ] && makeWrapper $out/opt/aimp/AIMPate $out/bin/aimp-ate $commonWrapArgs || true
+    [ -x "$out/opt/aimp/AIMPac" ] && makeWrapper $out/opt/aimp/AIMPac $out/bin/aimp-ac $commonWrapArgs || true
+
+    # === Патч существующих .desktop от AIMPate и AIMPac ===
+    # ВАЖНО: используем --replace (НЕ --replace-fail). С -fail первое
+    # несовпадение паттерна прерывает всю команду, и последующие
+    # замены в этом файле не применяются.
+    for desktop in "$out"/share/applications/aimpate.desktop \
+                   "$out"/share/applications/aimpac.desktop; do
+      [ -f "$desktop" ] || continue
+      substituteInPlace "$desktop" \
+        --replace "/opt/aimp/AIMPate" "$out/bin/aimp-ate" \
+        --replace "/opt/aimp/AIMPac" "$out/bin/aimp-ac" \
+        --replace "/usr/bin/aimp-ate" "$out/bin/aimp-ate" \
+        --replace "/usr/bin/aimp-ac" "$out/bin/aimp-ac"
+    done
+
+    # === Создаём aimp.desktop с нуля ===
+    # В Arch-пакете aimp.desktop приходит пустым (0 байт) — вероятно,
+    # это артефакт их сборки. Поэтому пишем его сами.
+    mkdir -p "$out/share/applications"
+    cat > "$out/share/applications/aimp.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=AIMP
+GenericName=Audio Player
+Comment=AIMP audio player (native Linux beta)
+Exec=$out/bin/aimp %U
+Icon=aimp
+Terminal=false
+Categories=Audio;AudioVideo;Player;GTK;
+MimeType=audio/mpeg;audio/flac;audio/ogg;audio/x-wav;audio/mp4;audio/aac;audio/x-ape;audio/x-wv;audio/x-musepack;
+Keywords=audio;music;player;aimp;
+EOF
   '';
 
   meta = with lib; {
