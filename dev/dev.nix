@@ -18,48 +18,62 @@
       # DNS для контейнеров (нужен для podman-compose).
       defaultNetwork.settings.dns_enabled = true;
     };
-  };
 
-  # --- Docker Hub зеркала ---
-  # Docker Hub (docker.io) блокируется российскими провайдерами:
-  # pull зависает на 0 B/s или идёт со скоростью 16 КБ/с.
-  # Здесь перечислены зеркала, через которые Podman автоматически
-  # проксирует запросы к docker.io.
-  #
-  # Используется прямой /etc/containers/registries.conf — это
-  # официальный и стабильный способ, не зависящий от версии NixOS.
-  # Опция virtualisation.containers.registries.registry удалена,
-  # а virtualisation.containers.registries.settings имеет неочевидный
-  # синтаксис и может измениться.
-  #
-  # insecure = true: зеркала работают по HTTP без валидного TLS-сертификата
-  # для docker.io. Это НЕ снижает безопасность: Podman всё равно проверяет
-  # digest (SHA256) каждого слоя образа после скачивания.
-  #
-  # Podman пробует зеркала в порядке перечисления. Если первое
-  # возвращает 404 или таймаутит — переходит к следующему.
-  environment.etc."containers/registries.conf".text = ''
-    # Зеркала Docker Hub для обхода блокировки в РФ.
-    # Порядок: сначала самые быстрые/надёжные, потом резервные.
-    [[registry]]
-    prefix = "docker.io"
-    location = "docker.io"
-    [[registry.mirror]]
-    location = "dh-mirror.gitverse.ru"
-    insecure = true
-    [[registry.mirror]]
-    location = "dockerhub.timeweb.cloud"
-    insecure = true
-    [[registry.mirror]]
-    location = "dockerhub1.beget.com"
-    insecure = true
-    [[registry.mirror]]
-    location = "docker.m.daocloud.io"
-    insecure = true
-    [[registry.mirror]]
-    location = "huecker.io"
-    insecure = true
-  '';
+    # --- Зеркала Docker Hub ---
+    # Docker Hub (docker.io) блокируется российскими провайдерами:
+    # pull зависает на 0 B/s или идёт со скоростью 16 КБ/с.
+    # Здесь перечислены зеркала, через которые Podman автоматически
+    # проксирует запросы к docker.io.
+    #
+    # NixOS-модуль сам генерирует /etc/containers/registries.conf
+    # из этих настроек (TOML-сериализация атрибутов). Прямая запись
+    # через environment.etc не работает — конфликт с модулем.
+    #
+    # insecure = true: зеркала работают по HTTP без валидного
+    # TLS-сертификата для docker.io. Это НЕ снижает безопасность:
+    # Podman всё равно проверяет digest (SHA256) каждого слоя образа
+    # после скачивания. insecure относится только к транспорту,
+    # а не к целостности данных.
+    #
+    # Podman пробует зеркала в порядке перечисления. Если первое
+    # возвращает 404 или таймаутит — переходит к следующему.
+    containers.registries.settings = {
+      registry = [
+        {
+          prefix = "docker.io";
+          location = "docker.io";
+          # Зеркала. Порядок: сначала самые быстрые/надёжные, потом резерв.
+          mirror = [
+            {
+              # GitVerse — российское зеркало (СберТех), обычно самое быстрое из РФ.
+              location = "dh-mirror.gitverse.ru";
+              insecure = true;
+            }
+            {
+              # Timeweb Cloud — российский хостинг, стабильное, но иногда медленнее GitVerse.
+              location = "dockerhub.timeweb.cloud";
+              insecure = true;
+            }
+            {
+              # Beget — российский хостер, резервный вариант.
+              location = "dockerhub1.beget.com";
+              insecure = true;
+            }
+            {
+              # Daocloud — китайское зеркало, часто работает быстро из РФ.
+              location = "docker.m.daocloud.io";
+              insecure = true;
+            }
+            {
+              # Huecker.io — публичное зеркало без ограничений.
+              location = "huecker.io";
+              insecure = true;
+            }
+          ];
+        }
+      ];
+    };
+  };
 
   # --- Docker ---
   # Оставлен для случаев, когда Podman не подходит.
@@ -70,8 +84,9 @@
     storageDriver = "overlay2";
 
     # Docker использует ту же конфигурацию зеркал, что и Podman
-    # (общий файл /etc/containers/registries.conf). Отдельной
-    # настройки не требуется.
+    # (общий файл /etc/containers/registries.conf, генерируется
+    # из virtualisation.containers.registries.settings выше).
+    # Отдельной настройки не требуется.
   };
 
   # --- Distrobox ---
