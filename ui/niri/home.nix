@@ -135,7 +135,18 @@
       # ===============================================================
 
       # Громкость.
-      "XF86AudioRaiseVolume".action.spawn = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+";
+      #
+      # ИСПРАВЛЕНО: raise-volume сначала снимает mute (`set-mute ... 0`).
+      # В KDE plasma-pa при повышении громкости автоматически снимал
+      # mute, поэтому «звук работал». В Niri этого никто не делает:
+      # если sink висит в [MUTED], `wpctl set-volume` поднимает
+      # громкость, но звука нет. Проверено диагностикой:
+      #   $ wpctl get-volume @DEFAULT_AUDIO_SINK@
+      #   Volume: 0.05 [MUTED]
+      # После добавления `set-mute ... 0` перед `set-volume` raise
+      # ведёт себя как в KDE. Lower-volume mute не трогает (как и в
+      # plasma-pa — уменьшение громкости не снимает mute).
+      "XF86AudioRaiseVolume".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SINK@ 0; wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+";
       "XF86AudioLowerVolume".action.spawn = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-";
       "XF86AudioMute".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
 
