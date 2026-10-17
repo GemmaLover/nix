@@ -132,36 +132,31 @@
       # какое событие приходит, можно утилитой `wev`:
       #   nix-shell -p wev --run wev
       # Нажмите F1 и посмотрите вывод.
+      #
+      # ИСПРАВЛЕНО: action.spawn НЕ выполняет shell-команды. Для строк
+      # с пробелами, `;` и `&&` нужен action.spawn-sh. Именно из-за
+      # этого «wpctl set-mute ...; wpctl set-volume ...» не запускался.
       # ===============================================================
 
       # Громкость.
-      #
-      # ИСПРАВЛЕНО: raise-volume сначала снимает mute (`set-mute ... 0`).
-      # В KDE plasma-pa при повышении громкости автоматически снимал
-      # mute, поэтому «звук работал». В Niri этого никто не делает:
-      # если sink висит в [MUTED], `wpctl set-volume` поднимает
-      # громкость, но звука нет. Проверено диагностикой:
-      #   $ wpctl get-volume @DEFAULT_AUDIO_SINK@
-      #   Volume: 0.05 [MUTED]
-      # После добавления `set-mute ... 0` перед `set-volume` raise
-      # ведёт себя как в KDE. Lower-volume mute не трогает (как и в
-      # plasma-pa — уменьшение громкости не снимает mute).
-      "XF86AudioRaiseVolume".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SINK@ 0; wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+";
-      "XF86AudioLowerVolume".action.spawn = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-";
-      "XF86AudioMute".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
+      # raise-volume сначала снимает mute (как plasma-pa в KDE),
+      # иначе при [MUTED] set-volume поднимает громкость без звука.
+      "XF86AudioRaiseVolume".action.spawn-sh = "wpctl set-mute @DEFAULT_AUDIO_SINK@ 0; wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+";
+      "XF86AudioLowerVolume".action.spawn-sh = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-";
+      "XF86AudioMute".action.spawn-sh = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
 
       # Микрофон.
-      "XF86AudioMicMute".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle";
+      "XF86AudioMicMute".action.spawn-sh = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle";
 
       # Яркость экрана.
-      "XF86MonBrightnessUp".action.spawn = "brightnessctl set 10%+";
-      "XF86MonBrightnessDown".action.spawn = "brightnessctl set 10%-";
+      "XF86MonBrightnessUp".action.spawn-sh = "brightnessctl set 10%+";
+      "XF86MonBrightnessDown".action.spawn-sh = "brightnessctl set 10%-";
 
       # Медиа-плеер (play/pause, next, prev) — работает в любом
       # MPRIS-совместимом плеере (VLC, mpv, Firefox и т.д.).
-      "XF86AudioPlay".action.spawn = "playerctl play-pause";
-      "XF86AudioNext".action.spawn = "playerctl next";
-      "XF86AudioPrev".action.spawn = "playerctl previous";
+      "XF86AudioPlay".action.spawn-sh = "playerctl play-pause";
+      "XF86AudioNext".action.spawn-sh = "playerctl next";
+      "XF86AudioPrev".action.spawn-sh = "playerctl previous";
 
       # --- Скриншоты ---
       "Print".action.screenshot = { };
