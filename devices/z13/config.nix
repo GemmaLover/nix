@@ -93,15 +93,12 @@
     enable = true;
 
     # Asus WMI hotkeys (event1): сюда приходит F6 как KEY_S (31).
-    keyboards.asus-wmi = {
-      ids = [ "0000:0000:9d7b6cf5" ];
-      settings.main = {
-        # KEY_S (31) → KEY_SYSRQ (99), в Niri это "Print".
-        # Имя "sysrq" — каноничное; "print" в keyd 2.6.0
-        # может быть неизвестен, и правило молча игнорируется.
-        "[31]" = "sysrq";
-      };
+  keyboards.asus-wmi = {
+    ids = [ "0000:0000:9d7b6cf5" ];
+    settings.main = {
+      s = "sysrq";   # не [31], а имя s
     };
+  };
 
     # Основная клавиатура Z13: сюда F6 приходит как KEY_F6 (60).
     keyboards.z13 = {
