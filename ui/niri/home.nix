@@ -10,7 +10,8 @@
   # Здесь — декларативная конфигурация:
   #   * programs.niri.settings  — биндинги, layout, spawn-at-startup
   #     (генерирует ~/.config/niri/config.kdl через niri-flake HM-модуль);
-  #   * programs.noctalia.*     — сам шелл (панель, лаунчер, уведомления);
+  #   * programs.noctalia.*     — сам шелл (панель, лаунчер, уведомления)
+  #     и декларативное включение плагинов;
   #   * базовые пакеты-аналоги KDE-компонентов:
   #       Konsole    -> foot (Wayland-терминал)
   #       Kickoff    -> wofi (standalone-лаунчер; Noctalia также имеет
@@ -43,7 +44,7 @@
     #   Mod+D       — standalone-лаунчер (wofi)
     #   Mod+Space   — лаунчер Noctalia (v5+ IPC)
     #   Mod+Shift+Q — меню питания Noctalia (v5+ IPC)
-    #   Mod+/       — шпаргалка Noctalia (v5+ IPC)
+    #   Mod+F1      — шпаргалка Noctalia (плагин keybind-cheatsheet)
     #   Mod+Shift+L — заблокировать сессию
     #   Mod+Shift+E — выйти из Niri
     binds = {
@@ -72,10 +73,13 @@
       "Mod+Shift+Q" = {
         action.spawn-sh = "noctalia msg panel-toggle session";
       };
-      # Шпаргалка по клавишам (плагин keybind-cheatsheet в Noctalia).
-      # В Niri символ '/' называется `slash`.
-      "Mod+slash" = {
-        action.spawn-sh = "noctalia msg cheatsheet-toggle";
+      # === НОВОЕ: Шпаргалка по клавишам (плагин keybind-cheatsheet) ===
+      # Официальный пример для Niri использует Mod+F1, а не Mod+/:
+      # символ '/' в Niri парсится как `slash`, но на практике
+      # биндинги с пунктуацией конфликтуют с раскладкой US/RU.
+      # Источник: https://noctalia.dev/plugins/community/keybind-cheatsheet
+      "Mod+F1" = {
+        action.spawn-sh = "noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet";
       };
 
       # --- Скриншоты (встроенные в Niri, аналог Spectacle) ---
@@ -88,9 +92,6 @@
   # === Noctalia — Wayland-шелл ===
   # Включает systemd user service и регистрирует автозапуск.
   # Программный запуск уже прописан в spawn-at-startup выше.
-  # Дополнительные настройки (тема, расположение панели) добавляйте
-  # в programs.noctalia.settings по мере необходимости — схема
-  # соответствует TOML-конфигу Noctalia.
   #
   # ВАЖНО: systemd.enable = true привязывает сервис к
   # graphical-session.target, который активен и в Plasma, и в Niri.
@@ -100,6 +101,22 @@
   programs.noctalia = {
     enable = true;
     systemd.enable = true;
+
+    # === НОВОЕ: декларативное включение плагинов Noctalia v5+ ===
+    # `programs.noctalia.settings` конвертируется Home Manager-модулем
+    # в TOML-конфиг (~/.config/noctalia/config.toml). Секция [plugins]
+    # — это «user intent» (declarative-friendly): если плагин указан
+    # в enabled, но ещё не установлен, Noctalia автоматически
+    # подтянет его из community-источника (он включён по умолчанию)
+    # при старте. Ручной клик в GUI не нужен.
+    #
+    # ID плагина: kenn/keybind-cheatsheet (author/plugin), панель:
+    # cheatsheet. Именно этот ID используется в биндинге Mod+F1 выше.
+    settings = {
+      plugins = {
+        enabled = [ "kenn/keybind-cheatsheet" ];
+      };
+    };
   };
 
   # === Пакеты, которые нужны для базового workflow ===
