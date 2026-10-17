@@ -89,6 +89,21 @@
   powerOnBoot = true;  # Автоматически включать адаптер при загрузке
 };
 
+  services.keyd = {
+    enable = true;
+
+    keyboards.default = {
+      ids = [ "*" ];
+      settings = {
+        main = {
+          # Перехватываем «грязный» F6 (который работает как Fn+F6)
+          # и превращаем его в чистый Print. Это уберет залипание Shift.
+          f6 = "print";
+        };
+      };
+    };
+  };
+
   hardware.enableRedistributableFirmware = true;
 
   # Хостнейм для z13

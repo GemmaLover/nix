@@ -50,6 +50,11 @@
     # Если позже захотите вернуть фокус на стрелки, добавьте отдельные
     # биндинги, например Mod+H/J/K/L для фокуса.
     binds = {
+   # F6 (работает как Fn+F6) → скриншот области через Noctalia.
+    # Noctalia сама захватит экран через wlr-screencopy и откроет редактор.
+    "F6".action.spawn-sh = "noctalia msg screenshot-region";
+
+
       # --- Терминал и файловый менеджер ---
       "Mod+T".action.spawn = "foot";
       "Mod+E".action.spawn = "dolphin";
