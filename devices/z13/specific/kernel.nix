@@ -71,6 +71,9 @@ in
     # ПРИМЕЧАНИЕ: параметр asus_wmi.fnlock_default убран, так как
     # на GZ302EA он не работает (Fn-Lock управляется через HID-отчёт,
     # см. pkgs/z13-fnlock и сервис asus-fnlock).
+
+    #чтобы не отваливалась клава от кнопки принтскрин
+    "asus_nb_wmi.ignore_wmi_events=0x2b"
   ];
 
   # === Модули ядра ===
