@@ -218,51 +218,60 @@
   # использовать схему, связанную с qt6ct, и восстанавливает
   # ожидаемое поведение. Значение "qt6ct" соответствует нашему
   # qt.platformTheme.name = "qtct".
-  xdg.configFile."kdeglobals".text = ''
-    [General]
-    ColorScheme=BreezeDark
-    Name=Breeze Dark
-    shadeSortColumn=true
+  #
+  # ВАЖНО: force = true — Home Manager отказывается перезаписывать
+  # уже существующий файл (он мог быть создан KDE или вручную до
+  # перехода на Niri). Без force активация падала с
+  # «Existing file '/home/lexi/.config/kdeglobals' would be clobbered».
+  # force = true делает файл полностью управляемым из Nix-конфига.
+  xdg.configFile."kdeglobals" = {
+    force = true;
+    text = ''
+      [General]
+      ColorScheme=BreezeDark
+      Name=Breeze Dark
+      shadeSortColumn=true
 
-    [KDE]
-    widgetStyle=Breeze
-    contrast=4
+      [KDE]
+      widgetStyle=Breeze
+      contrast=4
 
-    # === НОВОЕ: ключ для KDE Frameworks 6.19+ ===
-    # Без этой секции Dolphin, Kate и другие KDE-приложения
-    # игнорируют цвета из kdeglobals, когда platformTheme не "kde".
-    [UiSettings]
-    ColorScheme=qt6ct
+      # === НОВОЕ: ключ для KDE Frameworks 6.19+ ===
+      # Без этой секции Dolphin, Kate и другие KDE-приложения
+      # игнорируют цвета из kdeglobals, когда platformTheme не "kde".
+      [UiSettings]
+      ColorScheme=qt6ct
 
-    [Colors:Window]
-    BackgroundNormal=35,38,41
-    ForegroundNormal=239,240,241
-    BackgroundInactive=35,38,41
-    ForegroundInactive=189,195,199
-    BackgroundActive=35,38,41
-    ForegroundActive=61,174,233
-    ForegroundLink=41,128,185
-    ForegroundVisited=127,140,141
-    ForegroundNegative=218,68,83
-    ForegroundNeutral=246,116,0
-    ForegroundPositive=17,209,22
+      [Colors:Window]
+      BackgroundNormal=35,38,41
+      ForegroundNormal=239,240,241
+      BackgroundInactive=35,38,41
+      ForegroundInactive=189,195,199
+      BackgroundActive=35,38,41
+      ForegroundActive=61,174,233
+      ForegroundLink=41,128,185
+      ForegroundVisited=127,140,141
+      ForegroundNegative=218,68,83
+      ForegroundNeutral=246,116,0
+      ForegroundPositive=17,209,22
 
-    [Colors:View]
-    BackgroundNormal=27,30,32
-    ForegroundNormal=239,240,241
-    BackgroundInactive=27,30,32
-    ForegroundInactive=189,195,199
-    BackgroundActive=27,30,32
-    ForegroundActive=61,174,233
+      [Colors:View]
+      BackgroundNormal=27,30,32
+      ForegroundNormal=239,240,241
+      BackgroundInactive=27,30,32
+      ForegroundInactive=189,195,199
+      BackgroundActive=27,30,32
+      ForegroundActive=61,174,233
 
-    [Colors:Button]
-    BackgroundNormal=42,46,50
-    ForegroundNormal=239,240,241
-    BackgroundInactive=42,46,50
-    ForegroundInactive=189,195,199
-    BackgroundActive=42,46,50
-    ForegroundActive=61,174,233
-  '';
+      [Colors:Button]
+      BackgroundNormal=42,46,50
+      ForegroundNormal=239,240,241
+      BackgroundInactive=42,46,50
+      ForegroundInactive=189,195,199
+      BackgroundActive=42,46,50
+      ForegroundActive=61,174,233
+    '';
+  };
 
   # Переменные окружения — только то, что модуль qt НЕ выставляет.
   # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
