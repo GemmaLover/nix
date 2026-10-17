@@ -42,6 +42,12 @@
     # ];
 
     # === Биндинги ===
+    #
+    # ВАЖНО: Mod+←/→ и Mod+↑/↓ в Niri по умолчанию заняты фокусом
+    # (focus-column-left/right, focus-window-up/down). Ниже эти
+    # комбинации переопределены под перемещение — так, как вы просили.
+    # Если позже захотите вернуть фокус на стрелки, добавьте отдельные
+    # биндинги, например Mod+H/J/K/L для фокуса.
     binds = {
       # --- Терминал и файловый менеджер ---
       "Mod+T".action.spawn = "foot";
@@ -66,15 +72,48 @@
         action.spawn-sh = "noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet";
       };
 
-      # === Перемещение окон в текущем рабочем пространстве ===
-      "Mod+Shift+Left".action.move-column-left = { };
-      "Mod+Shift+Right".action.move-column-right = { };
-      "Mod+Shift+Up".action.move-window-up = { };
-      "Mod+Shift+Down".action.move-window-down = { };
+      # ===============================================================
+      # === НОВОЕ: перемещение окна/колонки в текущем пространстве ===
+      # Mod+←/→ сдвигает активную колонку влево/вправо (меняет порядок
+      # колонок на текущем рабочем пространстве).
+      # ===============================================================
+      "Mod+Left".action.move-column-left = { };
+      "Mod+Right".action.move-column-right = { };
 
-      # === Вынос окна в новое / соседнее рабочее пространство ===
-      "Mod+Ctrl+Down".action.move-window-to-workspace-down = { focus = false; };
-      "Mod+Ctrl+Up".action.move-window-to-workspace-up = { focus = false; };
+      # ===============================================================
+      # === НОВОЕ: перемещение активного окна между пространствами ===
+      # Mod+↑/↓ переносит активное окно на соседнее рабочее
+      # пространство (вверх/вниз по вертикальной ленте). Если
+      # следующего нет — Niri создаст новое.
+      # focus = false — фокус остаётся на исходном пространстве:
+      # вы «выносите» окно и продолжаете работу здесь.
+      # Уберите focus = false, если хотите, чтобы фокус следовал.
+      # ===============================================================
+      "Mod+Up".action.move-window-to-workspace-up = { focus = false; };
+      "Mod+Down".action.move-window-to-workspace-down = { focus = false; };
+
+      # ===============================================================
+      # === НОВОЕ: переключение на рабочее пространство по номеру ===
+      # Индекс — позиция в вертикальной ленте на текущем мониторе.
+      # Если такого индекса ещё нет, Niri переключится на нижнее
+      # пустое пространство (и создаст его при необходимости).
+      # ===============================================================
+      "Mod+1".action.focus-workspace = 1;
+      "Mod+2".action.focus-workspace = 2;
+      "Mod+3".action.focus-workspace = 3;
+      "Mod+4".action.focus-workspace = 4;
+      "Mod+5".action.focus-workspace = 5;
+
+      # ===============================================================
+      # === Опционально: перенос окна сразу на номер 1..5 ===
+      # Аналог «вынести окно на рабочий стол N». Раскомментируйте,
+      # если нужно (иначе — просто Mod+↑/↓ шаг за шагом).
+      # ===============================================================
+      # "Mod+Shift+1".action.move-window-to-workspace = 1;
+      # "Mod+Shift+2".action.move-window-to-workspace = 2;
+      # "Mod+Shift+3".action.move-window-to-workspace = 3;
+      # "Mod+Shift+4".action.move-window-to-workspace = 4;
+      # "Mod+Shift+5".action.move-window-to-workspace = 5;
 
       # --- Скриншоты ---
       "Print".action.screenshot = { };
@@ -99,10 +138,7 @@
   # Git: сохранение паролей через libsecret (GNOME Keyring).
   #
   # В чистой Wayland-сессии (Niri) нет провайдера org.freedesktop.secrets,
-  # поэтому Git по умолчанию не может сохранить логин/пароль. Konsole
-  # работал только потому, что наследовал окружение KDE, где keyring
-  # уже был разблокирован.
-  #
+  # поэтому Git по умолчанию не может сохранить логин/пароль.
   # Решение: собрать Git с поддержкой libsecret и указать
   # git-credential-libsecret как credential.helper. Пароли будут
   # сохраняться в gnome-keyring.
@@ -114,8 +150,7 @@
   programs.git = {
     enable = true;
 
-    # === НОВОЕ: Git с поддержкой libsecret ===
-    # Без withLibsecret в бинарнике нет git-credential-libsecret.
+    # Git с поддержкой libsecret — иначе нет git-credential-libsecret.
     package = pkgs.git.override { withLibsecret = true; };
 
     settings = {
@@ -126,9 +161,7 @@
       init.defaultBranch = "main";
       pull.rebase = true;
 
-      # === НОВОЕ: credential helper ===
-      # Указывает Git использовать libsecret для сохранения паролей.
-      # Путь берётся из того же пакета, что и programs.git.package.
+      # credential helper — сохранение паролей в gnome-keyring.
       credential.helper = "${pkgs.git.override { withLibsecret = true; }}/bin/git-credential-libsecret";
     };
   };
@@ -154,6 +187,9 @@
   };
 
   # kdeglobals: цветовая схема KDE-приложений (BreezeDark).
+  # force = true — Home Manager перезапишет уже существующий файл
+  # (мог остаться от KDE), иначе активация падает с
+  # «Existing file would be clobbered».
   xdg.configFile."kdeglobals" = {
     force = true;
     text = ''
@@ -201,6 +237,8 @@
   };
 
   # Переменные окружения — только то, что модуль qt НЕ выставляет.
+  # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
+  # автоматически (qt5ct / kvantum).
   home.sessionVariables = {
     XCURSOR_THEME = "Adwaita";
     XCURSOR_SIZE = "24";
@@ -208,7 +246,7 @@
 
   # === Пакеты ===
   home.packages = with pkgs; [
-    foot                  # Wayland-терминал (возвращён)
+    foot                  # Wayland-терминал
     wofi                  # standalone-лаунчер
     kdePackages.dolphin   # файловый менеджер
 
