@@ -40,7 +40,7 @@
 
     # === Биндинги ===
     # Mod — это Super (Windows). Стандартные для Niri:
-    #   Mod+T         — терминал (foot)
+    #   Mod+T         — терминал (Konsole)
     #   Mod+Q         — закрыть окно
     #   Mod+E         — файловый менеджер (Dolphin)
     #   Mod+D         — standalone-лаунчер (wofi)
@@ -60,7 +60,10 @@
     #                             пространство
     binds = {
       # --- Терминал и файловый менеджер ---
-      "Mod+T".action.spawn = "foot";
+      # === ИЗМЕНЕНО: foot -> Konsole ===
+      # Konsole — привычный KDE-терминал. Пакет kdePackages.konsole
+      # добавлен в home.packages ниже. Qt6/Wayland, работает нативно.
+      "Mod+T".action.spawn = "konsole";
       "Mod+E".action.spawn = "dolphin";
 
       # --- Окна ---
@@ -164,8 +167,7 @@
   #   2. qt.style.name = "kvantum": стиль Qt-приложений — Kvantum.
   #      qt.kvantum.enable = true + qt.kvantum.settings.General.theme
   #      декларативно записывают ~/.config/Kvantum/kvantum.kvconfig
-  #      с выбранной темой (Kvantum-dark). Ручной запуск
-  #      `kvantummanager` НЕ нужен.
+  #      с выбранной темой. Ручной запуск `kvantummanager` НЕ нужен.
   #
   #   3. xdg.configFile."kdeglobals": цветовая схема KDE-приложений
   #      (BreezeDark). KDE-приложения читают kdeglobals, чтобы взять
@@ -200,8 +202,16 @@
     kvantum = {
       enable = true;
       settings = {
+        # === ИЗМЕНЕНО: плоская тема вместо объёмной Kvantum-dark ===
+        # KvFlat — плоская тема без градиентов и теней, входящая в
+        # состав движка Kvantum. Именно она даёт «плоские» кнопки.
+        # Дополнительно отключаем композитные эффекты (composite = false)
+        # и оставляем кнопки без иконок (iconless_pushbutton = true),
+        # чтобы убрать любые остатки объёма.
         General = {
-          theme = "Kvantum-dark";
+          theme = "KvFlat";
+          composite = false;
+          iconless_pushbutton = true;
         };
       };
     };
@@ -273,6 +283,18 @@
     '';
   };
 
+  # === Настройка Konsole (тёмная тема, шрифт) ===
+  # plasma-manager предоставляет модуль programs.konsole, который
+  # управляет профилями и UI-схемой Konsole декларативно.
+  # enable = true включает управление, defaultProfile задаёт профиль
+  # по умолчанию, ui.colorScheme — цветовую схему интерфейса Konsole
+  # (не путать с цветами терминала внутри профиля).
+  programs.konsole = {
+    enable = true;
+    defaultProfile = "Default";
+    ui.colorScheme = "Breeze Dark";
+  };
+
   # Переменные окружения — только то, что модуль qt НЕ выставляет.
   # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
   # автоматически (qt5ct / kvantum). Ручное дублирование вызывало
@@ -285,13 +307,14 @@
   # === Пакеты, которые нужны для базового workflow ===
   home.packages = with pkgs; [
     # --- Базовый workflow ---
-    foot                  # Wayland-терминал (аналог Konsole)
+    # === ИЗМЕНЕНО: foot заменён на Konsole ===
+    kdePackages.konsole   # KDE-терминал (Qt6/Wayland, привычный UI)
     wofi                  # standalone-лаунчер (аналог Kickoff)
     kdePackages.dolphin   # файловый менеджер (Qt6/Wayland, привычный UI)
 
     # --- Тёмная тема Qt/KDE ---
     kdePackages.qt6ct                        # qt6ct: платформенная тема Qt6
-    qt6Packages.qtstyleplugin-kvantum        # движок стилей Kvantum (тема Kvantum-dark)
+    qt6Packages.qtstyleplugin-kvantum        # движок стилей Kvantum (тема KvFlat)
     kdePackages.qtstyleplugin-kvantum        # Kvantum для KDE-приложений (Qt6)
     kdePackages.breeze                       # Breeze Dark: цветовые схемы + стиль Breeze
     kdePackages.breeze-icons                 # тёмные иконки для Dolphin и др.
