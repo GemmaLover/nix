@@ -4,6 +4,18 @@
   home-manager,
   disko,
   plasma-manager,
+  # === НОВОЕ: Niri — Wayland-композитор ===
+  # Системный модуль (niri.nixosModules.niri) регистрирует programs.niri.*
+  # в NixOS И автоматически подключает homeModules.config в Home Manager,
+  # когда HM используется как NixOS-модуль. Поэтому homeModules.niri
+  # в sharedModules НЕ подключается — иначе двойное объявление опции
+  # `programs.niri.finalConfig` (проверено при nix flake check).
+  niri,
+  # === НОВОЕ: Noctalia — Wayland-шелл (панель, лаунчер, уведомления) ===
+  # Системный модуль (noctalia.nixosModules.default) — сервисы уровня системы;
+  # Home Manager модуль (noctalia.homeModules.default) подключается через
+  # sharedModules ниже — регистрирует programs.noctalia.* в домене HM.
+  noctalia,
 }:
 let lib = nixpkgs.lib; in
 # =====================================================================
@@ -63,9 +75,9 @@ nixpkgs.lib.nixosSystem {
   specialArgs = { inherit inputs; kda = kdaAxes; };
   modules = [
    # Оверлей CachyOS-ядер. overlays.pinned берёт nixpkgs самого flake,
-  # а не наш — это гарантирует, что linux-cachyos-latest-lto-zen4
-  # останется 7.2.8 независимо от обновлений нашего nixpkgs.
-  { nixpkgs.overlays = [ inputs.nix-cachyos-kernel.overlays.pinned ]; }
+   # а не наш — это гарантирует, что linux-cachyos-latest-lto-zen4
+   # останется 7.2.8 независимо от обновлений нашего nixpkgs.
+   { nixpkgs.overlays = [ inputs.nix-cachyos-kernel.overlays.pinned ]; }
 
 
     # Общие модули-инпуты.
@@ -75,6 +87,24 @@ nixpkgs.lib.nixosSystem {
     # (объявляет options.programs.plasma.* внутри Home Manager-домена).
     # Как элемент NixOS `modules` он вызывал «The option `home' does not
     # exist» при eval на z13 — подключается ниже через sharedModules.
+
+    # === НОВОЕ: Niri — системный модуль ===
+    # Регистрирует programs.niri.{enable,package,useNautilus,...} в NixOS.
+    # Включается и настраивается в ui/niri/niri.nix (системный слой оси)
+    # и в ui/niri/home.nix (биндинги, layout, spawn-at-startup).
+    #
+    # ВАЖНО: этот модуль САМ подключает homeModules.config в Home Manager,
+    # когда home-manager.nixosModules.home-manager уже в modules. Поэтому
+    # в sharedModules ниже мы НЕ добавляем niri.homeModules.niri —
+    # иначе nix flake check падает с «The option programs.niri.finalConfig
+    # is already declared».
+    niri.nixosModules.niri
+
+    # === НОВОЕ: Noctalia — системный модуль ===
+    # Системные сервисы Noctalia (greeter, интеграция с greetd и т.п.).
+    # Пользовательские настройки — через noctalia.homeModules.default,
+    # который подключается ниже в sharedModules.
+    noctalia.nixosModules.default
 
     # Конфиг конкретного устройства: сам решает, какие оси включить
     # (kda.opts.ui / kda.opts.profiles + собственные imports).
@@ -107,7 +137,17 @@ nixpkgs.lib.nixosSystem {
           # Декларативная настройка KDE Plasma (нужна home-модулям ui=="kde").
           # sharedModules подключаются к ДОМЕННОЙ конфигурации Home Manager,
           # где и живут опции programs.plasma.* / home.*.
-          sharedModules = [ plasma-manager.homeModules.plasma-manager ];
+          sharedModules = [
+            plasma-manager.homeModules.plasma-manager
+
+            # === НОВОЕ: Noctalia — Home Manager модуль ===
+            # Регистрирует programs.noctalia.* в домене Home Manager.
+            # Через sharedModules доступен всем HM-пользователям, не только lexi.
+            #
+            # ВАЖНО: niri.homeModules.niri здесь НЕ подключается —
+            # niri.nixosModules.niri (см. выше) уже импортирует его сам.
+            noctalia.homeModules.default
+          ];
           useGlobalPkgs = true;
           useUserPackages = true;
           # kdaOpts — оси устройства (ui, profiles), проброшены в home-слой:

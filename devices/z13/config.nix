@@ -15,7 +15,7 @@
     # Оболочка и профили подключаются диспетчерами (ui/default.nix,
     # profiles/default.nix), которые подставляет lib/mkSystem.nix.
     # Устройство лишь объявляет, ЧТО из осей ему нужно:
-    #   ui       — kde | hyprland | none
+    #   ui       — kde | hyprland | niri | none
     #   profiles — dev | llm | games (отличия машин только в llm/games)
     # NOTE: оси объявляются в attrset ниже, вне списка `imports` —
     # синтаксис Nix не допускает присваиваний внутри списков.
@@ -55,7 +55,7 @@
     # ../../base/tools/portmaster.nix   # закомментировано (как в baseline): сервис отключён
 
     # Сюда НЕ переносим:
-    #   ../../base/ui/kde.nix        -> ось ui (kda.opts.ui = "kde")
+    #   ../../base/ui/kde.nix        -> ось ui (kda.opts.ui = "niri")
     #   ../../base/system/scripts    -> z13-скрипт лежит в ./specific/
     #   ../../dev/dev.nix            -> ось profiles ("dev")
     #   ../../llm/system.nix         -> ось profiles ("llm")
@@ -65,7 +65,12 @@
   # Читаются lib/mkSystem.nix при вызове модуля как функции и диспетчерами
   # ui/default.nix, profiles/default.nix через specialArgs.kda.
   kda.opts = {
-    ui = "kde";                     # TODO(миграция): "hyprland"
+    # === ИЗМЕНЕНО: переключение оси ui с KDE Plasma на Niri + Noctalia ===
+    # Было: ui = "kde";  (TODO(миграция): "hyprland")
+    # Теперь диспетчер ../ui/default.nix подключит ui/niri/default.nix
+    # вместо ui/kde/default.nix. Системный слой Niri — в ui/niri/niri.nix,
+    # пользовательский — в ui/niri/home.nix (через home-specific/default.nix).
+    ui = "niri";
     profiles = [ "dev" "llm" ];     # games — позже
   };
 

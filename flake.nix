@@ -1,3 +1,4 @@
+# flake.nix
 {
   description = "NixOS multi-device configuration for z13, PC, and ASUS laptop";
 
@@ -34,56 +35,62 @@
     };
 
     # Ядра CachyOS (LTO, BORE, LTS и т.д.) с собственным бинарным кэшем.
-#      nix-cachyos-kernel = {
-#        url = "github:xddxdd/nix-cachyos-kernel/release";
-#        inputs.nixpkgs.follows = "nixpkgs";
-#      };
+    # nix-cachyos-kernel = {
+    #   url = "github:xddxdd/nix-cachyos-kernel/release";
+    #   inputs.nixpkgs.follows = "nixpkgs";
+    # };
+    # CachyOS-ядра с патчами (BORE, LTO, zen4-оптимизация) и бинарным кэшем.
+    # release-ветка — стабильные ядра, синхронизированные с nixpkgs.
+    nix-cachyos-kernel.url = "github:xddxdd/nix-cachyos-kernel/release";
+    # ВАЖНО: НЕ ставим inputs.nixpkgs.follows = "nixpkgs" — иначе версия
+    # ядра будет зависеть от вашего nixpkgs и может «уплыть» с 7.2.8
+    # на что-то другое. pinned-оверлей использует nixpkgs самого flake.
 
+    # === НОВОЕ: Niri — Wayland-композитор ===
+    # sodiboo/niri-flake предоставляет Nix-нативную конфигурацию (programs.niri.settings)
+    # и официальный NixOS-модуль. Это не «прослойка», а рекомендованный сообществом
+    # источник пакета niri и модулей для NixOS/Home Manager.
+    niri = {
+      url = "github:sodiboo/niri-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
- # CachyOS-ядра с патчами (BORE, LTO, zen4-оптимизация) и бинарным кэшем.
-  # release-ветка — стабильные ядра, синхронизированные с nixpkgs.
-  nix-cachyos-kernel.url = "github:xddxdd/nix-cachyos-kernel/release";
-  # ВАЖНО: НЕ ставим inputs.nixpkgs.follows = "nixpkgs" — иначе версия
-  # ядра будет зависеть от вашего nixpkgs и может «уплыть» с 7.2.8
-  # на что-то другое. pinned-оверлей использует nixpkgs самого flake.
-  };
-
-  outputs = {
-  self,
-  nixpkgs,
-  home-manager,
-  disko,
-  plasma-manager,
-   nix-cachyos-kernel,
-  ... }@inputs:
-let
-  # Фабрика нод nixosConfigurations (см. lib/mkSystem.nix):
-  # подставляет disko, home-manager, plasma-manager, опции kda.opts
-  # и диспетчеры осей ui/ и profiles/ — устройство объявляет только
-  # свои оси в devices/<name>/config.nix.
-  mkSystem = import ./lib/mkSystem.nix {
-    inherit inputs nixpkgs home-manager disko plasma-manager;
-  };
-in {
-    nixosConfigurations = {
-      # === Устройство: ASUS Z13 ===
-      z13 = mkSystem "z13" {
-        deviceModule = ./devices/z13/config.nix;
-        # Home-модули пользователя lexi (пустой список => HM не подключается).
-        userHome = user: [ ./devices/z13/home.nix ];
-      };
-
-      # === Устройство: PC (AMD CPU + NVIDIA GPU) ===
-      # pc = mkSystem "pc" {
-      #   deviceModule = ./devices/pc/config.nix;
-      #   userHome = user: [ ./devices/pc/home.nix ];
-      # };
-
-      # === Устройство: ASUS 5304UV (Intel) ===
-      # asus5304uv = mkSystem "asus5304uv" {
-      #   deviceModule = ./devices/asus5304uv/config.nix;
-      #   userHome = user: [ ./devices/asus5304uv/home.nix ];
-      # };
+    # === НОВОЕ: Noctalia — Wayland-шелл (панель, лаунчер, уведомления) ===
+    # Официальный репозиторий Noctalia.
+    # ВАЖНО: если вы хотите использовать бинарный кэш Cachix от Noctalia,
+    # НЕ добавляйте inputs.nixpkgs.follows = "nixpkgs" — иначе будут кэш-промахи.
+    # Если готовы собирать локально — можно раскомментировать строку follows.
+    noctalia = {
+      url = "github:noctalia-dev/noctalia";
+      # inputs.nixpkgs.follows = "nixpkgs"; # раскомментируйте, если не нужен кэш
     };
   };
+
+  outputs = { self, nixpkgs, home-manager, disko, plasma-manager, nix-cachyos-kernel, niri, noctalia, ... }@inputs:
+    let
+      # Фабрика нод nixosConfigurations (см. lib/mkSystem.nix):
+      # подставляет disko, home-manager, plasma-manager, опции kda.opts
+      # и диспетчеры осей ui/ и profiles/ — устройство объявляет только
+      # свои оси в devices/<name>/config.nix.
+      # === ИЗМЕНЕНО: передаём niri и noctalia в mkSystem ===
+      mkSystem = import ./lib/mkSystem.nix {
+        inherit inputs nixpkgs home-manager disko plasma-manager niri noctalia;
+      };
+    in
+    {
+      nixosConfigurations = {
+        # === Устройство: ASUS Z13 ===
+        z13 = mkSystem "z13" {
+          deviceModule = ./devices/z13/config.nix;
+          # Home-модули пользователя lexi
+          # (пустой список => HM не подключается).
+          userHome = user: [
+            ./devices/z13/home.nix
+          ];
+        };
+
+        # === Устройство: PC (AMD CPU + NVIDIA GPU) ===
+        # ...
+      };
+    };
 }

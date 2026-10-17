@@ -7,8 +7,8 @@ let
   # Файлы здесь зависят ОТ ЖЕЛЕЗА и (иногда) ОТ ОБОЛОЧКИ. Диспетчер
   # подключает DE-специфичные модули по оси ui (kdaOpts пробрасывается
   # из NixOS-конфига через home-manager.extraSpecialArgs в mkSystem),
-  # чтобы при смене Plasma -> Hyprland достаточно было положить рядом
-  # *-hyprland.nix.
+  # чтобы при смене Plasma -> Niri / Hyprland достаточно было положить
+  # рядом *-niri.nix / *-hyprland.nix.
   # =====================================================================
   cfg = kdaOpts;
 in
@@ -27,5 +27,15 @@ in
       ./asus-backlight-hyprland.nix # подсветка по IPC hyprlock (аналог kde-версии)
       # caffeine на Hyprland НЕ нужен: ингибирование сна делает сам
       # hyprland (windowrule v1/v2 -> inhibit_idle), см. ui/hyprland/home.nix.
+    ]
+    # === НОВОЕ: ось Niri + Noctalia ===
+    ++ lib.optionals (cfg.ui == "niri") [
+      # Композитор, биндинги, Noctalia — весь HM-слой оси Niri.
+      ../../../ui/niri/home.nix
+      # z13-специфичная подсветка уже работает через home-services.nix
+      # (asus-keyboard-backlight + swayidle-backlight) — swayidle
+      # корректно работает под Niri, отдельный файл не нужен.
+      # Блокировка/idle — встроены в Noctalia; при необходимости
+      # добавьте ./power-lock-niri.nix отдельно.
     ];
 }

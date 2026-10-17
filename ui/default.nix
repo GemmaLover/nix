@@ -6,6 +6,7 @@
 # lib/mkSystem.nix):
 #   "kde"      -> ui/kde/     (Plasma 6, SDDM, plasma-specific сервисы)
 #   "hyprland" -> ui/hyprland/ (каркас под миграцию)
+#   "niri"     -> ui/niri/    (Niri + Noctalia)
 #
 # ui/common/ подключается при ЛЮБОЙ графической оболочке — там лежит
 # всё, что не зависит от DE: Wayland-порталы, базовый libinput,
@@ -43,5 +44,7 @@ in
     # nixpkgs сам подставит ему { config, lib, pkgs, ... } плюс
     # specialArgs (в них `kda` из mkSystem).
     ++ lib.optionals (opts.ui == "kde") [ ./kde/default.nix ]
-    ++ lib.optionals (opts.ui == "hyprland") [ ./hyprland/default.nix ];
+    ++ lib.optionals (opts.ui == "hyprland") [ ./hyprland/default.nix ]
+    # === НОВОЕ: ось Niri + Noctalia ===
+    ++ lib.optionals (opts.ui == "niri") [ ./niri/default.nix ];
 }
