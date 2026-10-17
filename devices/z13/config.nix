@@ -89,26 +89,20 @@
   powerOnBoot = true;  # Автоматически включать адаптер при загрузке
 };
 
-  services.keyd = {
+  services.evremap = {
     enable = true;
+    settings = {
+      # Точное имя устройства из `evremap list-devices` или `libinput debug-events`.
+      # У вас это "Asus WMI hotkeys".
+      device_name = "Asus WMI hotkeys";
 
-    # Asus WMI hotkeys (event1): сюда приходит F6 как KEY_S (31).
-  keyboards.asus-wmi = {
-    ids = [ "0000:0000:9d7b6cf5" ];
-    settings.main = {
-      s = "sysrq";   # не [31], а имя s
-    };
-  };
-
-    # Основная клавиатура Z13: сюда F6 приходит как KEY_F6 (60).
-    keyboards.z13 = {
-      ids = [
-        "0b05:1a30:09ed1c53"
-        "0b05:1a30:00a3d98c"
+      # KEY_S (31) → KEY_SYSRQ (99), который Niri видит как "Print".
+      mappings = [
+        {
+          from = "KEY_S";
+          to = "KEY_SYSRQ";
+        }
       ];
-      settings.main = {
-        f6 = "sysrq";
-      };
     };
   };
 
