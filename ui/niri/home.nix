@@ -52,8 +52,7 @@
     binds = {
    # F6 (работает как Fn+F6) → скриншот области через Noctalia.
     # Noctalia сама захватит экран через wlr-screencopy и откроет редактор.
-    "F6".action.spawn-sh = "noctalia msg screenshot-region";
-
+    "Print".action.spawn-sh = "noctalia msg screenshot-region";
 
       # --- Терминал и файловый менеджер ---
       "Mod+T".action.spawn = "foot";
@@ -164,7 +163,7 @@
       "XF86AudioPrev".action.spawn-sh = "playerctl previous";
 
       # --- Скриншоты ---
-      "Print".action.screenshot = { };
+      #"Print".action.screenshot = { };
       "Mod+Print".action.screenshot-window = { };
       "Mod+Shift+Print".action.screenshot-screen = { };
     };
