@@ -210,8 +210,14 @@
   # kdeglobals: KDE-приложения (Dolphin, Ark, Kate, ...) читают цветовую
   # схему отсюда. BreezeDark — официальная тёмная схема KDE; файл схемы
   # приходит из пакета kdePackages.breeze (добавлен в home.packages ниже).
-  # Без этой строки Dolphin рисуется в светлой палитре, даже если стиль
-  # Kvantum уже тёмный.
+  #
+  # ВАЖНО: с KDE Frameworks 6.19+ KDE-приложения ИГНОРИРУЮТ
+  # `[General] ColorScheme`, если platformTheme не "kde". Именно это
+  # было причиной светлых Dolphin и Kate при qt.platformTheme = qtct.
+  # Ключ `[UiSettings] ColorScheme=qt6ct` явно указывает KDE-приложениям
+  # использовать схему, связанную с qt6ct, и восстанавливает
+  # ожидаемое поведение. Значение "qt6ct" соответствует нашему
+  # qt.platformTheme.name = "qtct".
   xdg.configFile."kdeglobals".text = ''
     [General]
     ColorScheme=BreezeDark
@@ -221,6 +227,12 @@
     [KDE]
     widgetStyle=Breeze
     contrast=4
+
+    # === НОВОЕ: ключ для KDE Frameworks 6.19+ ===
+    # Без этой секции Dolphin, Kate и другие KDE-приложения
+    # игнорируют цвета из kdeglobals, когда platformTheme не "kde".
+    [UiSettings]
+    ColorScheme=qt6ct
 
     [Colors:Window]
     BackgroundNormal=35,38,41
