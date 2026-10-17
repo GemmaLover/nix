@@ -11,7 +11,7 @@
   #   * programs.niri.settings  — биндинги, layout, window-rules,
   #     spawn-at-startup (генерирует ~/.config/niri/config.kdl);
   #   * programs.noctalia.*     — сам шелл и декларативное включение плагинов;
-  #   * qt + programs.konsole   — тёмная тема и корректный профиль Konsole;
+  #   * qt + programs.git       — тёмная тема и сохранение паролей Git;
   #   * базовые пакеты-аналоги KDE-компонентов.
   # =====================================================================
 
@@ -29,33 +29,22 @@
 
     layout.gaps = 5;
 
-    # === window-rules для Konsole ===
-    # По умолчанию Niri открывает одиночное окно в плиточном режиме
-    # на всю доступную область — это не «полноэкранный режим», а
-    # штатное поведение тайлинга. Правило ниже делает Konsole
-    # плавающим окном при запуске, чтобы он не разворачивался.
+    # === window-rules ===
+    # В niri-flake правило задаётся через `matches` (список attrset'ов).
+    # Если понадобится сделать какое-то приложение плавающим,
+    # раскомментируйте шаблон ниже и замените app-id.
     #
-    # ВАЖНО: в niri-flake правило задаётся через `matches` (список
-    # attrset'ов), а НЕ через `match` (attrset). Именно из-за `match`
-    # nix flake check падал с «option does not exist. Did you mean
-    # `matches`?».
-    #
-    # app-id Konsole обычно "konsole" (Wayland). Если правило не
-    # сработает, уточните app-id командой:
-    #   niri msg pick-window   (кликните по окну Konsole)
-    window-rules = [
-      {
-        matches = [
-          { app-id = "konsole"; }
-        ];
-        open-floating = true;
-      }
-    ];
+    # window-rules = [
+    #   {
+    #     matches = [ { app-id = "some-app"; } ];
+    #     open-floating = true;
+    #   }
+    # ];
 
     # === Биндинги ===
     binds = {
       # --- Терминал и файловый менеджер ---
-      "Mod+T".action.spawn = "konsole";
+      "Mod+T".action.spawn = "foot";
       "Mod+E".action.spawn = "dolphin";
 
       # --- Окна ---
@@ -103,6 +92,44 @@
       plugins = {
         enabled = [ "kenn/keybind-cheatsheet" ];
       };
+    };
+  };
+
+  # =====================================================================
+  # Git: сохранение паролей через libsecret (GNOME Keyring).
+  #
+  # В чистой Wayland-сессии (Niri) нет провайдера org.freedesktop.secrets,
+  # поэтому Git по умолчанию не может сохранить логин/пароль. Konsole
+  # работал только потому, что наследовал окружение KDE, где keyring
+  # уже был разблокирован.
+  #
+  # Решение: собрать Git с поддержкой libsecret и указать
+  # git-credential-libsecret как credential.helper. Пароли будут
+  # сохраняться в gnome-keyring.
+  #
+  # ВАЖНО: сам gnome-keyring должен быть разблокирован при входе
+  # через greetd — см. security.pam.services.greetd.enableGnomeKeyring
+  # в ui/niri/niri.nix.
+  # =====================================================================
+  programs.git = {
+    enable = true;
+
+    # === НОВОЕ: Git с поддержкой libsecret ===
+    # Без withLibsecret в бинарнике нет git-credential-libsecret.
+    package = pkgs.git.override { withLibsecret = true; };
+
+    settings = {
+      user = {
+        name = "lexi";
+        email = "lexi@example.com";
+      };
+      init.defaultBranch = "main";
+      pull.rebase = true;
+
+      # === НОВОЕ: credential helper ===
+      # Указывает Git использовать libsecret для сохранения паролей.
+      # Путь берётся из того же пакета, что и programs.git.package.
+      credential.helper = "${pkgs.git.override { withLibsecret = true; }}/bin/git-credential-libsecret";
     };
   };
 
@@ -173,34 +200,6 @@
     '';
   };
 
-  # =====================================================================
-  # Konsole — профиль по умолчанию.
-  #
-  # Широкие отступы между буквами и артефакты по центру вызваны
-  # включённым «Word Mode» (Complex Text Layout) в Konsole — это
-  # известный баг рендеринга при определённых шрифтах и настройках
-  # Qt/Plasma 6. Отключаем WordMode и явно задаём моноширинный шрифт.
-  # =====================================================================
-  programs.konsole = {
-    enable = true;
-    defaultProfile = "Default";
-
-    profiles.Default = {
-      font = {
-        name = "DejaVu Sans Mono";
-        size = 12;
-      };
-
-      # Отключаем Word Mode — главную причину широких отступов
-      # между символами и артефактов рендеринга.
-      extraConfig = {
-        Appearance = {
-          WordMode = false;
-        };
-      };
-    };
-  };
-
   # Переменные окружения — только то, что модуль qt НЕ выставляет.
   home.sessionVariables = {
     XCURSOR_THEME = "Adwaita";
@@ -209,7 +208,7 @@
 
   # === Пакеты ===
   home.packages = with pkgs; [
-    kdePackages.konsole   # KDE-терминал
+    foot                  # Wayland-терминал (возвращён)
     wofi                  # standalone-лаунчер
     kdePackages.dolphin   # файловый менеджер
 
@@ -221,6 +220,9 @@
     kdePackages.breeze-icons
     kdePackages.plasma-integration
     adwaita-icon-theme
-    dejavu_fonts          # DejaVu Sans Mono для Konsole
+
+    # --- Git: libsecret для сохранения паролей ---
+    libsecret             # библиотека Secret Service
+    gnome-keyring         # провайдер org.freedesktop.secrets
   ];
 }

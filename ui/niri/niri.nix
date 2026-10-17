@@ -4,10 +4,9 @@
   # =====================================================================
   # ui/niri/niri.nix — системный слой Niri.
   #
-  # Включает Niri как композитор (niri.nixosModules.niri уже подключён
-  # в lib/mkSystem.nix — здесь только программный флаг), настраивает
-  # greetd для запуска niri-session, добавляет Xwayland-сателлит для
-  # X11-приложений (AIMP и др.) и включает polkit/keyring.
+  # Включает Niri как композитор, настраивает greetd для запуска
+  # niri-session, добавляет Xwayland-сателлит, polkit/keyring и
+  # PAM-разблокировку GNOME Keyring при входе.
   #
   # Пользовательские настройки Niri (биндинги, layout, spawn-at-startup)
   # живут в ui/niri/home.nix — HM-слое этой оси.
@@ -20,29 +19,17 @@
   # Пакет niri-stable из niri-flake на текущем коммите всё ещё ссылается
   # на libdisplay-info_0_2, который удалён из nixpkgs (nixos-unstable).
   # NixOS-пакет pkgs.niri уже собран с актуальной libdisplay-info
-  # (0.3.x) и не ломает eval. niri-flake официально допускает такую
-  # замену: «you could set programs.niri.package = pkgs.niri;».
-  #
-  # Если позже понадобится самая свежая версия Niri с фичами, которых
-  # ещё нет в nixpkgs, можно вернуться на niri-unstable, но только
-  # после того, как upstream обновит зависимость от libdisplay-info.
+  # (0.3.x) и не ломает eval.
   programs.niri.package = pkgs.niri;
 
   # =====================================================================
   # greetd — вход в сессию Niri.
   #
   # niri-session — wrapper из niri-flake, который корректно выставляет
-  # окружение (XDG_RUNTIME_DIR, WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS)
-  # и запускает Niri. Прямой запуск `niri` из greetd работает хуже.
-  #
-  # tuigreet — минималистичный TUI-логин. --remember + --remember-session
-  # позволяют greetd запоминать последнего пользователя и сессию.
+  # окружение и запускает Niri. tuigreet — минималистичный TUI-логин.
   #
   # ВАЖНО: атрибут tuigreet в актуальном nixpkgs вынесен на верхний
-  # уровень (pkgs.tuigreet), вложенный pkgs.greetd.tuigreet удалён —
-  # при его использовании nix flake check падает с «attribute 'tuigreet'
-  # missing». Проверено по конфигурациям сообщества: используется
-  # именно pkgs.tuigreet.
+  # уровень (pkgs.tuigreet), вложенный pkgs.greetd.tuigreet удалён.
   # =====================================================================
   services.greetd = {
     enable = true;
@@ -55,11 +42,21 @@
   };
 
   # =====================================================================
-  # Xwayland-сателлит — для X11-приложений (AIMP и т.п.).
+  # === НОВОЕ: PAM-разблокировка GNOME Keyring при входе через greetd ===
   #
-  # Niri автоматически запускает xwayland-satellite, если бинарник есть
-  # в $PATH при первом подключении X11-клиента. Версия >= 0.7 работает
-  # из коробки.
+  # Без этого gnome-keyring-daemon запускается, но остаётся заблокированным
+  # (не получает пароль от PAM), и git-credential-libsecret не может
+  # сохранить или прочитать пароль. При логине через greetd пароль
+  # передаётся в PAM-модуль pam_gnome_keyring, который разблокирует
+  # keyring автоматически — без второго запроса пароля.
+  #
+  # Это стандартный и рекомендуемый способ для Niri/Sway/Hyprland
+  # на NixOS (см. wiki.nixos.org «Secret Service»).
+  # =====================================================================
+  security.pam.services.greetd.enableGnomeKeyring = true;
+
+  # =====================================================================
+  # Xwayland-сателлит — для X11-приложений (AIMP и т.п.).
   # =====================================================================
   environment.systemPackages = with pkgs; [
     xwayland-satellite
@@ -68,22 +65,15 @@
   # =====================================================================
   # Polkit и Secret Service.
   #
-  # KDE Plasma 6 включал их автоматически через plasma6-модуль. После
-  # перехода на Niri их нужно включить явно, иначе:
-  #   * pkexec и GUI-запросы привилегий (монтирование USB, установка
-  #     пакетов из магазина) не работают;
-  #   * браузеры не могут сохранять пароли (нет secret-service).
+  # security.polkit.enable — для pkexec и GUI-запросов привилегий.
+  # services.gnome.gnome-keyring.enable — поднимает gnome-keyring-daemon
+  # как провайдер org.freedesktop.secrets (Secret Service).
   # =====================================================================
   security.polkit.enable = true;
   services.gnome.gnome-keyring.enable = true;
 
   # =====================================================================
   # XDG-портал.
-  #
-  # ui/common/wayland.nix уже кладёт xdg-desktop-portal-gtk в
-  # systemPackages, но не включает сам portal-сервис. Включаем его
-  # здесь — иначе скриншоты, выбор файлов в Flatpak-приложениях и
-  # screen sharing не работают.
   # =====================================================================
   xdg.portal.enable = true;
 }
