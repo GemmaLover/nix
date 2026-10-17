@@ -12,6 +12,7 @@
   #     spawn-at-startup (генерирует ~/.config/niri/config.kdl);
   #   * programs.noctalia.*     — сам шелл и декларативное включение плагинов;
   #   * qt + programs.git       — тёмная тема и сохранение паролей Git;
+  #   * мультимедийные клавиши  — звук, яркость, медиа (Niri не делает это сам);
   #   * базовые пакеты-аналоги KDE-компонентов.
   # =====================================================================
 
@@ -114,6 +115,42 @@
       # "Mod+Shift+3".action.move-window-to-workspace = 3;
       # "Mod+Shift+4".action.move-window-to-workspace = 4;
       # "Mod+Shift+5".action.move-window-to-workspace = 5;
+
+      # ===============================================================
+      # === НОВОЕ: мультимедийные клавиши (F1-F12 в режиме Fn-Lock) ===
+      # Niri, в отличие от KDE, не обрабатывает XF86-события сам —
+      # их нужно явно привязать. В KDE эти комбинации работали через
+      # Plasma-демоны; здесь — прямые вызовы утилит.
+      #
+      # wpctl — часть WirePlumber (PipeWire-контроль громкости),
+      # brightnessctl — яркость экрана, playerctl — MPRIS-медиа.
+      # Все три пакета добавлены в home.packages ниже.
+      #
+      # ВАЖНО: биндинг сработает, только если нажатие F1 генерирует
+      # событие XF86AudioRaiseVolume. Если у вас выключен Fn-Lock и
+      # F1 приходит как голый F1 — биндинг не сработает. Проверить,
+      # какое событие приходит, можно утилитой `wev`:
+      #   nix-shell -p wev --run wev
+      # Нажмите F1 и посмотрите вывод.
+      # ===============================================================
+
+      # Громкость.
+      "XF86AudioRaiseVolume".action.spawn = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+";
+      "XF86AudioLowerVolume".action.spawn = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-";
+      "XF86AudioMute".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
+
+      # Микрофон.
+      "XF86AudioMicMute".action.spawn = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle";
+
+      # Яркость экрана.
+      "XF86MonBrightnessUp".action.spawn = "brightnessctl set 10%+";
+      "XF86MonBrightnessDown".action.spawn = "brightnessctl set 10%-";
+
+      # Медиа-плеер (play/pause, next, prev) — работает в любом
+      # MPRIS-совместимом плеере (VLC, mpv, Firefox и т.д.).
+      "XF86AudioPlay".action.spawn = "playerctl play-pause";
+      "XF86AudioNext".action.spawn = "playerctl next";
+      "XF86AudioPrev".action.spawn = "playerctl previous";
 
       # --- Скриншоты ---
       "Print".action.screenshot = { };
@@ -262,5 +299,13 @@
     # --- Git: libsecret для сохранения паролей ---
     libsecret             # библиотека Secret Service
     gnome-keyring         # провайдер org.freedesktop.secrets
+
+    # === НОВОЕ: мультимедийные утилиты для F1-F12 ===
+    # wireplumber даёт команду wpctl (громкость).
+    # brightnessctl — управление подсветкой экрана.
+    # playerctl — MPRIS-медиа-клавиши (play/pause/next/prev).
+    wireplumber
+    brightnessctl
+    playerctl
   ];
 }
