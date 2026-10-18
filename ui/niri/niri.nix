@@ -119,5 +119,20 @@
   # =====================================================================
   # XDG-портал.
   # =====================================================================
-  xdg.portal.enable = true;
+  xdg.portal = {
+  enable = true;
+
+  # Бэкенды порталов. gtk — универсальный и самый надёжный в Niri.
+  extraPortals = with pkgs; [
+    xdg-desktop-portal-gtk
+  ];
+
+  # Явно указываем Niri, какой бэкенд использовать для FileChooser.
+  # Без этой строки портал может выбрать неподходящий бэкенд
+  # (например, gnome или kde), если они случайно установлены.
+  config.niri = {
+    "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
+    "org.freedesktop.impl.portal.OpenURI"     = [ "gtk" ];
+  };
+};
 }
