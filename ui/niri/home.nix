@@ -383,15 +383,22 @@
     ColorScheme=noctalia
   '';
 
-   # qt6ct — мост между Noctalia и Qt-приложениями.
-  # Noctalia генерирует файл ~/.config/qt6ct/colors/noctalia.conf,
-  # который мы выберем в самом qt6ct (шаг 3).
   qt = {
     enable = true;
     platformTheme.name = "qtct";
-    # style.name убираем — Noctalia сама управляет стилем через qt6ct.
-  };
 
+    # Декларативно указываем qt6ct использовать цветовую схему от Noctalia.
+    # Путь указан на файл, который генерирует сама Noctalia.
+    qt6ctSettings = {
+      Appearance = {
+        custom_palette = true;
+        color_scheme_path = "${config.xdg.configHome}/qt6ct/colors/noctalia.conf";
+        # При необходимости можно также задать стиль, иконки и т.д.
+        # style = "Breeze";
+        # icon_theme = "breeze-dark";
+      };
+    };
+  };
 
     programs.foot = {
     enable = true;
