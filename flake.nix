@@ -64,17 +64,34 @@
       url = "github:noctalia-dev/noctalia";
       # inputs.nixpkgs.follows = "nixpkgs"; # раскомментируйте, если не нужен кэш
     };
+
+    # === НОВОЕ: Noctalia Greeter — графический экран входа ===
+    # Официальный greeter для greetd, визуально синхронизируется с Noctalia Shell.
+    # Модуль inputs.noctalia-greeter.nixosModules.default сам:
+    #   * включает greetd;
+    #   * включает accounts-daemon (для аватарок пользователей);
+    #   * выставляет default_session.command на noctalia-greeter-session.
+    # Поэтому старый блок services.greetd с tuigreet нужно будет УДАЛИТЬ
+    # из ui/niri/niri.nix, иначе будет конфликт.
+    #
+    # Ссылки:
+    #   https://docs.noctalia.dev/greeter/ (Installation)
+    #   https://docs.noctalia.dev/greeter/configuration/ (ключи greeter.toml)
+    noctalia-greeter = {
+      url = "github:noctalia-dev/noctalia-greeter";
+      # follows не ставим — как и для noctalia, чтобы не ломать кэш.
+    };
   };
 
-  outputs = { self, nixpkgs, home-manager, disko, plasma-manager, nix-cachyos-kernel, niri, noctalia, ... }@inputs:
+  outputs = { self, nixpkgs, home-manager, disko, plasma-manager, nix-cachyos-kernel, niri, noctalia, noctalia-greeter, ... }@inputs:
     let
       # Фабрика нод nixosConfigurations (см. lib/mkSystem.nix):
       # подставляет disko, home-manager, plasma-manager, опции kda.opts
       # и диспетчеры осей ui/ и profiles/ — устройство объявляет только
       # свои оси в devices/<name>/config.nix.
-      # === ИЗМЕНЕНО: передаём niri и noctalia в mkSystem ===
+      # === ИЗМЕНЕНО: передаём niri, noctalia и noctalia-greeter в mkSystem ===
       mkSystem = import ./lib/mkSystem.nix {
-        inherit inputs nixpkgs home-manager disko plasma-manager niri noctalia;
+        inherit inputs nixpkgs home-manager disko plasma-manager niri noctalia noctalia-greeter;
       };
     in
     {

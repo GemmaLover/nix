@@ -1,3 +1,24 @@
+# =====================================================================
+# lib/mkSystem.nix — фабрика NixOS-конфигураций (nixosConfigurations).
+#
+# Это сердце flake: flake.nix лишь объявляет устройства, а вся тяжёлая
+# работа по сборке nixosSystem происходит здесь.
+#
+# Что делает mkSystem:
+#   * подключает общие модули (disko, home-manager, plasma-manager,
+#     niri, noctalia, noctalia-greeter);
+#   * извлекает оси устройства (kda.opts.ui / kda.opts.profiles) ПРЯМЫМ
+#     вызовом модуля устройства — до сборки config, чтобы избежать
+#     infinite recursion;
+#   * пробрасывает оси через specialArgs.kda в диспетчеры ui/ и profiles/;
+#   * настраивает Home Manager (sharedModules + extraSpecialArgs.kdaOpts);
+#   * оставляет место для deviceModule — модуля конкретного устройства.
+#
+# Сигнатура: mkSystem "<deviceName>" { deviceModule; userHome ? (user: []); }
+#
+# Диспетчеры осей (../ui/default.nix, ../profiles/default.nix) читают
+# `kda` из specialArgs — не config.kda.opts, чтобы не было рекурсии.
+# =====================================================================
 {
   inputs,
   nixpkgs,
@@ -16,6 +37,14 @@
   # Home Manager модуль (noctalia.homeModules.default) подключается через
   # sharedModules ниже — регистрирует programs.noctalia.* в домене HM.
   noctalia,
+  # === НОВОЕ: Noctalia Greeter — графический экран входа ===
+  # Модуль (noctalia-greeter.nixosModules.default) сам:
+  #   * включает greetd;
+  #   * включает accounts-daemon (аватарки пользователей);
+  #   * выставляет default_session.command = noctalia-greeter-session.
+  # Поэтому старый блок services.greetd с tuigreet в ui/niri/niri.nix
+  # должен быть УДАЛЁН, иначе конфликт за greetd.settings.
+  noctalia-greeter,
 }:
 let lib = nixpkgs.lib; in
 # =====================================================================
@@ -105,6 +134,19 @@ nixpkgs.lib.nixosSystem {
     # Пользовательские настройки — через noctalia.homeModules.default,
     # который подключается ниже в sharedModules.
     noctalia.nixosModules.default
+
+    # === НОВОЕ: Noctalia Greeter — системный модуль ===
+    # Включает greetd + accounts-daemon и выставляет
+    # default_session.command = noctalia-greeter-session.
+    #
+    # ВАЖНО: в ui/niri/niri.nix больше НЕ должно быть блока
+    # services.greetd с tuigreet — модуль уже всё настроил.
+    # Если оставить, будет конфликт за greetd.settings.
+    #
+    # Настройки внешнего вида (обои, тема, default-сессия, default-user)
+    # задаются через services.displayManager.noctalia-greeter.settings
+    # в ui/niri/niri.nix или отдельном модуле.
+    noctalia-greeter.nixosModules.default
 
     # Конфиг конкретного устройства: сам решает, какие оси включить
     # (kda.opts.ui / kda.opts.profiles + собственные imports).
