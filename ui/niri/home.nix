@@ -435,10 +435,6 @@
     wofi                  # standalone-лаунчер
     kdePackages.dolphin   # файловый менеджер
 
-    # --- GTK-тема для Thunar и других GTK-приложений ---
-    adw-gtk3              # базовая тёмная тема (используется в gtk.theme ниже)
-    papirus-icon-theme    # иконки в стиле Material (Papirus-Dark)
-
     # --- Тёмная тема Qt/KDE ---
     kdePackages.qt6ct
     qt6Packages.qtstyleplugin-kvantum
