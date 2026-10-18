@@ -30,6 +30,17 @@
 
     layout.gaps = 5;
 
+    # === Пресеты ширины колонок для Mod+X ===
+    # Niri циклически переключает ширину активной колонки
+    # между этими пропорциями. 0.5 даёт «половину экрана» —
+    # именно этот пресет используется, когда нужно поделить экран
+    # пополам с двумя приложениями.
+    layout.preset-column-widths = [
+      { proportion = 0.33333; }
+      { proportion = 0.5; }
+      { proportion = 0.66667; }
+    ];
+
     # === window-rules ===
     # В niri-flake правило задаётся через `matches` (список attrset'ов).
     # Если понадобится сделать какое-то приложение плавающим,
@@ -44,103 +55,160 @@
 
     # === Биндинги ===
     #
-    # ВАЖНО: Mod+←/→ и Mod+↑/↓ в Niri по умолчанию заняты фокусом
-    # (focus-column-left/right, focus-window-up/down). Ниже эти
-    # комбинации переопределены под перемещение — так, как вы просили.
-    # Если позже захотите вернуть фокус на стрелки, добавьте отдельные
-    # биндинги, например Mod+H/J/K/L для фокуса.
+    # Раскладка хоткеев переработана под запрос:
+    #   * фокус окон — Mod+A / Mod+D
+    #   * переключение рабочих пространств — Mod+W / Mod+S
+    #   * размер активного окна — Mod+стрелки
+    #   * перемещение окна/колонки — Mod+Shift+A / Mod+Shift+D
+    #   * перенос окна между пространствами — Mod+Shift+W / Mod+Shift+S
+    #
+    # ВАЖНО: в Niri по умолчанию Mod+стрелки заняты фокусом
+    # (focus-column-left/right, focus-window-up/down). Здесь они
+    # переопределены под изменение размера — так, как вы просили.
+    # Фокус переехал на Mod+A/D.
     binds = {
-   # F6 (работает как Fn+F6) → скриншот области через Noctalia.
-    # Noctalia сама захватит экран через wlr-screencopy и откроет редактор.
-    "Print".action.spawn-sh = "noctalia msg screenshot-region";
+      # ================================================================
+      # === Скриншоты ===
+      # F6 (работает как Fn+F6) на этом железе отправляет KEY_S и НЕ
+      # переназначается через keyd/evremap (известное ограничение
+      # WMI-устройств ASUS, issue #1181). Поэтому биндинги на "Print"
+      # и "Mod+Print" убраны — они всё равно не сработают.
+      # Если понадобится скриншот, добавьте, например:
+      #   "Mod+Shift+P".action.spawn-sh = "noctalia msg screenshot-region";
+      # ================================================================
 
-      # --- Терминал и файловый менеджер ---
-      "Mod+T".action.spawn = "foot";
-      "Mod+E".action.spawn = "dolphin";
+      # ================================================================
+      # === Рабочие пространства ===
+      # ================================================================
 
-      # --- Окна ---
-      "Mod+Q".action.close-window = { };
-      "Mod+D".action.spawn = "wofi --show drun";
-
-      # --- Сессия ---
-      "Mod+Shift+L".action.spawn = "loginctl lock-session";
-      "Mod+Shift+E".action.quit = { };
-
-      # === Noctalia v5+ IPC ===
-      "Mod+Space" = {
-        action.spawn-sh = "noctalia msg panel-toggle launcher";
-      };
-      "Mod+Shift+Q" = {
-        action.spawn-sh = "noctalia msg panel-toggle session";
-      };
-      "Mod+F1" = {
-        action.spawn-sh = "noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet";
-      };
-
-      # ===============================================================
-      # === НОВОЕ: перемещение окна/колонки в текущем пространстве ===
-      # Mod+←/→ сдвигает активную колонку влево/вправо (меняет порядок
-      # колонок на текущем рабочем пространстве).
-      # ===============================================================
-      "Mod+Left".action.move-column-left = { };
-      "Mod+Right".action.move-column-right = { };
-
-      # ===============================================================
-      # === НОВОЕ: перемещение активного окна между пространствами ===
-      # Mod+↑/↓ переносит активное окно на соседнее рабочее
-      # пространство (вверх/вниз по вертикальной ленте). Если
-      # следующего нет — Niri создаст новое.
-      # focus = false — фокус остаётся на исходном пространстве:
-      # вы «выносите» окно и продолжаете работу здесь.
-      # Уберите focus = false, если хотите, чтобы фокус следовал.
-      # ===============================================================
-      "Mod+Up".action.move-window-to-workspace-up = { focus = false; };
-      "Mod+Down".action.move-window-to-workspace-down = { focus = false; };
-
-      # ===============================================================
-      # === НОВОЕ: переключение на рабочее пространство по номеру ===
+      # Переключение на рабочее пространство по номеру.
       # Индекс — позиция в вертикальной ленте на текущем мониторе.
-      # Если такого индекса ещё нет, Niri переключится на нижнее
-      # пустое пространство (и создаст его при необходимости).
-      # ===============================================================
       "Mod+1".action.focus-workspace = 1;
       "Mod+2".action.focus-workspace = 2;
       "Mod+3".action.focus-workspace = 3;
       "Mod+4".action.focus-workspace = 4;
       "Mod+5".action.focus-workspace = 5;
+      "Mod+6".action.focus-workspace = 6;
 
-      # ===============================================================
-      # === Опционально: перенос окна сразу на номер 1..5 ===
-      # Аналог «вынести окно на рабочий стол N». Раскомментируйте,
-      # если нужно (иначе — просто Mod+↑/↓ шаг за шагом).
-      # ===============================================================
-      # "Mod+Shift+1".action.move-window-to-workspace = 1;
-      # "Mod+Shift+2".action.move-window-to-workspace = 2;
-      # "Mod+Shift+3".action.move-window-to-workspace = 3;
-      # "Mod+Shift+4".action.move-window-to-workspace = 4;
-      # "Mod+Shift+5".action.move-window-to-workspace = 5;
+      # Перенос активного окна сразу на указанное пространство.
+      "Mod+Shift+1".action.move-window-to-workspace = 1;
+      "Mod+Shift+2".action.move-window-to-workspace = 2;
+      "Mod+Shift+3".action.move-window-to-workspace = 3;
+      "Mod+Shift+4".action.move-window-to-workspace = 4;
+      "Mod+Shift+5".action.move-window-to-workspace = 5;
+      "Mod+Shift+6".action.move-window-to-workspace = 6;
 
-      # ===============================================================
-      # === НОВОЕ: мультимедийные клавиши (F1-F12 в режиме Fn-Lock) ===
-      # Niri, в отличие от KDE, не обрабатывает XF86-события сам —
-      # их нужно явно привязать. В KDE эти комбинации работали через
-      # Plasma-демоны; здесь — прямые вызовы утилит.
+      # Переключение на предыдущее / следующее пространство.
+      "Mod+W".action.focus-workspace-up = { };
+      "Mod+S".action.focus-workspace-down = { };
+
+      # ================================================================
+      # === Фокус окон ===
+      # Niri — колоночный WM: фокус переключается между колонками,
+      # а не между окнами внутри колонки.
+      # ================================================================
+      "Mod+A".action.focus-column-left = { };
+      "Mod+D".action.focus-column-right = { };
+
+      # ================================================================
+      # === Режимы отображения окна ===
+      # ================================================================
+
+      # Mod+Z — «растянуть» активную колонку на максимум (maximize-column).
+      # Это не полноэкранный режим поверх других окон: колонка
+      # растягивается до краёв экрана с сохранением отступов (gaps).
+      "Mod+Z".action.maximize-column = { };
+
+      # Mod+X — переключить ширину активной колонки по пресетам
+      # (1/3 → 1/2 → 2/3, см. layout.preset-column-widths).
+      # Чтобы «поделить экран пополам»: откройте первое приложение,
+      # доведите его Mod+X до 1/2, затем откройте второе — оно встанет
+      # в соседнюю колонку, тоже по 1/2.
+      "Mod+X".action.switch-preset-column-width = { };
+
+      # Mod+C — вынуть активное окно из тайлинга / вернуть обратно.
+      # В Niri нет режима «4 угла» (это не сеточный WM), но плавающий
+      # режим позволяет расположить окно вручную перетаскиванием.
+      "Mod+C".action.toggle-window-floating = { };
+
+      # ================================================================
+      # === Изменение размера активного окна ===
+      # Горизонталь — ширина колонки (set-column-width).
+      # Вертикаль — высота окна внутри колонки (set-window-height).
+      # Шаг 5% — если покажется медленно, замените на ±10%.
+      # ================================================================
+      "Mod+Left".action.set-column-width = "-5%";
+      "Mod+Right".action.set-column-width = "+5%";
+      "Mod+Up".action.set-window-height = "-5%";
+      "Mod+Down".action.set-window-height = "+5%";
+
+      # ================================================================
+      # === Перемещение активного окна/колонки ===
+      # Mod+Shift+A/D — сдвинуть колонку влево/вправо
+      # (меняет порядок колонок на текущем пространстве).
+      # Mod+Shift+W/S — перенести активное окно на пространство
+      # выше/ниже. focus = false — фокус остаётся на исходном
+      # пространстве (вы «выносите» окно и продолжаете работу здесь).
+      # ================================================================
+      "Mod+Shift+A".action.move-column-left = { };
+      "Mod+Shift+D".action.move-column-right = { };
+      "Mod+Shift+W".action.move-window-to-workspace-up = { focus = false; };
+      "Mod+Shift+S".action.move-window-to-workspace-down = { focus = false; };
+
+      # ================================================================
+      # === Управление окнами и сессией ===
+      # ================================================================
+      "Mod+Q".action.close-window = { };
+      "Mod+Shift+L".action.spawn = "loginctl lock-session";
+      "Mod+Shift+E".action.quit = { };
+
+      # ================================================================
+      # === Noctalia v5+ IPC ===
+      # ================================================================
+      # Mod+Space — лаунчер приложений.
+      "Mod+Space" = {
+        action.spawn-sh = "noctalia msg panel-toggle launcher";
+      };
+      # Mod+Shift+Q — меню сессии (выключение/перезагрузка/выход).
+      "Mod+Shift+Q" = {
+        action.spawn-sh = "noctalia msg panel-toggle session";
+      };
+      # Mod+N — центр уведомлений (control-center).
+      "Mod+N" = {
+        action.spawn-sh = "noctalia msg panel-toggle control-center";
+      };
+      # Mod+Shift+K — важные горячие клавиши (шпаргалка keybind-cheatsheet).
+      "Mod+Shift+K" = {
+        action.spawn-sh = "noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet";
+      };
+
+      # ================================================================
+      # === Запуск приложений ===
+      # ================================================================
+      "Mod+T".action.spawn = "foot";            # терминал
+      "Mod+F".action.spawn = "firefox";         # браузер
+      "Mod+R".action.spawn = "dolphin";         # файловый менеджер
+      "Mod+E".action.spawn = "kate";            # текстовый редактор
+      "Mod+K".action.spawn = "keepassxc";       # менеджер паролей
+      "Mod+L".action.spawn = "llama-rocm-start";  # llama.cpp ROCm
+      "Mod+P".action.spawn = "aimp";            # AIMP
+      "Mod+U".action.spawn = "unsloth-start";   # Unsloth Studio
+      # DSH: локальный вариант — dsh-local-start
+      # (см. llm/dsh/local/commands.nix). Контейнерный —
+      # dsh-podman-start, когда он появится.
+      "Mod+H".action.spawn = "dsh-local-start";
+      "Mod+M".action.spawn = "waydroid";        # Waydroid UI
+      "Mod+I".action.spawn = "strata-start";    # Strata
+
+      # ================================================================
+      # === Мультимедийные клавиши (F1-F4, F7-F12 — XF86) ===
+      # Niri не обрабатывает XF86-события сам — привязываем вручную.
+      # wpctl — часть WirePlumber, brightnessctl — яркость,
+      # playerctl — MPRIS-медиа. Все три пакета — в home.packages.
       #
-      # wpctl — часть WirePlumber (PipeWire-контроль громкости),
-      # brightnessctl — яркость экрана, playerctl — MPRIS-медиа.
-      # Все три пакета добавлены в home.packages ниже.
-      #
-      # ВАЖНО: биндинг сработает, только если нажатие F1 генерирует
-      # событие XF86AudioRaiseVolume. Если у вас выключен Fn-Lock и
-      # F1 приходит как голый F1 — биндинг не сработает. Проверить,
-      # какое событие приходит, можно утилитой `wev`:
-      #   nix-shell -p wev --run wev
-      # Нажмите F1 и посмотрите вывод.
-      #
-      # ИСПРАВЛЕНО: action.spawn НЕ выполняет shell-команды. Для строк
-      # с пробелами, `;` и `&&` нужен action.spawn-sh. Именно из-за
-      # этого «wpctl set-mute ...; wpctl set-volume ...» не запускался.
-      # ===============================================================
+      # ВАЖНО: используется action.spawn-sh (shell), а не action.spawn:
+      # spawn НЕ выполняет команды через shell и не понимает `;`.
+      # ================================================================
 
       # Громкость.
       # raise-volume сначала снимает mute (как plasma-pa в KDE),
@@ -161,11 +229,6 @@
       "XF86AudioPlay".action.spawn-sh = "playerctl play-pause";
       "XF86AudioNext".action.spawn-sh = "playerctl next";
       "XF86AudioPrev".action.spawn-sh = "playerctl previous";
-
-      # --- Скриншоты ---
-      #"Print".action.screenshot = { };
-      "Mod+Print".action.screenshot-window = { };
-      "Mod+Shift+Print".action.screenshot-screen = { };
     };
   };
 
@@ -310,7 +373,7 @@
     libsecret             # библиотека Secret Service
     gnome-keyring         # провайдер org.freedesktop.secrets
 
-    # === НОВОЕ: мультимедийные утилиты для F1-F12 ===
+    # --- Мультимедийные утилиты для F1-F12 ---
     # wireplumber даёт команду wpctl (громкость).
     # brightnessctl — управление подсветкой экрана.
     # playerctl — MPRIS-медиа-клавиши (play/pause/next/prev).

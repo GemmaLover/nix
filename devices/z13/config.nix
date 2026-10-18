@@ -89,23 +89,6 @@
   powerOnBoot = true;  # Автоматически включать адаптер при загрузке
 };
 
-  services.evremap = {
-    enable = true;
-    settings = {
-      # Точное имя устройства из `evremap list-devices` или `libinput debug-events`.
-      # У вас это "Asus WMI hotkeys".
-      device_name = "Asus WMI hotkeys";
-
-      # KEY_S (31) → KEY_SYSRQ (99), который Niri видит как "Print".
-      mappings = [
-        {
-          from = "KEY_S";
-          to = "KEY_SYSRQ";
-        }
-      ];
-    };
-  };
-
   hardware.enableRedistributableFirmware = true;
 
   # Хостнейм для z13
