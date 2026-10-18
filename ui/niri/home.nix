@@ -16,28 +16,6 @@
   #   * базовые пакеты-аналоги KDE-компонентов.
   # =====================================================================
 
-    # =====================================================================
-  # Автоматический сброс оверлеев Noctalia при каждом n13rebuild.
-  #
-  # Noctalia хранит настройки, изменённые через GUI, в файле
-  # ~/.local/state/noctalia/settings.toml. Этот файл имеет наивысший
-  # приоритет и перекрывает настройки из Nix. Чтобы гарантировать,
-  # что после сборки применяется именно Nix-конфигурация, мы удаляем
-  # этот файл и перезапускаем сервис Noctalia.
-  # =====================================================================
-  home.activation.resetNoctaliaOverrides = config.lib.dag.entryAfter [ "writeBoundary" ] ''
-    NOCTALIA_STATE_FILE="$HOME/.local/state/noctalia/settings.toml"
-    if [ -f "$NOCTALIA_STATE_FILE" ]; then
-      echo "Сброс оверлеев Noctalia: удаляю $NOCTALIA_STATE_FILE"
-      rm -f "$NOCTALIA_STATE_FILE"
-    fi
-    if systemctl --user is-active --quiet noctalia-shell.service 2>/dev/null; then
-      echo "Перезапуск сервиса Noctalia для применения настроек из Nix..."
-      systemctl --user restart noctalia-shell.service
-    fi
-  '';
-
-
   programs.niri.settings = {
 
    # Просим приложения (включая Firefox) не использовать свои
@@ -370,26 +348,6 @@
     };
   };
 
-  # =====================================================================
-  # Тёмная тема для Qt/KDE-приложений.
-  # =====================================================================
-  qt = {
-    enable = true;
-    platformTheme.name = "qtct";
-    style.name = "kvantum";
-
-    kvantum = {
-      enable = true;
-      settings = {
-        General = {
-          theme = "KvFlat";
-          composite = false;
-          iconless_pushbutton = true;
-        };
-      };
-    };
-  };
-
     # Базовая GTK-тема, на которую «ложится» CSS от Noctalia.
   # Без этого блока Home Manager не создаёт settings.ini,
   # и GTK-приложения (включая портал) не знают, какую тему использовать.
@@ -402,64 +360,32 @@
   };
 
 
-  # kdeglobals: цветовая схема KDE-приложений (BreezeDark).
-  # force = true — Home Manager перезапишет уже существующий файл
-  # (мог остаться от KDE), иначе активация падает с
-  # «Existing file would be clobbered».
-  xdg.configFile."kdeglobals" = {
-    force = true;
-    text = ''
-      [General]
-      ColorScheme=BreezeDark
-      Name=Breeze Dark
-      shadeSortColumn=true
-
-      [KDE]
-      widgetStyle=Breeze
-      contrast=4
-
-      [UiSettings]
-      ColorScheme=qt6ct
-
-      [Colors:Window]
-      BackgroundNormal=35,38,41
-      ForegroundNormal=239,240,241
-      BackgroundInactive=35,38,41
-      ForegroundInactive=189,195,199
-      BackgroundActive=35,38,41
-      ForegroundActive=61,174,233
-      ForegroundLink=41,128,185
-      ForegroundVisited=127,140,141
-      ForegroundNegative=218,68,83
-      ForegroundNeutral=246,116,0
-      ForegroundPositive=17,209,22
-
-      [Colors:View]
-      BackgroundNormal=27,30,32
-      ForegroundNormal=239,240,241
-      BackgroundInactive=27,30,32
-      ForegroundInactive=189,195,199
-      BackgroundActive=27,30,32
-      ForegroundActive=61,174,233
-
-      [Colors:Button]
-      BackgroundNormal=42,46,50
-      ForegroundNormal=239,240,241
-      BackgroundInactive=42,46,50
-      ForegroundInactive=189,195,199
-      BackgroundActive=42,46,50
-      ForegroundActive=61,174,233
-    '';
-  };
-
-
-
-  # Переменные окружения — только то, что модуль qt НЕ выставляет.
   # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
   # автоматически (qt5ct / kvantum).
   home.sessionVariables = {
     XCURSOR_THEME = "Adwaita";
     XCURSOR_SIZE = "24";
+  };
+
+   # qt6ct — мост между Noctalia и Qt-приложениями.
+  # Noctalia генерирует файл ~/.config/qt6ct/colors/noctalia.conf,
+  # который мы выберем в самом qt6ct (шаг 3).
+  qt = {
+    enable = true;
+    platformTheme.name = "qtct";
+    # style.name убираем — Noctalia сама управляет стилем через qt6ct.
+  };
+
+    programs.foot = {
+    enable = true;
+    settings = {
+      main = {
+        # Указываем foot, где искать тему от Noctalia.
+        # Noctalia создаёт этот файл, когда шаблон "foot" включён
+        # (у тебя включены все шаблоны — значит, файл есть).
+        include = "~/.config/foot/themes/noctalia";
+      };
+    };
   };
 
 
@@ -471,16 +397,11 @@
 
     # --- Тёмная тема Qt/KDE ---
     kdePackages.qt6ct
-    qt6Packages.qtstyleplugin-kvantum
-    kdePackages.qtstyleplugin-kvantum
-    kdePackages.breeze
-    kdePackages.breeze-icons
-    kdePackages.plasma-integration
     adwaita-icon-theme
 
     # --- Git: libsecret для сохранения паролей ---
-    libsecret             # библиотека Secret Service
-    gnome-keyring         # провайдер org.freedesktop.secrets
+#     libsecret             # библиотека Secret Service
+#     gnome-keyring         # провайдер org.freedesktop.secrets
 
     # --- Мультимедийные утилиты для F1-F12 ---
     # wireplumber даёт команду wpctl (громкость).
