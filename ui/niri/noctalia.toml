@@ -656,7 +656,7 @@ sync_color_scheme = true
 wallpaper_scheme = "m3-content"
 
     [theme.templates]
-    builtin_ids = [ "btop", "foot", "kcolorscheme", "niri" ]
+    builtin_ids = [ "alacritty", "btop", "foot", "gtk3","gtk4", "kcolorscheme", "niri","kitty","qt","helix","cava" ]
     community_ids = []
     enable_builtin_templates = true
     enable_community_templates = true

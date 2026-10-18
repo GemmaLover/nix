@@ -233,7 +233,7 @@
       # ================================================================
       "Mod+T".action.spawn = "foot";            # терминал
       "Mod+F".action.spawn = "firefox";         # браузер
-      "Mod+R".action.spawn = "dolphin";         # файловый менеджер
+      "Mod+R".action.spawn = "thunar";         # файловый менеджер
       "Mod+E".action.spawn = "kate";            # текстовый редактор
       "Mod+K".action.spawn = "keepassxc";       # менеджер паролей
       "Mod+L".action.spawn = "llama-rocm-start";  # llama.cpp ROCm
@@ -412,6 +412,56 @@
     '';
   };
 
+
+    # =====================================================================
+  # GTK-тема — тёмная база для Thunar и других GTK-приложений.
+  #
+  # Работает в два уровня:
+  #
+  #   1. СТАТИЧНАЯ БАЗА (этот блок):
+  #      gtk.theme.name = "adw-gtk3-dark" пишется в
+  #      ~/.config/gtk-3.0/settings.ini и ~/.config/gtk-4.0/settings.ini.
+  #      Thunar читает settings.ini при старте и берёт базовые цвета
+  #      из пакета adw-gtk3 (современный форк Adwaita с поддержкой
+  #      тёмного режима для GTK3-приложений — сам Adwaita-dark
+  #      в GTK3 давно сломан).
+  #
+  #   2. ДИНАМИЧЕСКИЙ ОВЕРРАЙД (через Noctalia):
+  #      Noctalia-шаблон "gtk3" (включён в noctalia.toml) генерирует
+  #      ~/.config/gtk-3.0/gtk.css с текущими цветами палитры.
+  #      Этот CSS импортируется ПОВЕРХ base-темы и перекрашивает
+  #      Thunar вслед за сменой обоев / палитры Noctalia.
+  #
+  # Если Noctalia по какой-то причине не сгенерирует gtk.css —
+  # Thunar всё равно останется тёмным (fallback на adw-gtk3-dark).
+  # =====================================================================
+  gtk = {
+    enable = true;
+
+    # Базовая тёмная тема для GTK3.
+    # adw-gtk3 — единственный поддерживаемый «тёмный Adwaita для GTK3».
+    # Оригинальный Adwaita-dark из gnome-themes-extra давно не обновляется
+    # и ломает современные GTK3-виджеты (в т.ч. Thunar 4.18+).
+    theme = {
+      name = "adw-gtk3-dark";
+      package = pkgs.adw-gtk3;
+    };
+
+    # Иконки. Papirus-Dark хорошо сочетается с adw-gtk3 и Noctalia.
+    iconTheme = {
+      name = "Papirus-Dark";
+      package = pkgs.papirus-icon-theme;
+    };
+
+    # Шрифт для GTK-приложений (у Noctalia Liberation Sans по умолчанию,
+    # но GTK-аппы берут из settings.ini — зададим явно для единообразия).
+    font = {
+      name = "Noto Sans";
+      size = 10;
+    };
+  };
+
+
   # Переменные окружения — только то, что модуль qt НЕ выставляет.
   # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
   # автоматически (qt5ct / kvantum).
@@ -425,6 +475,10 @@
     foot                  # Wayland-терминал
     wofi                  # standalone-лаунчер
     kdePackages.dolphin   # файловый менеджер
+
+    # --- GTK-тема для Thunar и других GTK-приложений ---
+    adw-gtk3              # базовая тёмная тема (используется в gtk.theme ниже)
+    papirus-icon-theme    # иконки в стиле Material (Papirus-Dark)
 
     # --- Тёмная тема Qt/KDE ---
     kdePackages.qt6ct
