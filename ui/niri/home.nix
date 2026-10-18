@@ -16,6 +16,28 @@
   #   * базовые пакеты-аналоги KDE-компонентов.
   # =====================================================================
 
+    # =====================================================================
+  # Автоматический сброс оверлеев Noctalia при каждом n13rebuild.
+  #
+  # Noctalia хранит настройки, изменённые через GUI, в файле
+  # ~/.local/state/noctalia/settings.toml. Этот файл имеет наивысший
+  # приоритет и перекрывает настройки из Nix. Чтобы гарантировать,
+  # что после сборки применяется именно Nix-конфигурация, мы удаляем
+  # этот файл и перезапускаем сервис Noctalia.
+  # =====================================================================
+  home.activation.resetNoctaliaOverrides = config.lib.dag.entryAfter [ "writeBoundary" ] ''
+    NOCTALIA_STATE_FILE="$HOME/.local/state/noctalia/settings.toml"
+    if [ -f "$NOCTALIA_STATE_FILE" ]; then
+      echo "Сброс оверлеев Noctalia: удаляю $NOCTALIA_STATE_FILE"
+      rm -f "$NOCTALIA_STATE_FILE"
+    fi
+    if systemctl --user is-active --quiet noctalia-shell.service 2>/dev/null; then
+      echo "Перезапуск сервиса Noctalia для применения настроек из Nix..."
+      systemctl --user restart noctalia-shell.service
+    fi
+  '';
+
+
   programs.niri.settings = {
 
    # Просим приложения (включая Firefox) не использовать свои
