@@ -237,7 +237,16 @@
       "Mod+E".action.spawn = "kate";            # текстовый редактор
       "Mod+K".action.spawn = "keepassxc";       # менеджер паролей
       "Mod+L".action.spawn = "llama-rocm-start";  # llama.cpp ROCm
-      "Mod+P".action.spawn = "aimp";            # AIMP
+
+     # AIMP блокирует Niri/Wayland. Маскируем окружение под KDE:
+#   -u WAYLAND_DISPLAY       — убирает WAYLAND_DISPLAY только для AIMP
+#   GDK_BACKEND=x11          — GTK-виджеты идут через XWayland
+#   XDG_CURRENT_DESKTOP=KDE  — прячет Niri от проверки AIMP
+#   XDG_SESSION_DESKTOP=KDE  — дополнительная маскировка
+#   XDG_SESSION_TYPE=x11     — AIMP думает, что сессия X11
+"Mod+P".action.spawn-sh = "env -u WAYLAND_DISPLAY GDK_BACKEND=x11 XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE XDG_SESSION_TYPE=x11 aimp";
+
+
       "Mod+U".action.spawn = "unsloth-start";   # Unsloth Studio
       # DSH: локальный вариант — dsh-local-start
       # (см. llm/dsh/local/commands.nix). Контейнерный —
