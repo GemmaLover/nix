@@ -139,59 +139,22 @@
 #   };
 
 
+# ui/niri/niri.nix
 xdg.portal = {
   enable = true;
-  xdgOpenUsePortal = true;
 
-  # Принудительно оставляем ТОЛЬКО gtk-портал.
-  # lib.mkForce переопределяет любые другие определения,
-  # включая те, что могли быть добавлены GNOME или другими модулями.
-  extraPortals = lib.mkForce [ pkgs.xdg-desktop-portal-gtk ];
+  # Явно указываем, какие порталы мы хотим использовать.
+  # xdg-desktop-portal-wlr больше не нужен.
+  extraPortals = with pkgs; [
+    xdg-desktop-portal-gtk   # Для диалогов выбора/сохранения файлов
+    xdg-desktop-portal-gnome # Для скринкастов (ScreenCast)
+  ];
 
+  # Для Niri используем GTK-портал для выбора файлов.
+  # Это лёгкий и надёжный вариант, не требующий Nautilus.
   config.niri = {
     "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
   };
-
-  config.common.default = "gtk";
 };
 
-  # =====================================================================
-  # Thunar — GTK-файловый менеджер (замена Dolphin).
-  #
-  # Dolphin тесно связан с KDE: в Niri он работает, но тянет KIO,
-  # kio-extras и другие KDE-сервисы, что даёт нестабильность и лишние
-  # зависимости. Thunar — лёгкий, GTK3-нативный, проверен в Niri/Sway
-  # сообществом.
-  #
-  # programs.thunar — официальный NixOS-модуль, ставит сам Thunar и
-  # плагины. Плюс три сервиса:
-  #   * xfconf  — сохранение настроек Thunar между запусками
-  #               (размер окна, вид, показывать ли скрытые файлы).
-  #               Без него настройки сбрасываются при каждом старте.
-  #   * gvfs    — корзина, автомонтирование флешек, MTP (Android),
-  #               доступ к сетевым шарам. Без него пункт «Корзина»
-  #               не работает, а внешние диски не открываются.
-  #   * tumbler — генерация миниатюр для изображений, видео, PDF.
-  #               Без него Thunar показывает пустые иконки файлов.
-  # =====================================================================
-  programs.thunar = {
-    enable = true;
-    plugins = with pkgs.xfce; [
-      thunar-archive-plugin   # контекстное меню «Распаковать/Создать архив»
-      thunar-volman           # автозапуск при подключении флешек/дисков
-    ];
-  };
-
-    # Включаем udisks2, чтобы gvfs (и Thunar) мог видеть
-  # и монтировать внутренние диски и разделы.
-  services.udisks2.enable = true;
-
-  # xfconf хранит конфигурацию Thunar (~/.config/xfce4/xfconf/).
-  programs.xfconf.enable = true;
-
-  # gvfs — корзина, монтирование, MTP, сети.
-  services.gvfs.enable = true;
-
-  # tumbler — превью для изображений, видео, PDF.
-  services.tumbler.enable = true;
 }

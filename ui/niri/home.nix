@@ -239,7 +239,7 @@
       # ================================================================
       "Mod+T".action.spawn = "foot";            # терминал
       "Mod+F".action.spawn = "firefox";         # браузер
-      "Mod+R".action.spawn = "thunar";         # файловый менеджер
+      "Mod+R".action.spawn = "dolphin";         # файловый менеджер
       "Mod+E".action.spawn = "kate";            # текстовый редактор
       "Mod+K".action.spawn = "keepassxc";       # менеджер паролей
       "Mod+L".action.spawn = "llama-rocm-start";  # llama.cpp ROCm
@@ -420,73 +420,6 @@
 
 
 
-    # =====================================================================
-  # Перезапись существующих GTK-файлов.
-  #
-  # force = true — это опция САМОГО home.file / xdg.configFile,
-  # она ставится на верхнем уровне home.nix, а не внутри gtk.*.
-  # Внутри gtk = { } эти опции не существуют (модуль gtk пишет
-  # в home.file."..." и xdg.configFile."..." «за кулисами», а NixOS
-  # сливает определения по одному и тому же пути).
-  #
-  # Файлы остались от KDE-интеграции GTK и nwg-look:
-  #   ~/.gtkrc-2.0                       — GTK2 (создаётся gtk.enable)
-  #   ~/.config/gtk-3.0/settings.ini     — GTK3 (Thunar, Firefox)
-  #   ~/.config/gtk-4.0/settings.ini     — GTK4
-  # Без force Home Manager падает с «would be clobbered» (см. лог
-  # home-manager-lexi.service 23:53).
-  # =====================================================================
-  xdg.configFile."gtk-3.0/settings.ini".force = true;
-  xdg.configFile."gtk-4.0/settings.ini".force = true;
-
-    # =====================================================================
-  # GTK-тема — тёмная база для Thunar и других GTK-приложений.
-  #
-  # Работает в два уровня:
-  #
-  #   1. СТАТИЧНАЯ БАЗА (этот блок):
-  #      gtk.theme.name = "adw-gtk3-dark" пишется в
-  #      ~/.config/gtk-3.0/settings.ini и ~/.config/gtk-4.0/settings.ini.
-  #      Thunar читает settings.ini при старте и берёт базовые цвета
-  #      из пакета adw-gtk3 (современный форк Adwaita с поддержкой
-  #      тёмного режима для GTK3-приложений — сам Adwaita-dark
-  #      в GTK3 давно сломан).
-  #
-  #   2. ДИНАМИЧЕСКИЙ ОВЕРРАЙД (через Noctalia):
-  #      Noctalia-шаблон "gtk3" (включён в noctalia.toml) генерирует
-  #      ~/.config/gtk-3.0/gtk.css с текущими цветами палитры.
-  #      Этот CSS импортируется ПОВЕРХ base-темы и перекрашивает
-  #      Thunar вслед за сменой обоев / палитры Noctalia.
-  #
-  # Если Noctalia по какой-то причине не сгенерирует gtk.css —
-  # Thunar всё равно останется тёмным (fallback на adw-gtk3-dark).
-  # =====================================================================
-  gtk = {
-    enable = true;
-
-        # === GTK2: принудительная перезапись .gtkrc-2.0 ===
-    # Эта опция существует прямо в модуле gtk и не конфликтует
-    # с управлением файлом — она просто снимает защиту от перезаписи.
-    gtk2.force = true;
-
-
-    theme = {
-      name = "adw-gtk3-dark";
-      package = pkgs.adw-gtk3;
-    };
-
-    iconTheme = {
-      name = "Papirus-Dark";
-      package = pkgs.papirus-icon-theme;
-    };
-
-    font = {
-      name = "Noto Sans";
-      size = 10;
-    };
-  };
-
-
   # Переменные окружения — только то, что модуль qt НЕ выставляет.
   # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
   # автоматически (qt5ct / kvantum).
@@ -495,12 +428,6 @@
     XCURSOR_SIZE = "24";
   };
 
-    # Исправление конфликта GIO_EXTRA_MODULES между Home Manager и NixOS.
-  # Home Manager по умолчанию ПЕРЕЗАПИСЫВАЕТ эту переменную, что ломает gvfs.
-  # Указываем ему дополнять существующее значение, а не заменять его.
-  home.sessionVariablesExtra = ''
-    export GIO_EXTRA_MODULES="''${GIO_EXTRA_MODULES:+$GIO_EXTRA_MODULES:}${pkgs.gvfs}/lib/gio/modules"
-  '';
 
   # === Пакеты ===
   home.packages = with pkgs; [
