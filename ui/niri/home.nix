@@ -288,16 +288,27 @@
   };
 
   # === Noctalia — Wayland-шелл ===
+  # Конфигурация вынесена в отдельный файл ui/niri/noctalia.toml
+  # (экспортирован через `noctalia config export full`).
+  #
+  # ВАЖНО: путь ./noctalia.toml относительный — файл должен лежать
+  # рядом с home.nix, в той же директории ui/niri/.
+  # Файл ОБЯЗАТЕЛЬНО должен быть в git (git add), иначе flake его
+  # не увидит при сборке, и nix flake check упадёт с «path does not exist».
+  #
+  # Плагин kenn/keybind-cheatsheet уже прописан в самом TOML
+  # (секция [plugins] enabled = [ "kenn/keybind-cheatsheet" ]),
+  # поэтому дублировать его в Nix не нужно.
   programs.noctalia = {
     enable = true;
     systemd.enable = true;
 
-    settings = {
-      plugins = {
-        enabled = [ "kenn/keybind-cheatsheet" ];
-      };
-    };
+    # Home Manager-модуль принимает путь к .toml файлу напрямую.
+    # См. документацию: programs.noctalia.settings может быть
+    # attrset, raw TOML string или path к .toml.
+    settings = ./noctalia.toml;
   };
+
 
   # =====================================================================
   # Git: сохранение паролей через libsecret (GNOME Keyring).
