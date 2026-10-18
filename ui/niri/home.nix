@@ -392,6 +392,11 @@
     ColorScheme=noctalia
   '';
 
+    # qt6ct пишет свой конфиг при нажатии Apply в GUI (~/.config/qt6ct/qt6ct.conf).
+  # Home Manager теперь тоже управляет этим файлом (через qt.qt6ctSettings),
+  # и без force падает с «would be clobbered».
+  xdg.configFile."qt6ct/qt6ct.conf".force = true;
+
     # Симлинк всей папки с обоями в ~/Pictures/Wallpapers.
   # Файлы будут указывать в /nix/store (read-only), но это нормально —
   # Noctalia их читает, а не пишет.
