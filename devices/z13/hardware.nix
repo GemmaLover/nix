@@ -38,7 +38,7 @@
   fileSystems."/data" = {
     device = "/dev/disk/by-label/datastore";
     fsType = "ext4";
-    options = [ "defaults" "nofail" "noatime" ];
+    options = [ "defaults" "nofail" "noatime" "x-gvfs-show"];
   };
 
       swapDevices = [
