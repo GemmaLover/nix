@@ -16,8 +16,9 @@
   #   * базовые пакеты-аналоги KDE-компонентов.
   #
   # ШРИФТЫ:
-  #   * Montserrat       — sans-serif по умолчанию (интерфейсы, GTK);
-  #   * JetBrains Mono   — monospace по умолчанию (терминал, код, Qt).
+  #   * JetBrains Mono (Nerd Font) — единственный кастомный шрифт,
+  #     используется везде: sans-serif, monospace, GTK, Qt, foot.
+  #   * Montserrat удалён — см. историю git.
   # =====================================================================
 
   programs.niri.settings = {
@@ -382,8 +383,12 @@
   # Цвета поверх этой темы даёт шаблон gtk3/gtk4 от Noctalia —
   # он генерирует ~/.config/gtk-3.0/gtk.css с @import "noctalia.css".
   #
-  # font — Montserrat для интерфейса. JetBrains Mono в GTK-интерфейсе
-  # не подходит для текста (это моноширинный шрифт для кода).
+  # font — JetBrainsMono Nerd Font (единственный кастомный шрифт
+  # в системе после удаления Montserrat). ВАЖНО: JetBrains Mono —
+  # моноширинный, в тексте интерфейса (кнопки, заголовки диалогов)
+  # буквы будут одинаковой ширины. Если это покажется неудобным —
+  # можно вернуть отдельный sans-serif (например, DejaVu Sans) или
+  # поставить шрифт из nixpkgs: `pkgs.inter` или `pkgs.noto-fonts`.
   # =====================================================================
   gtk = {
     enable = true;
@@ -392,7 +397,7 @@
       package = pkgs.adw-gtk3;
     };
     font = {
-      name = "Montserrat";
+      name = "JetBrainsMono Nerd Font";
       size = 10;
     };
   };
@@ -489,26 +494,19 @@
   home.file."Pictures/Wallpapers".source = ../wallpapers;
 
   # =====================================================================
-  # Шрифты: Montserrat из локальной папки ui/fonts/Montserrat.
-  #
-  # home.file копирует (симлинкует) всю папку в ~/.local/share/fonts/,
-  # откуда fontconfig читает пользовательские шрифты. Хранится в
-  # /nix/store, поэтому изменения в ui/fonts/ требуют n13rebuild.
-  #
-  # JetBrains Mono ставится через pkgs.nerd-fonts.jetbrains-mono
-  # (в home.packages ниже) — в репозитории держать не нужно, актуальная
-  # версия уже есть в nixpkgs.
-  # =====================================================================
-  home.file.".local/share/fonts/Montserrat".source = ../fonts/Montserrat;
-
-  # =====================================================================
   # fontconfig: шрифты по умолчанию для всей системы.
   #
-  #   sansSerif = Montserrat          — интерфейсы, GTK-приложения,
-  #                                      диалоги Firefox, Nautilus.
-  #   monospace = JetBrainsMono Nerd Font
-  #                                   — терминал (foot), btop, редакторы
-  #                                      кода, всё моноширинное.
+  #   sansSerif = JetBrainsMono Nerd Font — интерфейсы, GTK-приложения,
+  #                                          диалоги Firefox.
+  #   monospace = JetBrainsMono Nerd Font — терминал (foot), btop,
+  #                                          редакторы кода.
+  #
+  # ВАЖНО: JetBrains Mono — моноширинный, в UI текст будет
+  # выровнен по сетке (как в терминале). Это осознанный выбор после
+  # удаления Montserrat. Если покажется неудобным — добавь в
+  # `sansSerif` пропорциональный шрифт, например:
+  #   sansSerif = [ "Inter" "DejaVu Sans" ];   (после pkgs.inter)
+  # fontconfig выберет первый доступный.
   #
   # JetBrainsMono Nerd Font (не просто JetBrains Mono) — потому что
   # в btop, foot и некоторых плагинах Noctalia используются иконки
@@ -517,7 +515,7 @@
   fonts.fontconfig = {
     enable = true;
     defaultFonts = {
-      sansSerif = [ "Montserrat" ];
+      sansSerif = [ "JetBrainsMono Nerd Font" ];
       monospace = [ "JetBrainsMono Nerd Font" ];
     };
   };
@@ -552,9 +550,9 @@
     adwaita-icon-theme
 
     # --- Шрифты ---
-    # Montserrat уже подключён через home.file из репозитория.
-    # JetBrains Mono ставим из nixpkgs (актуальная версия + Nerd Font
-    # иконки). Имя семейства в fontconfig — "JetBrainsMono Nerd Font".
+    # JetBrains Mono из nixpkgs (актуальная версия + Nerd Font иконки).
+    # Имя семейства в fontconfig — "JetBrainsMono Nerd Font".
+    # Montserrat удалён — см. историю git.
     nerd-fonts.jetbrains-mono
 
     # --- Git: libsecret для сохранения паролей ---
