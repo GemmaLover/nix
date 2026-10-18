@@ -32,6 +32,15 @@
     # Noctalia запускается при старте сессии.
     spawn-at-startup = [
       { command = [ "noctalia-shell" ]; }
+
+           # Ставим обои через 2 секунды после старта Noctalia.
+      # Без задержки `noctalia msg` не успевает подключиться к сокету
+      # (Noctalia запускается ~1-2 сек), и команда молча падает.
+      { command = [
+          "sh" "-c"
+          "sleep 1 && noctalia msg wallpaper-set ${config.home.homeDirectory}/Pictures/Wallpapers/nebula.jpg"
+        ];
+        }
     ];
 
     # Раскладка клавиатуры: та же, что в base/system/keyboard.nix.
@@ -382,6 +391,12 @@
     [UiSettings]
     ColorScheme=noctalia
   '';
+
+    # Симлинк всей папки с обоями в ~/Pictures/Wallpapers.
+  # Файлы будут указывать в /nix/store (read-only), но это нормально —
+  # Noctalia их читает, а не пишет.
+  # Плюс: добавил новый jpg в ui/wallpapers/ → n13rebuild → он уже в ~/Pictures/Wallpapers/.
+  home.file."Pictures/Wallpapers".source = ../wallpapers;
 
   qt = {
     enable = true;
