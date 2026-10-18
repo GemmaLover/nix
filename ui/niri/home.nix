@@ -534,7 +534,7 @@
     settings = {
       main = {
         include = "~/.config/foot/themes/noctalia";
-        font = "JetBrainsMono Nerd Font:size=11";
+        font = "JetBrainsMono Nerd Font:size=7";
       };
     };
   };
