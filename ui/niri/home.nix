@@ -14,33 +14,39 @@
   #   * qt + programs.git       — тёмная тема и сохранение паролей Git;
   #   * мультимедийные клавиши  — звук, яркость, медиа (Niri не делает это сам);
   #   * базовые пакеты-аналоги KDE-компонентов.
+  #
+  # ШРИФТЫ:
+  #   * Montserrat       — sans-serif по умолчанию (интерфейсы, GTK);
+  #   * JetBrains Mono   — monospace по умолчанию (терминал, код, Qt).
   # =====================================================================
 
   programs.niri.settings = {
 
-     # Принудительно указываем qt6ct для всех Qt6-приложений.
-    # Без этого переменная может оставаться "qt5ct", и тема не применится.
+    # Принудительно указываем qt6ct для всех Qt6-приложений.
+    # Без этого переменная может оставаться "qt5ct" (см. `echo $QT_QPA_PLATFORMTHEME`),
+    # и тема из qt6ct не применится к Dolphin и Kate.
     environment = {
       QT_QPA_PLATFORMTHEME = "qt6ct";
     };
 
-   # Просим приложения (включая Firefox) не использовать свои
+    # Просим приложения (включая Firefox) не использовать свои
     # собственные декорации окна (CSD). Тогда Niri будет рисовать
     # единую рамку и скругление, и «двойного» эффекта не будет.
     prefer-no-csd = true;
 
     # Noctalia запускается при старте сессии.
+    # Второй командой ставим обои через 1 секунду после старта Noctalia —
+    # без задержки `noctalia msg` не успевает подключиться к IPC-сокету
+    # (Noctalia поднимается ~1-2 сек), и команда молча падает.
+    # Если после перелогина обои не появляются — увеличь sleep до 3-5.
     spawn-at-startup = [
       { command = [ "noctalia-shell" ]; }
-
-           # Ставим обои через 2 секунды после старта Noctalia.
-      # Без задержки `noctalia msg` не успевает подключиться к сокету
-      # (Noctalia запускается ~1-2 сек), и команда молча падает.
-      { command = [
+      {
+        command = [
           "sh" "-c"
           "sleep 1 && noctalia msg wallpaper-set ${config.home.homeDirectory}/Pictures/Wallpapers/nebula.jpg"
         ];
-        }
+      }
     ];
 
     # Раскладка клавиатуры: та же, что в base/system/keyboard.nix.
@@ -125,7 +131,7 @@
     # переопределены под изменение размера — так, как вы просили.
     # Фокус переехал на Mod+A/D.
     binds = {
-      #       # ================================================================
+      # ================================================================
       # === Скриншоты (через Noctalia) ===
       # F6 (работает как Fn+F6) на этом железе отправляет KEY_S и НЕ
       # переназначается через keyd/evremap (известное ограничение
@@ -259,14 +265,13 @@
       "Mod+K".action.spawn = "keepassxc";       # менеджер паролей
       "Mod+L".action.spawn = "llama-rocm-start";  # llama.cpp ROCm
 
-     # AIMP блокирует Niri/Wayland. Маскируем окружение под KDE:
-#   -u WAYLAND_DISPLAY       — убирает WAYLAND_DISPLAY только для AIMP
-#   GDK_BACKEND=x11          — GTK-виджеты идут через XWayland
-#   XDG_CURRENT_DESKTOP=KDE  — прячет Niri от проверки AIMP
-#   XDG_SESSION_DESKTOP=KDE  — дополнительная маскировка
-#   XDG_SESSION_TYPE=x11     — AIMP думает, что сессия X11
-"Mod+P".action.spawn-sh = "env -u WAYLAND_DISPLAY GDK_BACKEND=x11 XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE XDG_SESSION_TYPE=x11 aimp";
-
+      # AIMP блокирует Niri/Wayland. Маскируем окружение под KDE:
+      #   -u WAYLAND_DISPLAY       — убирает WAYLAND_DISPLAY только для AIMP
+      #   GDK_BACKEND=x11          — GTK-виджеты идут через XWayland
+      #   XDG_CURRENT_DESKTOP=KDE  — прячет Niri от проверки AIMP
+      #   XDG_SESSION_DESKTOP=KDE  — дополнительная маскировка
+      #   XDG_SESSION_TYPE=x11     — AIMP думает, что сессия X11
+      "Mod+P".action.spawn-sh = "env -u WAYLAND_DISPLAY GDK_BACKEND=x11 XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE XDG_SESSION_TYPE=x11 aimp";
 
       "Mod+U".action.spawn = "unsloth-start";   # Unsloth Studio
       # DSH: локальный вариант — dsh-local-start
@@ -330,7 +335,6 @@
     settings = ./noctalia.toml;
   };
 
-
   # =====================================================================
   # Git: сохранение паролей через libsecret (GNOME Keyring).
   #
@@ -343,6 +347,12 @@
   # ВАЖНО: сам gnome-keyring должен быть разблокирован при входе
   # через greetd — см. security.pam.services.greetd.enableGnomeKeyring
   # в ui/niri/niri.nix.
+  #
+  # Примечание: отдельно ставить pkgs.libsecret и pkgs.gnome-keyring
+  # в home.packages не нужно — libsecret тянется через
+  # git.override { withLibsecret = true; }, а gnome-keyring поднимается
+  # системным сервисом services.gnome.gnome-keyring.enable = true
+  # (см. ui/niri/niri.nix).
   # =====================================================================
   programs.git = {
     enable = true;
@@ -363,52 +373,53 @@
     };
   };
 
-    # Базовая GTK-тема, на которую «ложится» CSS от Noctalia.
+  # =====================================================================
+  # Базовая GTK-тема, на которую «ложится» CSS от Noctalia.
+  #
   # Без этого блока Home Manager не создаёт settings.ini,
   # и GTK-приложения (включая портал) не знают, какую тему использовать.
+  #
+  # Цвета поверх этой темы даёт шаблон gtk3/gtk4 от Noctalia —
+  # он генерирует ~/.config/gtk-3.0/gtk.css с @import "noctalia.css".
+  #
+  # font — Montserrat для интерфейса. JetBrains Mono в GTK-интерфейсе
+  # не подходит для текста (это моноширинный шрифт для кода).
+  # =====================================================================
   gtk = {
     enable = true;
     theme = {
       name = "adw-gtk3-dark";
       package = pkgs.adw-gtk3;
     };
+    font = {
+      name = "Montserrat";
+      size = 10;
+    };
   };
 
-
-  # QT_QPA_PLATFORMTHEME и QT_STYLE_OVERRIDE задаются qt-модулем
-  # автоматически (qt5ct / kvantum).
-  home.sessionVariables = {
-    XCURSOR_THEME = "Adwaita";
-    XCURSOR_SIZE = "24";
-  };
-
-
-    # kdeglobals: указываем KDE-приложениям (Dolphin, Kate) использовать
-  # цветовую схему "noctalia", сгенерированную Noctalia.
-  # Без этого они могут оставаться в светлой теме Breeze.
-  xdg.configFile."kdeglobals".force = true;
-  xdg.configFile."kdeglobals".text = ''
-    [UiSettings]
-    ColorScheme=noctalia
-  '';
-
-    # qt6ct пишет свой конфиг при нажатии Apply в GUI (~/.config/qt6ct/qt6ct.conf).
-  # Home Manager теперь тоже управляет этим файлом (через qt.qt6ctSettings),
-  # и без force падает с «would be clobbered».
-  xdg.configFile."qt6ct/qt6ct.conf".force = true;
-
-    # Симлинк всей папки с обоями в ~/Pictures/Wallpapers.
-  # Файлы будут указывать в /nix/store (read-only), но это нормально —
-  # Noctalia их читает, а не пишет.
-  # Плюс: добавил новый jpg в ui/wallpapers/ → n13rebuild → он уже в ~/Pictures/Wallpapers/.
-  home.file."Pictures/Wallpapers".source = ../wallpapers;
-
+  # =====================================================================
+  # Qt/KDE: тема, шрифт и цвета — через qt6ct.
+  #
+  # qt6ct — мост между Noctalia (шаблон KColorScheme) и Qt-приложениями
+  # (Dolphin, Kate). Выбор схемы "noctalia" в qt6ct GUI — единственный
+  # не декларативный шаг; после него qt6ct.conf фиксируется через force
+  # ниже, и n13rebuild его не затирает.
+  #
+  # QT_QPA_PLATFORMTHEME=qt6ct дополнительно выставлен в
+  # programs.niri.settings.environment выше — на случай, если
+  # qt-модуль не пробросит его в сессию Niri.
+  #
+  # Fonts: JetBrainsMono Nerd Font — для Qt-приложений используем
+  # моноширинный (Kate, терминальные вкладки, панели Dolphin).
+  # Строка формата: "Family,size,-1,weight,italic,underline,strikeout,
+  # fixedPitch,styleHint,stretch,letterSpacing,...". Взято из вывода
+  # `qt6ct` после ручной настройки — если размер/начертание не
+  # подхватятся, откройте qt6ct → Fonts и проверьте значения.
+  # =====================================================================
   qt = {
     enable = true;
     platformTheme.name = "qtct";
 
-    # Декларативно указываем qt6ct использовать цветовую схему от Noctalia.
-    # Путь указан на файл, который генерирует сама Noctalia.
     qt6ctSettings = {
       Appearance = {
         custom_palette = true;
@@ -417,21 +428,118 @@
         # style = "Breeze";
         # icon_theme = "breeze-dark";
       };
-    };
-  };
 
-    programs.foot = {
-    enable = true;
-    settings = {
-      main = {
-        # Указываем foot, где искать тему от Noctalia.
-        # Noctalia создаёт этот файл, когда шаблон "foot" включён
-        # (у тебя включены все шаблоны — значит, файл есть).
-        include = "~/.config/foot/themes/noctalia";
+      Fonts = {
+        # general — основной шрифт UI (панели, меню).
+        # fixed — моноширинный (редактор кода, терминал в Kate).
+        # Оба ставим в JetBrainsMono Nerd Font, чтобы UI и контент
+        # выглядели единообразно.
+        general = "JetBrainsMono Nerd Font,11,-1,5,500,0,0,0,0,0,0,0,0,0,0,1";
+        fixed = "JetBrainsMono Nerd Font,11,-1,5,500,0,0,0,0,0,0,0,0,0,0,1";
       };
     };
   };
 
+  # =====================================================================
+  # kdeglobals: явно указываем KDE-приложениям (Dolphin, Kate)
+  # использовать цветовую схему "noctalia" из
+  # ~/.local/share/color-schemes/noctalia.colors (её генерирует
+  # шаблон KColorScheme в Noctalia).
+  #
+  # Без этого файла KDE-приложения могут откатываться к светлой Breeze.
+  # force = true — чтобы перезаписать kdeglobals, если он был создан
+  # вручную (например, после запуска System Settings).
+  # =====================================================================
+  xdg.configFile."kdeglobals".force = true;
+  xdg.configFile."kdeglobals".text = ''
+    [UiSettings]
+    ColorScheme=noctalia
+  '';
+
+  # qt6ct пишет свой конфиг при нажатии Apply в GUI (~/.config/qt6ct/qt6ct.conf).
+  # Home Manager теперь тоже управляет этим файлом (через qt.qt6ctSettings
+  # выше), и без force падает с «would be clobbered».
+  # force = true — перезапись существующего файла декларативным содержимым.
+  xdg.configFile."qt6ct/qt6ct.conf".force = true;
+
+  # =====================================================================
+  # Переменные окружения для курсора мыши.
+  #
+  # QT_QPA_PLATFORMTHEME выставляется qt-модулем автоматически
+  # (qt.platformTheme.name = "qtct") и дублируется в
+  # programs.niri.settings.environment для надёжности.
+  # QT_STYLE_OVERRIDE больше не используется (Kvantum удалён).
+  # =====================================================================
+  home.sessionVariables = {
+    XCURSOR_THEME = "Adwaita";
+    XCURSOR_SIZE = "24";
+  };
+
+  # =====================================================================
+  # Обои: симлинк всей папки ui/wallpapers/ в ~/Pictures/Wallpapers.
+  #
+  # Файлы будут указывать в /nix/store (read-only) — это нормально,
+  # Noctalia их только читает. При старте сессии
+  # (см. spawn-at-startup выше) выставляется nebula.jpg как дефолт.
+  #
+  # Плюс такого подхода: добавил новый jpg в ui/wallpapers/ →
+  # n13rebuild → он уже в ~/Pictures/Wallpapers/. Минус: добавить
+  # обои «на лету», не пересобирая систему, нельзя.
+  # =====================================================================
+  home.file."Pictures/Wallpapers".source = ../wallpapers;
+
+  # =====================================================================
+  # Шрифты: Montserrat из локальной папки ui/fonts/Montserrat.
+  #
+  # home.file копирует (симлинкует) всю папку в ~/.local/share/fonts/,
+  # откуда fontconfig читает пользовательские шрифты. Хранится в
+  # /nix/store, поэтому изменения в ui/fonts/ требуют n13rebuild.
+  #
+  # JetBrains Mono ставится через pkgs.nerd-fonts.jetbrains-mono
+  # (в home.packages ниже) — в репозитории держать не нужно, актуальная
+  # версия уже есть в nixpkgs.
+  # =====================================================================
+  home.file.".local/share/fonts/Montserrat".source = ../fonts/Montserrat;
+
+  # =====================================================================
+  # fontconfig: шрифты по умолчанию для всей системы.
+  #
+  #   sansSerif = Montserrat          — интерфейсы, GTK-приложения,
+  #                                      диалоги Firefox, Nautilus.
+  #   monospace = JetBrainsMono Nerd Font
+  #                                   — терминал (foot), btop, редакторы
+  #                                      кода, всё моноширинное.
+  #
+  # JetBrainsMono Nerd Font (не просто JetBrains Mono) — потому что
+  # в btop, foot и некоторых плагинах Noctalia используются иконки
+  # Nerd Font (U+E000–U+F8FF). Без них будут «квадратики».
+  # =====================================================================
+  fonts.fontconfig = {
+    enable = true;
+    defaultFonts = {
+      sansSerif = [ "Montserrat" ];
+      monospace = [ "JetBrainsMono Nerd Font" ];
+    };
+  };
+
+  # =====================================================================
+  # foot (терминал).
+  #
+  # include — тема Noctalia (цвета; файл генерируется шаблоном "foot").
+  # font — JetBrainsMono Nerd Font. В терминале пропорциональный шрифт
+  # (Montserrat) непригоден — буквы пляшут, иконки не выравниваются.
+  # JetBrains Mono — специально для кода/терминала, + Nerd Font-иконки
+  # для btop, starship, tmux и т.п.
+  # =====================================================================
+  programs.foot = {
+    enable = true;
+    settings = {
+      main = {
+        include = "~/.config/foot/themes/noctalia";
+        font = "JetBrainsMono Nerd Font:size=11";
+      };
+    };
+  };
 
   # === Пакеты ===
   home.packages = with pkgs; [
@@ -443,9 +551,17 @@
     kdePackages.qt6ct
     adwaita-icon-theme
 
+    # --- Шрифты ---
+    # Montserrat уже подключён через home.file из репозитория.
+    # JetBrains Mono ставим из nixpkgs (актуальная версия + Nerd Font
+    # иконки). Имя семейства в fontconfig — "JetBrainsMono Nerd Font".
+    nerd-fonts.jetbrains-mono
+
     # --- Git: libsecret для сохранения паролей ---
-#     libsecret             # библиотека Secret Service
-#     gnome-keyring         # провайдер org.freedesktop.secrets
+    # libsecret и gnome-keyring не нужны отдельно:
+    #   * libsecret тянется через git.override { withLibsecret = true; };
+    #   * gnome-keyring поднимается сервисом
+    #     services.gnome.gnome-keyring.enable = true (см. ui/niri/niri.nix).
 
     # --- Мультимедийные утилиты для F1-F12 ---
     # wireplumber даёт команду wpctl (громкость).
@@ -454,5 +570,15 @@
     wireplumber
     brightnessctl
     playerctl
+
+    # --- Архиваторы ---
+    # Ark — для Dolphin (двойной клик по .zip открывает Ark).
+    # file-roller — GTK-альтернатива на случай, если понадобится.
+    # unzip/zip — консольные утилиты (нужны скриптам и для случаев,
+    # когда графический архиватор не справляется).
+    kdePackages.ark
+    file-roller
+    unzip
+    zip
   ];
 }
