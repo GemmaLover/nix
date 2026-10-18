@@ -18,6 +18,12 @@
 
   programs.niri.settings = {
 
+     # Принудительно указываем qt6ct для всех Qt6-приложений.
+    # Без этого переменная может оставаться "qt5ct", и тема не применится.
+    environment = {
+      QT_QPA_PLATFORMTHEME = "qt6ct";
+    };
+
    # Просим приложения (включая Firefox) не использовать свои
     # собственные декорации окна (CSD). Тогда Niri будет рисовать
     # единую рамку и скругление, и «двойного» эффекта не будет.
@@ -367,6 +373,16 @@
     XCURSOR_SIZE = "24";
   };
 
+
+    # kdeglobals: указываем KDE-приложениям (Dolphin, Kate) использовать
+  # цветовую схему "noctalia", сгенерированную Noctalia.
+  # Без этого они могут оставаться в светлой теме Breeze.
+  xdg.configFile."kdeglobals".force = true;
+  xdg.configFile."kdeglobals".text = ''
+    [UiSettings]
+    ColorScheme=noctalia
+  '';
+
    # qt6ct — мост между Noctalia и Qt-приложениями.
   # Noctalia генерирует файл ~/.config/qt6ct/colors/noctalia.conf,
   # который мы выберем в самом qt6ct (шаг 3).
@@ -375,6 +391,7 @@
     platformTheme.name = "qtct";
     # style.name убираем — Noctalia сама управляет стилем через qt6ct.
   };
+
 
     programs.foot = {
     enable = true;
