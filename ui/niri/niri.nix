@@ -119,24 +119,41 @@
   # =====================================================================
   # XDG-портал.
   # =====================================================================
-  xdg.portal = {
-    enable = true;
-    xdgOpenUsePortal = true;
+#   xdg.portal = {
+#     enable = true;
+#     xdgOpenUsePortal = true;
+#
+#     extraPortals = with pkgs; [
+#       xdg-desktop-portal-gtk
+#     ];
+#
+#     configPackages = with pkgs; [
+#       xdg-desktop-portal-gtk
+#     ];
+#
+#     config.niri = {
+#       "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
+#     };
+#
+#     config.common.default = "gtk";
+#   };
 
-    extraPortals = with pkgs; [
-      xdg-desktop-portal-gtk
-    ];
 
-    configPackages = with pkgs; [
-      xdg-desktop-portal-gtk
-    ];
+xdg.portal = {
+  enable = true;
+  xdgOpenUsePortal = true;
 
-    config.niri = {
-      "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
-    };
+  # Принудительно оставляем ТОЛЬКО gtk-портал.
+  # lib.mkForce переопределяет любые другие определения,
+  # включая те, что могли быть добавлены GNOME или другими модулями.
+  extraPortals = lib.mkForce [ pkgs.xdg-desktop-portal-gtk ];
 
-    config.common.default = "gtk";
+  config.niri = {
+    "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
   };
+
+  config.common.default = "gtk";
+};
 
   # =====================================================================
   # Thunar — GTK-файловый менеджер (замена Dolphin).
