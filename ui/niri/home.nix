@@ -495,6 +495,13 @@
     XCURSOR_SIZE = "24";
   };
 
+    # Исправление конфликта GIO_EXTRA_MODULES между Home Manager и NixOS.
+  # Home Manager по умолчанию ПЕРЕЗАПИСЫВАЕТ эту переменную, что ломает gvfs.
+  # Указываем ему дополнять существующее значение, а не заменять его.
+  home.sessionVariablesExtra = ''
+    export GIO_EXTRA_MODULES="''${GIO_EXTRA_MODULES:+$GIO_EXTRA_MODULES:}${pkgs.gvfs}/lib/gio/modules"
+  '';
+
   # === Пакеты ===
   home.packages = with pkgs; [
     foot                  # Wayland-терминал

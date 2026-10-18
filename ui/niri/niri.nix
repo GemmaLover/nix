@@ -182,6 +182,10 @@ xdg.portal = {
     ];
   };
 
+    # Включаем udisks2, чтобы gvfs (и Thunar) мог видеть
+  # и монтировать внутренние диски и разделы.
+  services.udisks2.enable = true;
+
   # xfconf хранит конфигурацию Thunar (~/.config/xfce4/xfconf/).
   programs.xfconf.enable = true;
 
