@@ -413,6 +413,26 @@
   };
 
 
+
+    # =====================================================================
+  # Перезапись существующих GTK-файлов.
+  #
+  # force = true — это опция САМОГО home.file / xdg.configFile,
+  # она ставится на верхнем уровне home.nix, а не внутри gtk.*.
+  # Внутри gtk = { } эти опции не существуют (модуль gtk пишет
+  # в home.file."..." и xdg.configFile."..." «за кулисами», а NixOS
+  # сливает определения по одному и тому же пути).
+  #
+  # Файлы остались от KDE-интеграции GTK и nwg-look:
+  #   ~/.gtkrc-2.0                       — GTK2 (создаётся gtk.enable)
+  #   ~/.config/gtk-3.0/settings.ini     — GTK3 (Thunar, Firefox)
+  #   ~/.config/gtk-4.0/settings.ini     — GTK4
+  # Без force Home Manager падает с «would be clobbered» (см. лог
+  # home-manager-lexi.service 23:53).
+  # =====================================================================
+  xdg.configFile."gtk-3.0/settings.ini".force = true;
+  xdg.configFile."gtk-4.0/settings.ini".force = true;
+
     # =====================================================================
   # GTK-тема — тёмная база для Thunar и других GTK-приложений.
   #
@@ -438,23 +458,22 @@
   gtk = {
     enable = true;
 
-    # Базовая тёмная тема для GTK3.
-    # adw-gtk3 — единственный поддерживаемый «тёмный Adwaita для GTK3».
-    # Оригинальный Adwaita-dark из gnome-themes-extra давно не обновляется
-    # и ломает современные GTK3-виджеты (в т.ч. Thunar 4.18+).
+        # === GTK2: принудительная перезапись .gtkrc-2.0 ===
+    # Эта опция существует прямо в модуле gtk и не конфликтует
+    # с управлением файлом — она просто снимает защиту от перезаписи.
+    gtk2.force = true;
+
+
     theme = {
       name = "adw-gtk3-dark";
       package = pkgs.adw-gtk3;
     };
 
-    # Иконки. Papirus-Dark хорошо сочетается с adw-gtk3 и Noctalia.
     iconTheme = {
       name = "Papirus-Dark";
       package = pkgs.papirus-icon-theme;
     };
 
-    # Шрифт для GTK-приложений (у Noctalia Liberation Sans по умолчанию,
-    # но GTK-аппы берут из settings.ini — зададим явно для единообразия).
     font = {
       name = "Noto Sans";
       size = 10;
