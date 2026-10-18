@@ -390,6 +390,18 @@
     };
   };
 
+    # Базовая GTK-тема, на которую «ложится» CSS от Noctalia.
+  # Без этого блока Home Manager не создаёт settings.ini,
+  # и GTK-приложения (включая портал) не знают, какую тему использовать.
+  gtk = {
+    enable = true;
+    theme = {
+      name = "adw-gtk3-dark";
+      package = pkgs.adw-gtk3;
+    };
+  };
+
+
   # kdeglobals: цветовая схема KDE-приложений (BreezeDark).
   # force = true — Home Manager перезапишет уже существующий файл
   # (мог остаться от KDE), иначе активация падает с
