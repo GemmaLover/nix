@@ -270,7 +270,7 @@
       # === Управление окнами и сессией ===
       # ================================================================
       "Mod+Q".action.close-window = { };
-      "Mod+Shift+L".action.spawn = "loginctl lock-session";
+      "Mod+Escape".action.spawn = "loginctl lock-session";
       "Mod+Shift+E".action.quit = { };
 
       # ================================================================
@@ -301,7 +301,6 @@
       "Mod+R".action.spawn = "dolphin";         # файловый менеджер
       "Mod+E".action.spawn = "kate";            # текстовый редактор
       "Mod+K".action.spawn = "keepassxc";       # менеджер паролей
-      "Mod+L".action.spawn = "llama-rocm-start";  # llama.cpp ROCm
 
       # AIMP блокирует Niri/Wayland. Маскируем окружение под KDE:
       #   -u WAYLAND_DISPLAY       — убирает WAYLAND_DISPLAY только для AIMP
@@ -311,14 +310,36 @@
       #   XDG_SESSION_TYPE=x11     — AIMP думает, что сессия X11
       "Mod+P".action.spawn-sh = "env -u WAYLAND_DISPLAY GDK_BACKEND=x11 XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE XDG_SESSION_TYPE=x11 aimp";
 
-      "Mod+U".action.spawn = "unsloth-start";   # Unsloth Studio
-      # DSH: локальный вариант — dsh-local-start
-      # (см. llm/dsh/local/commands.nix). Контейнерный —
-      # dsh-podman-start, когда он появится.
-      "Mod+H".action.spawn = "dsh-local-start";
+
       "Mod+M".action.spawn = "waydroid";        # Waydroid UI
       "Mod+Shift+M".action.spawn = "waydroid-stop";  # полное закрытие Waydroid
-      "Mod+I".action.spawn = "strata-start";    # Strata
+
+            # --- Запуск и остановка LLM-сервисов ---
+      # Mod+<буква>       — запуск
+      # Mod+Shift+<буква> — полное закрытие (аналог «Ctrl+C» для сервиса)
+      #
+      # ВАЖНО: все stop-команды уже определены в llm/*/commands.nix —
+      # они вызывают podman stop с корректными таймаутами и очисткой.
+      # Здесь только биндинги.
+
+      # llama.cpp ROCm (порт 8085)
+      "Mod+L".action.spawn = "llama-rocm-start";
+      "Mod+Shift+L".action.spawn = "llama-rocm-stop";
+
+      # Unsloth Studio (порт 8005)
+      "Mod+U".action.spawn = "unsloth-start";
+      "Mod+Shift+U".action.spawn = "unsloth-stop";
+
+      # DeepSeek Harness (локальная сборка, порт 7718)
+      # ВНИМАНИЕ: команда именно dsh-local-stop, а не dsh-stop —
+      # у DSH две реализации (local и podman), и stop у каждой свой.
+      "Mod+H".action.spawn = "dsh-local-start";
+      "Mod+Shift+H".action.spawn = "dsh-local-stop";
+
+      # Strata (порт 5747)
+      "Mod+I".action.spawn = "strata-start";
+      "Mod+Shift+I".action.spawn = "strata-stop";
+
 
       # ================================================================
       # === Мультимедийные клавиши (F1-F4, F7-F12 — XF86) ===
