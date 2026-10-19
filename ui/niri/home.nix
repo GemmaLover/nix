@@ -798,6 +798,24 @@ userChrome = ''
     };
   };
 
+systemd.user.services.polkit-gnome-authentication-agent-1 = {
+  Unit = {
+    Description = "polkit-gnome-authentication-agent-1";
+    After = [ "graphical-session.target" ];
+    Wants = [ "graphical-session.target" ];
+  };
+  Service = {
+    Type = "simple";
+    ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
+    Restart = "on-failure";
+    RestartSec = 1;
+    TimeoutStopSec = 10;
+  };
+  Install = {
+    WantedBy = [ "graphical-session.target" ];
+  };
+};
+
   # === Пакеты ===
   home.packages = with pkgs; [
     foot                  # Wayland-терминал
@@ -807,6 +825,8 @@ userChrome = ''
     # --- Тёмная тема Qt/KDE ---
     kdePackages.qt6ct
     adwaita-icon-theme
+
+    polkit_gnome
 
     # --- Шрифты ---
     # JetBrains Mono из nixpkgs (актуальная версия + Nerd Font иконки).
