@@ -882,14 +882,13 @@ home.shellAliases = {
 
 
 
- (writeShellScriptBin "luksmount" ''
+  (writeShellScriptBin "luksmount" ''
     set -u
 
     if [ "$#" -ge 1 ]; then
       dev="$1"
     else
       mapfile -t devices < <(lsblk -lpno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
-
       if [ "''${#devices[@]}" -eq 0 ]; then
         echo "LUKS-устройства не найдены." >&2
         exit 1
@@ -897,45 +896,61 @@ home.shellAliases = {
 
       echo "Доступные LUKS-устройства:"
       echo
-      PS3="Введите номер устройства: "
-      select dev in "''${devices[@]}"; do
-        if [ -z "''${dev:-}" ]; then
-          echo "Неверный выбор." >&2
-          continue
-        fi
-
-        size=$(lsblk -lpno SIZE "$dev")
-        pk=$(lsblk -lpno PKNAME "$dev")
+      for i in "''${!devices[@]}"; do
+        d="''${devices[$i]}"
+        size=$(lsblk -lpno SIZE "$d")
+        pk=$(lsblk -lpno PKNAME "$d")
         model=""
-        if [ -n "$pk" ]; then
-          model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
-        fi
-        child=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1 || true)
-        if [ -n "''${child:-}" ]; then
-          status="разблокирован как $child"
+        [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
+        uuid=$(lsblk -lpno UUID "$d")
+        mapper="/dev/mapper/luks-$uuid"
+        if [ -e "$mapper" ]; then
+          mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
+          if [ -n "$mp" ]; then
+            status="разблокирован, смонтирован в $mp"
+          else
+            status="разблокирован как $mapper"
+          fi
+          fstype=$(lsblk -lpno FSTYPE "$mapper" 2>/dev/null | xargs || true)
+          label=$(lsblk -lpno LABEL "$mapper" 2>/dev/null | xargs || true)
         else
           status="не разблокирован"
+          fstype=""
+          label=""
         fi
 
+        printf "  %d) %s\n" "$((i+1))" "$d"
+        printf "     Размер:   %s\n" "$size"
+        [ -n "$model" ] && printf "     Носитель: %s\n" "$model"
+        [ -n "$fstype" ] && printf "     ФС:       %s\n" "$fstype"
+        [ -n "$label" ] && printf "     Метка:    %s\n" "$label"
+        printf "     Статус:   %s\n" "$status"
         echo
-        echo "Выбрано: $dev"
-        echo "  Размер:   $size"
-        [ -n "$model" ] && echo "  Носитель: $model"
-        echo "  Статус:   $status"
-        echo
-        break
       done
+
+      read -rp "Введите номер устройства (Enter — отмена): " choice
+      [ -z "''${choice:-}" ] && exit 0
+      if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "''${#devices[@]}" ]; then
+        echo "Неверный выбор." >&2
+        exit 1
+      fi
+      dev="''${devices[$((choice-1))]}"
     fi
 
     uuid=$(lsblk -lpno UUID "$dev")
+    [ -z "$uuid" ] && { echo "Не удалось прочитать UUID у $dev" >&2; exit 1; }
     mapper="/dev/mapper/luks-$uuid"
 
     if [ -e "$mapper" ]; then
+      mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
+      if [ -n "$mp" ]; then
+        echo "$dev уже разблокирован и смонтирован в $mp. Ничего делать не нужно."
+        exit 0
+      fi
       echo "$dev уже разблокирован как $mapper"
     else
       echo "Разблокировка $dev (введите пароль LUKS)..."
       udisksctl unlock --block-device "$dev" || { echo "Разблокировка не удалась." >&2; exit 1; }
-      # udisksctl обычно создаёт /dev/mapper/luks-<UUID>, но подстрахуемся
       [ -e "$mapper" ] || mapper=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1)
     fi
 
@@ -954,28 +969,106 @@ home.shellAliases = {
     fi
   '')
 
-  (writeShellScriptBin "luksinfo" ''
+  (writeShellScriptBin "luksunmount" ''
     set -u
-    echo "=== LUKS-контейнеры ==="
-    echo
-    lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS | awk '
-      NR==1 {print; next}
-      $3=="crypto_LUKS" {print; found=1; next}
-      found && /^[^ ]/ {found=0}
-      found {print}
-    '
 
-    echo
-    echo "=== Разблокированные мапперы ==="
-    for m in /dev/mapper/luks-*; do
-      [ -e "$m" ] || continue
-      echo
-      lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS "$m"
-      mp=$(findmnt -n -o TARGET "$m" 2>/dev/null || true)
-      if [ -n "$mp" ]; then
-        df -h "$mp"
+    if [ "$#" -ge 1 ]; then
+      dev="$1"
+    else
+      mapfile -t devices < <(lsblk -lpno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
+      if [ "''${#devices[@]}" -eq 0 ]; then
+        echo "LUKS-устройства не найдены." >&2
+        exit 1
       fi
-    done
+
+      echo "LUKS-устройства:"
+      echo
+      for i in "''${!devices[@]}"; do
+        d="''${devices[$i]}"
+        size=$(lsblk -lpno SIZE "$d")
+        pk=$(lsblk -lpno PKNAME "$d")
+        model=""
+        [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
+        uuid=$(lsblk -lpno UUID "$d")
+        mapper="/dev/mapper/luks-$uuid"
+        if [ ! -e "$mapper" ]; then
+          alt=$(lsblk -lpno NAME "$d" | tail -n +2 | head -n1 || true)
+          [ -n "''${alt:-}" ] && mapper="$alt"
+        fi
+        if [ -e "$mapper" ]; then
+          mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
+          if [ -n "$mp" ]; then
+            status="разблокирован, смонтирован в $mp"
+          else
+            status="разблокирован как $mapper"
+          fi
+        else
+          status="не разблокирован (нечего закрывать)"
+        fi
+
+        printf "  %d) %s\n" "$((i+1))" "$d"
+        printf "     Размер:   %s\n" "$size"
+        [ -n "$model" ] && printf "     Носитель: %s\n" "$model"
+        printf "     Статус:   %s\n" "$status"
+        echo
+      done
+
+      read -rp "Введите номер устройства (Enter — отмена): " choice
+      [ -z "''${choice:-}" ] && exit 0
+      if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "''${#devices[@]}" ]; then
+        echo "Неверный выбор." >&2
+        exit 1
+      fi
+      dev="''${devices[$((choice-1))]}"
+    fi
+
+    uuid=$(lsblk -lpno UUID "$dev")
+    [ -z "$uuid" ] && { echo "Не удалось прочитать UUID у $dev" >&2; exit 1; }
+
+    mapper="/dev/mapper/luks-$uuid"
+    if [ ! -e "$mapper" ]; then
+      alt=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1 || true)
+      [ -n "''${alt:-}" ] && mapper="$alt"
+    fi
+
+    if [ ! -e "$mapper" ]; then
+      echo "$dev не разблокирован — нечего закрывать."
+      exit 0
+    fi
+
+    # Safety: не даём закрыть корень
+    if findmnt -n -o TARGET "$mapper" 2>/dev/null | grep -qx "/"; then
+      echo "Отказано: $mapper содержит корневую ФС. Закрытие невозможно." >&2
+      exit 1
+    fi
+
+    # Размонтирование
+    mps=$(findmnt -n -R "$mapper" -o TARGET 2>/dev/null || true)
+    if [ -n "$mps" ]; then
+      echo "Размонтирование:"
+      echo "$mps" | sed 's/^/  /'
+      if ! udisksctl unmount -b "$mapper"; then
+        echo "Не удалось размонтировать $mapper — возможно, том занят." >&2
+        echo "Совет: закройте файлы на томе и повторите." >&2
+        exit 1
+      fi
+      if findmnt -n -R "$mapper" -o TARGET >/dev/null 2>&1; then
+        echo "Том всё ещё смонтирован, отмена." >&2
+        exit 1
+      fi
+    fi
+
+    echo "Закрытие LUKS-контейнера $dev ..."
+    if ! udisksctl lock -b "$dev"; then
+      echo "Закрытие не удалось." >&2
+      exit 1
+    fi
+
+    if [ -e "$mapper" ]; then
+      echo "Внимание: $mapper всё ещё существует после lock." >&2
+      exit 1
+    fi
+    echo "Готово: $dev закрыт."
   '')
 
 
