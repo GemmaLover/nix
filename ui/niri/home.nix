@@ -663,6 +663,7 @@
 
     programs.firefox = {
     enable = true;
+      configPath = "${config.xdg.configHome}/mozilla/firefox"; # Указываем путь к профилям
     profiles.default = {
       # ... другие настройки профиля ...
 
