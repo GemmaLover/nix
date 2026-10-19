@@ -882,8 +882,55 @@ home.shellAliases = {
 
 
 
-  (writeShellScriptBin "luksmount" ''
+(writeShellScriptBin "luksmount" ''
     set -u
+
+    find_mapper() {
+      local dev="$1"
+      local base holder h name
+      base=$(basename "$(readlink -f "$dev")")
+      for holder in "/sys/class/block/$base/holders/"*; do
+        [ -e "$holder" ] || continue
+        h=$(basename "$(readlink -f "$holder")")
+        if [ -r "/sys/class/block/$h/dm/name" ]; then
+          name=$(cat "/sys/class/block/$h/dm/name")
+          echo "/dev/mapper/$name"
+          return 0
+        fi
+      done
+      return 1
+    }
+
+    mapper_mount() {
+      findmnt -n -o TARGET "$1" 2>/dev/null | head -n1
+    }
+
+    describe_dev() {
+      local d="$1" size pk model mapper mp fstype label status
+      size=$(lsblk -lpno SIZE "$d" | head -n1)
+      pk=$(lsblk -lpno PKNAME "$d" | head -n1)
+      model=""
+      [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
+      mapper=$(find_mapper "$d" || true)
+      fstype=""; label=""
+      if [ -n "$mapper" ] && [ -e "$mapper" ]; then
+        mp=$(mapper_mount "$mapper")
+        if [ -n "$mp" ]; then
+          status="разблокирован, смонтирован в $mp"
+        else
+          status="разблокирован как $mapper (не смонтирован)"
+        fi
+        fstype=$(lsblk -dpno FSTYPE "$mapper" 2>/dev/null | xargs || true)
+        label=$(lsblk -dpno LABEL "$mapper" 2>/dev/null | xargs || true)
+      else
+        status="не разблокирован"
+      fi
+      printf "     Размер:   %s\n" "$size"
+      [ -n "$model" ] && printf "     Носитель: %s\n" "$model"
+      [ -n "$fstype" ] && printf "     ФС:       %s\n" "$fstype"
+      [ -n "$label" ] && printf "     Метка:    %s\n" "$label"
+      printf "     Статус:   %s\n" "$status"
+    }
 
     if [ "$#" -ge 1 ]; then
       dev="$1"
@@ -893,41 +940,14 @@ home.shellAliases = {
         echo "LUKS-устройства не найдены." >&2
         exit 1
       fi
-
       echo "Доступные LUKS-устройства:"
       echo
       for i in "''${!devices[@]}"; do
         d="''${devices[$i]}"
-        size=$(lsblk -lpno SIZE "$d")
-        pk=$(lsblk -lpno PKNAME "$d")
-        model=""
-        [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
-        uuid=$(lsblk -lpno UUID "$d")
-        mapper="/dev/mapper/luks-$uuid"
-        if [ -e "$mapper" ]; then
-          mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
-          if [ -n "$mp" ]; then
-            status="разблокирован, смонтирован в $mp"
-          else
-            status="разблокирован как $mapper"
-          fi
-          fstype=$(lsblk -lpno FSTYPE "$mapper" 2>/dev/null | xargs || true)
-          label=$(lsblk -lpno LABEL "$mapper" 2>/dev/null | xargs || true)
-        else
-          status="не разблокирован"
-          fstype=""
-          label=""
-        fi
-
         printf "  %d) %s\n" "$((i+1))" "$d"
-        printf "     Размер:   %s\n" "$size"
-        [ -n "$model" ] && printf "     Носитель: %s\n" "$model"
-        [ -n "$fstype" ] && printf "     ФС:       %s\n" "$fstype"
-        [ -n "$label" ] && printf "     Метка:    %s\n" "$label"
-        printf "     Статус:   %s\n" "$status"
+        describe_dev "$d"
         echo
       done
-
       read -rp "Введите номер устройства (Enter — отмена): " choice
       [ -z "''${choice:-}" ] && exit 0
       if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "''${#devices[@]}" ]; then
@@ -937,12 +957,11 @@ home.shellAliases = {
       dev="''${devices[$((choice-1))]}"
     fi
 
-    uuid=$(lsblk -lpno UUID "$dev")
-    [ -z "$uuid" ] && { echo "Не удалось прочитать UUID у $dev" >&2; exit 1; }
-    mapper="/dev/mapper/luks-$uuid"
+    [ -e "$dev" ] || { echo "Устройство $dev не существует." >&2; exit 1; }
 
-    if [ -e "$mapper" ]; then
-      mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
+    mapper=$(find_mapper "$dev" || true)
+    if [ -n "$mapper" ] && [ -e "$mapper" ]; then
+      mp=$(mapper_mount "$mapper")
       if [ -n "$mp" ]; then
         echo "$dev уже разблокирован и смонтирован в $mp. Ничего делать не нужно."
         exit 0
@@ -951,13 +970,14 @@ home.shellAliases = {
     else
       echo "Разблокировка $dev (введите пароль LUKS)..."
       udisksctl unlock --block-device "$dev" || { echo "Разблокировка не удалась." >&2; exit 1; }
-      [ -e "$mapper" ] || mapper=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1)
+      mapper=$(find_mapper "$dev" || true)
+      [ -n "$mapper" ] && [ -e "$mapper" ] || { echo "Не удалось найти маппер после разблокировки." >&2; exit 1; }
     fi
 
     echo "Монтирование $mapper ..."
     udisksctl mount --block-device "$mapper"
 
-    mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
+    mp=$(mapper_mount "$mapper")
     echo
     echo "=== Информация о томе ==="
     lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS "$dev"
@@ -972,6 +992,48 @@ home.shellAliases = {
   (writeShellScriptBin "luksunmount" ''
     set -u
 
+    find_mapper() {
+      local dev="$1"
+      local base holder h name
+      base=$(basename "$(readlink -f "$dev")")
+      for holder in "/sys/class/block/$base/holders/"*; do
+        [ -e "$holder" ] || continue
+        h=$(basename "$(readlink -f "$holder")")
+        if [ -r "/sys/class/block/$h/dm/name" ]; then
+          name=$(cat "/sys/class/block/$h/dm/name")
+          echo "/dev/mapper/$name"
+          return 0
+        fi
+      done
+      return 1
+    }
+
+    mapper_mount() {
+      findmnt -n -o TARGET "$1" 2>/dev/null | head -n1
+    }
+
+    describe_dev() {
+      local d="$1" size pk model mapper mp status
+      size=$(lsblk -lpno SIZE "$d" | head -n1)
+      pk=$(lsblk -lpno PKNAME "$d" | head -n1)
+      model=""
+      [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
+      mapper=$(find_mapper "$d" || true)
+      if [ -n "$mapper" ] && [ -e "$mapper" ]; then
+        mp=$(mapper_mount "$mapper")
+        if [ -n "$mp" ]; then
+          status="разблокирован, смонтирован в $mp"
+        else
+          status="разблокирован как $mapper (не смонтирован)"
+        fi
+      else
+        status="не разблокирован (нечего закрывать)"
+      fi
+      printf "     Размер:   %s\n" "$size"
+      [ -n "$model" ] && printf "     Носитель: %s\n" "$model"
+      printf "     Статус:   %s\n" "$status"
+    }
+
     if [ "$#" -ge 1 ]; then
       dev="$1"
     else
@@ -980,39 +1042,14 @@ home.shellAliases = {
         echo "LUKS-устройства не найдены." >&2
         exit 1
       fi
-
       echo "LUKS-устройства:"
       echo
       for i in "''${!devices[@]}"; do
         d="''${devices[$i]}"
-        size=$(lsblk -lpno SIZE "$d")
-        pk=$(lsblk -lpno PKNAME "$d")
-        model=""
-        [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
-        uuid=$(lsblk -lpno UUID "$d")
-        mapper="/dev/mapper/luks-$uuid"
-        if [ ! -e "$mapper" ]; then
-          alt=$(lsblk -lpno NAME "$d" | tail -n +2 | head -n1 || true)
-          [ -n "''${alt:-}" ] && mapper="$alt"
-        fi
-        if [ -e "$mapper" ]; then
-          mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
-          if [ -n "$mp" ]; then
-            status="разблокирован, смонтирован в $mp"
-          else
-            status="разблокирован как $mapper"
-          fi
-        else
-          status="не разблокирован (нечего закрывать)"
-        fi
-
         printf "  %d) %s\n" "$((i+1))" "$d"
-        printf "     Размер:   %s\n" "$size"
-        [ -n "$model" ] && printf "     Носитель: %s\n" "$model"
-        printf "     Статус:   %s\n" "$status"
+        describe_dev "$d"
         echo
       done
-
       read -rp "Введите номер устройства (Enter — отмена): " choice
       [ -z "''${choice:-}" ] && exit 0
       if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "''${#devices[@]}" ]; then
@@ -1022,34 +1059,25 @@ home.shellAliases = {
       dev="''${devices[$((choice-1))]}"
     fi
 
-    uuid=$(lsblk -lpno UUID "$dev")
-    [ -z "$uuid" ] && { echo "Не удалось прочитать UUID у $dev" >&2; exit 1; }
+    [ -e "$dev" ] || { echo "Устройство $dev не существует." >&2; exit 1; }
 
-    mapper="/dev/mapper/luks-$uuid"
-    if [ ! -e "$mapper" ]; then
-      alt=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1 || true)
-      [ -n "''${alt:-}" ] && mapper="$alt"
-    fi
-
-    if [ ! -e "$mapper" ]; then
+    mapper=$(find_mapper "$dev" || true)
+    if [ -z "$mapper" ] || [ ! -e "$mapper" ]; then
       echo "$dev не разблокирован — нечего закрывать."
       exit 0
     fi
 
-    # Safety: не даём закрыть корень
     if findmnt -n -o TARGET "$mapper" 2>/dev/null | grep -qx "/"; then
       echo "Отказано: $mapper содержит корневую ФС. Закрытие невозможно." >&2
       exit 1
     fi
 
-    # Размонтирование
     mps=$(findmnt -n -R "$mapper" -o TARGET 2>/dev/null || true)
     if [ -n "$mps" ]; then
       echo "Размонтирование:"
       echo "$mps" | sed 's/^/  /'
       if ! udisksctl unmount -b "$mapper"; then
         echo "Не удалось размонтировать $mapper — возможно, том занят." >&2
-        echo "Совет: закройте файлы на томе и повторите." >&2
         exit 1
       fi
       if findmnt -n -R "$mapper" -o TARGET >/dev/null 2>&1; then
@@ -1063,14 +1091,9 @@ home.shellAliases = {
       echo "Закрытие не удалось." >&2
       exit 1
     fi
-
-    if [ -e "$mapper" ]; then
-      echo "Внимание: $mapper всё ещё существует после lock." >&2
-      exit 1
-    fi
+    [ -e "$mapper" ] && { echo "Внимание: $mapper всё ещё существует после lock." >&2; exit 1; }
     echo "Готово: $dev закрыт."
   '')
-
 
   ];
 }
