@@ -81,6 +81,8 @@ order = [ "default" ]
 
 [battery]
 warning_threshold = 10
+display_mode = "graphic"
+label_content = "time"
 
 [brightness]
 enable_ddcutil = false
