@@ -668,113 +668,106 @@
       # ... другие настройки профиля ...
 
       # Подключаем userChrome.css для кастомизации интерфейса.
-      userChrome = ''
-        /* ============================================================
-           Firefox UI — Eldritch-Black
-           Черные фоны + белый текст + акценты Eldritch
-           ============================================================ */
+userChrome = ''
+  /* ============================================================
+     Firefox UI — Eldritch-Black (Полная версия)
+     Черные фоны, белый текст, скругления
+     ============================================================ */
 
-        :root {
-          --eldritch-green: #37f499;
-          --eldritch-purple: #a48cf2;
-          --eldritch-blue: #04d1f9;
-          --eldritch-red: #f16c75;
-          --eldritch-white: #ffffff;
-          --eldritch-black: #000000;
-          --eldritch-radius: 8px;
-        }
+  :root {
+    --eldritch-green: #37f499;
+    --eldritch-purple: #a48cf2;
+    --eldritch-blue: #04d1f9;
+    --eldritch-red: #f16c75;
+    --eldritch-white: #ffffff;
+    --eldritch-black: #000000;
+    --eldritch-radius: 8px;
+  }
 
-        /* --- Панель вкладок --- */
-        #TabsToolbar,
-        #tabbrowser-tabs,
-        .tabbrowser-tab {
-          background-color: var(--eldritch-black) !important;
-        }
+  /* --- 1. Панель вкладок и адресная строка --- */
+  #TabsToolbar,
+  #tabbrowser-tabs,
+  .tabbrowser-tab,
+  #nav-bar,
+  #urlbar-container,
+  #searchbar {
+    background-color: var(--eldritch-black) !important;
+    color: var(--eldritch-white) !important;
+  }
 
-        .tabbrowser-tab[selected="true"] .tab-background {
-          background-color: var(--eldritch-purple) !important;
-          opacity: 0.8 !important;
-          border-radius: var(--eldritch-radius) !important;
-        }
+  .tabbrowser-tab[selected="true"] .tab-background {
+    background-color: var(--eldritch-purple) !important;
+    opacity: 0.8 !important;
+    border-radius: var(--eldritch-radius) !important;
+  }
 
-        .tab-label {
-          color: var(--eldritch-white) !important;
-        }
+  .tab-label,
+  #urlbar-input,
+  #urlbar,
+  toolbarbutton {
+    color: var(--eldritch-white) !important;
+  }
 
-        /* Ховер вкладки — едва заметный фиолетовый */
-        .tabbrowser-tab:hover .tab-background:not([selected="true"]) {
-          background-color: rgba(164, 140, 242, 0.15) !important;
-          border-radius: var(--eldritch-radius) !important;
-        }
+  /* --- 2. Панель закладок (Bookmarks Toolbar) --- */
+  /* Убираем серый фон, делаем его черным. */
+  #PersonalToolbar {
+    background-color: var(--eldritch-black) !important;
+    color: var(--eldritch-white) !important;
+  }
 
-        /* --- Адресная строка и панель навигации --- */
-        #nav-bar,
-        #urlbar-container,
-        #searchbar {
-          background-color: var(--eldritch-black) !important;
-          color: var(--eldritch-white) !important;
-        }
+  /* --- 3. Контекстные меню и выпадающие списки (menupopup) --- */
+  /* Задаем черный фон, скругление и убираем стандартную рамку. */
+  menupopup {
+    --menu-background-color: var(--eldritch-black) !important;
+    --menu-border-radius: var(--eldritch-radius) !important;
+    --menu-border-color: transparent !important; /* Убираем стандартную рамку */
+    background-color: var(--menu-background-color) !important;
+    border: 1px solid var(--eldritch-purple) !important; /* Добавляем свою тонкую рамку */
+    border-radius: var(--menu-border-radius) !important;
+    padding: 4px !important; /* Небольшой отступ внутри меню */
+  }
 
-        #urlbar-input,
-        #urlbar {
-          color: var(--eldritch-white) !important;
-        }
+  /* Убираем лишние отступы у пунктов меню, чтобы выглядело компактнее */
+  menupopup > menuitem,
+  menupopup > menu {
+    padding-block: 4px !important;
+    padding-inline-start: 8px !important;
+  }
 
-        /* --- Кнопки --- */
-        toolbarbutton {
-          color: var(--eldritch-white) !important;
-        }
+  /* --- 4. Всплывающие подсказки (tooltip) --- */
+  /* Отключаем нативную отрисовку и задаем свои стили. */
+  tooltip {
+    -moz-appearance: none !important;
+    background-color: var(--eldritch-black) !important;
+    color: var(--eldritch-white) !important;
+    border: 1px solid var(--eldritch-purple) !important;
+    border-radius: var(--eldritch-radius) !important;
+    padding: 4px 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  }
 
-        /* --- Меню (исключая tooltip!) --- */
-        /* ВАЖНО: убираем `panel` из общего правила — иначе оно
-           перехватывает #tabbrowser-tab-tooltip и превращает
-           превью вкладки в чёрный квадрат без скруглений.
-           Вместо этого стилизуем конкретные панели по id. */
-        menupopup,
-        #navigator-toolbox menupopup {
-          background-color: var(--eldritch-black) !important;
-          color: var(--eldritch-white) !important;
-        }
+  /* --- 5. Прочие элементы --- */
+  #navigator-toolbox {
+    border-bottom: 1px solid var(--eldritch-purple) !important;
+  }
+  #urlbar {
+    border-radius: var(--eldritch-radius) !important;
+  }
+'';
 
-        /* --- Границы и скругление --- */
-        #navigator-toolbox {
-          border-bottom: 1px solid var(--eldritch-purple) !important;
-        }
-
-        #urlbar {
-          border-radius: var(--eldritch-radius) !important;
-        }
-
-        /* ============================================================
-           Tooltip / Превью вкладки — скругление вместо чёрного квадрата
-           ============================================================ */
-
-        /* Нативный tooltip Firefox — отключаем нативную отрисовку,
-           чтобы применить скругление и тень. */
-        tooltip {
-          -moz-appearance: none !important;
-          background-color: transparent !important;
-          border: none !important;
-          outline: none !important;
-        }
-
-        /* Превью вкладки — фон с прозрачностью и скругление. */
-        #tabbrowser-tab-tooltip,
-        .tabbrowser-tab-tooltip {
-          background-color: rgba(0, 0, 0, 0.9) !important;
-          border: 1px solid var(--eldritch-purple) !important;
-          border-radius: var(--eldritch-radius) !important;
-          padding: 4px !important;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6) !important;
-        }
-
-        /* Убираем чёрный outline при фокусе (иногда появляется в Niri). */
-        tooltip:focus,
-        tooltip:focus-within {
-          outline: none !important;
-          border: none !important;
-        }
-      '';
+ userContent = ''
+    /* Применяем стили только к внутренним страницам Firefox */
+    @-moz-document url(about:newtab), url(about:home) {
+      /* Устанавливаем черный фон для главной страницы */
+      :root {
+        --newtab-background-color: #000000 !important;
+      }
+      /* Убедимся, что текст белый */
+      :root {
+        --newtab-text-primary-color: #ffffff !important;
+      }
+    }
+  '';
 
       # Обязательно включаем загрузку userChrome.css
       settings = {
