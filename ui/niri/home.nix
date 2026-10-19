@@ -87,9 +87,9 @@
       border = {
         enable = true;
         # Толщина обводки. 2 — заметно, но не слишком толсто.
-        width = 2;
+        width = 1;
         # Светло-серый цвет для активного окна.
-        active.color = "#707070";
+        active.color = "#37f499";
         # Полностью прозрачный цвет для неактивных окон:
         # обводка не рисуется, когда фокус на другом окне.
         inactive.color = "#00000000";
@@ -136,21 +136,21 @@
       # opacity 0.85 означает 85% непрозрачности (15% прозрачности).
       {
         matches = [ { app-id = "foot"; } ];
-        opacity = 0.85;
+        opacity = 0.90;
       }
 
       # === Прозрачность для Kate ===
       # app-id для Kate в KDE обычно "org.kde.kate".
       {
         matches = [ { app-id = "org.kde.kate"; } ];
-        opacity = 0.85;
+        opacity = 0.90;
       }
 
       # === Прозрачность для Dolphin ===
       # app-id для Dolphin — "org.kde.dolphin".
       {
         matches = [ { app-id = "org.kde.dolphin"; } ];
-        opacity = 0.85;
+        opacity = 0.90;
       }
     ];
 
