@@ -27,6 +27,9 @@
 , libssh2
 , libpsl
 , brotli
+, alsa-lib
+, libpulseaudio
+, soxr
 }:
 
 stdenv.mkDerivation rec {
