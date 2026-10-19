@@ -665,7 +665,7 @@ wallpaper_scheme = "m3-monochrome"
     enable_community_templates = true
 
 [wallpaper]
-directory = ""
+directory = "/home/lexi/projects/nix-wrap/nix/ui/wallpapers"
 directory_dark = ""
 directory_light = ""
 edge_smoothness = 0.30000001192092896
@@ -676,6 +676,9 @@ per_monitor_directories = false
 transition = [ "fade", "wipe", "disc", "stripes", "zoom", "honeycomb", "vortex", "pixel", "diamond", "golden", "melt" ]
 transition_duration = 1500.0
 transition_on_startup = false
+
+[wallpaper.default]
+path = "/home/lexi/projects/nix-wrap/nix/ui/wallpapers/nebula.jpg"
 
     [wallpaper.automation]
     enabled = false
