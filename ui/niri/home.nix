@@ -47,13 +47,9 @@
     # Если после перелогина обои не появляются — увеличь sleep до 3-5.
     spawn-at-startup = [
       { command = [ "noctalia-shell" ]; }
-      {
-        command = [
-          "sh" "-c"
-          "sleep 1 && noctalia msg wallpaper-set ${config.home.homeDirectory}/Pictures/Wallpapers/nebula.jpg"
-        ];
-      }
-    ];
+      { command = [ "${pkgs.kdePackages.kded}/bin/kded6" ]; }
+
+  ];
 
     # Раскладка клавиатуры: та же, что в base/system/keyboard.nix.
     input.keyboard.xkb = {
@@ -825,6 +821,9 @@ systemd.user.services.polkit-gnome-authentication-agent-1 = {
     # --- Тёмная тема Qt/KDE ---
     kdePackages.qt6ct
     adwaita-icon-theme
+
+    # предоставляет kded6 и SolidUiServer
+    kdePackages.kded
 
     polkit_gnome
 

@@ -677,7 +677,7 @@ transition_duration = 1500.0
 transition_on_startup = false
 
 [wallpaper.default]
-path = "/home/lexi/projects/nix-wrap/nix/ui/wallpapers/nebula.jpg"
+path = "/home/lexi/projects/nix-wrap/nix/ui/wallpapers/flower.jpg"
 
     [wallpaper.automation]
     enabled = false
