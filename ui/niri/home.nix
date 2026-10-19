@@ -130,6 +130,28 @@
         # чтобы обводка и фон не «вылезали» за пределы.
         clip-to-geometry = true;
       }
+
+            # === Прозрачность для foot ===
+      # app-id для foot — просто "foot".
+      # opacity 0.85 означает 85% непрозрачности (15% прозрачности).
+      {
+        matches = [ { app-id = "foot"; } ];
+        opacity = 0.85;
+      }
+
+      # === Прозрачность для Kate ===
+      # app-id для Kate в KDE обычно "org.kde.kate".
+      {
+        matches = [ { app-id = "org.kde.kate"; } ];
+        opacity = 0.85;
+      }
+
+      # === Прозрачность для Dolphin ===
+      # app-id для Dolphin — "org.kde.dolphin".
+      {
+        matches = [ { app-id = "org.kde.dolphin"; } ];
+        opacity = 0.85;
+      }
     ];
 
     # === Биндинги ===
