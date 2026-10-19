@@ -122,6 +122,29 @@
     # Утилиты
     wl-clipboard  # Буфер обмена для Wayland
 
+    # =====================================================================
+    # waydroid-stop — полное закрытие Waydroid.
+    #
+    # Mod+Q в Niri закрывает только ОКНО show-full-ui, но сессия
+    # (`waydroid session`) продолжает работать в фоне. Повторный Mod+M
+    # мгновенно показывает уже запущенную Android — выглядит как
+    # «открывается второй раз».
+    #
+    # `waydroid session stop` — официальный способ, работает грациозно:
+    # закрывает show-full-ui, завершает все Android-приложения и
+    # останавливает контейнер LXC. Проверено в логе:
+    #   Session: RUNNING → STOPPED
+    #
+    # Биндинг Mod+Shift+M — в ui/niri/home.nix.
+    # =====================================================================
+    (pkgs.writeShellScriptBin "waydroid-stop" ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      echo "[waydroid-stop] Останавливаю сессию Waydroid..."
+      waydroid session stop
+      echo "[waydroid-stop] Готово."
+    '')
 
         # === Waydroid: маршрут от Android к хосту ===
     # После включения VPN внутри Waydroid (SFA/sing-box) весь локально

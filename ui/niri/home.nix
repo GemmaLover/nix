@@ -317,6 +317,7 @@
       # dsh-podman-start, когда он появится.
       "Mod+H".action.spawn = "dsh-local-start";
       "Mod+M".action.spawn = "waydroid";        # Waydroid UI
+      "Mod+Shift+M".action.spawn = "waydroid-stop";  # полное закрытие Waydroid
       "Mod+I".action.spawn = "strata-start";    # Strata
 
       # ================================================================
