@@ -176,6 +176,14 @@ nixpkgs.lib.nixosSystem {
         _module.args.plasma-manager = plasma-manager;
 
         home-manager = {
+
+                  # При конфликте с существующими файлами (например, profiles.ini
+          # от ранее запущенного Firefox) HM не падает, а переименовывает
+          # старый файл в <имя>.hm-bak и пишет свой. Это глобальный
+          # аналог force = true, но безопаснее: старая версия сохраняется.
+          backupFileExtension = "hm-bak";
+
+
           # Декларативная настройка KDE Plasma (нужна home-модулям ui=="kde").
           # sharedModules подключаются к ДОМЕННОЙ конфигурации Home Manager,
           # где и живут опции programs.plasma.* / home.*.
