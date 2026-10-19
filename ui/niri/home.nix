@@ -578,5 +578,6 @@
     file-roller
     unzip
     zip
+    nethogs
   ];
 }
