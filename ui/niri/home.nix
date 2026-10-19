@@ -152,6 +152,7 @@
         matches = [ { app-id = "org.kde.dolphin"; } ];
         opacity = 0.90;
       }
+
     ];
 
     # === Биндинги ===
@@ -656,6 +657,70 @@
       main = {
         include = "~/.config/foot/themes/noctalia";
         font = "JetBrainsMono Nerd Font:size=9";
+      };
+    };
+  };
+
+    programs.firefox = {
+    enable = true;
+    profiles.default = {
+      # ... другие настройки профиля ...
+
+      # Подключаем userChrome.css для кастомизации интерфейса.
+      userChrome = ''
+        :root {
+          --eldritch-green: #37f499;
+          --eldritch-purple: #a48cf2;
+          --eldritch-blue: #04d1f9;
+          --eldritch-red: #f16c75;
+          --eldritch-white: #ffffff;
+          --eldritch-black: #000000;
+        }
+
+        /* --- Панель вкладок --- */
+        #TabsToolbar, #tabbrowser-tabs, .tabbrowser-tab {
+          background-color: var(--eldritch-black) !important;
+        }
+        .tabbrowser-tab[selected="true"] .tab-background {
+          background-color: var(--eldritch-purple) !important;
+          opacity: 0.8 !important;
+          border-radius: 4px !important;
+        }
+        .tab-label {
+          color: var(--eldritch-white) !important;
+        }
+
+        /* --- Адресная строка и панель навигации --- */
+        #nav-bar, #urlbar-container, #searchbar {
+          background-color: var(--eldritch-black) !important;
+          color: var(--eldritch-white) !important;
+        }
+        #urlbar-input, #urlbar {
+          color: var(--eldritch-white) !important;
+        }
+
+        /* --- Кнопки и меню --- */
+        toolbarbutton {
+          color: var(--eldritch-white) !important;
+        }
+        menupopup, panel {
+          background-color: var(--eldritch-black) !important;
+          color: var(--eldritch-white) !important;
+        }
+
+        /* --- Границы и скругление --- */
+        #navigator-toolbox {
+          border-bottom: 1px solid var(--eldritch-purple) !important;
+        }
+        #urlbar {
+          border-radius: 8px !important;
+        }
+      '';
+
+      # Обязательно включаем загрузку userChrome.css
+      settings = {
+        "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+        # ... другие настройки ...
       };
     };
   };
