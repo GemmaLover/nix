@@ -882,15 +882,13 @@ home.shellAliases = {
 
 
 
-
-      (writeShellScriptBin "luksmount" ''
+(writeShellScriptBin "luksmount" ''
     set -u
 
-    # Если передан аргумент — используем его как устройство, без меню
     if [ "$#" -ge 1 ]; then
       dev="$1"
     else
-      mapfile -t devices < <(lsblk -pno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
+      mapfile -t devices < <(lsblk -lpno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
 
       if [ "''${#devices[@]}" -eq 0 ]; then
         echo "LUKS-устройства не найдены." >&2
@@ -905,8 +903,7 @@ home.shellAliases = {
       done
     fi
 
-    # UUID LUKS-контейнера (он же основа имени маппера в udisks2)
-    uuid=$(lsblk -pno UUID "$dev")
+    uuid=$(lsblk -lpno UUID "$dev")
     if [ -z "$uuid" ]; then
       echo "Не удалось прочитать UUID у $dev" >&2
       exit 1
