@@ -827,10 +827,6 @@ userChrome = ''
 #   };
 # };
 
-home.shellAliases = {
-  sr = "sudo reboot";
-  c  = "clear";
-};
 
   # === Пакеты ===
   home.packages = with pkgs; [
@@ -878,7 +874,8 @@ home.shellAliases = {
     zip
     nethogs
 
-
+  (writeShellScriptBin "sr" ''exec sudo reboot'')
+  (writeShellScriptBin "c"  ''exec clear'')
 
 
 
@@ -989,7 +986,7 @@ home.shellAliases = {
     fi
   '')
 
-  (writeShellScriptBin "luksunmount" ''
+    (writeShellScriptBin "luksunmount" ''
     set -u
 
     find_mapper() {
@@ -1012,6 +1009,17 @@ home.shellAliases = {
       findmnt -n -o TARGET "$1" 2>/dev/null | head -n1
     }
 
+    # true, если маппер смонтирован в системный путь (или куда-то неизвестное)
+    is_system_mapper() {
+      local mapper="$1" mp
+      mp=$(mapper_mount "$mapper")
+      [ -z "$mp" ] && return 1
+      case "$mp" in
+        /run/media/*|/media/*|/mnt/*) return 1 ;;  # безопасные точки
+        *) return 0 ;;                              # всё остальное — системное
+      esac
+    }
+
     describe_dev() {
       local d="$1" size pk model mapper mp status
       size=$(lsblk -lpno SIZE "$d" | head -n1)
@@ -1020,11 +1028,15 @@ home.shellAliases = {
       [ -n "$pk" ] && model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
       mapper=$(find_mapper "$d" || true)
       if [ -n "$mapper" ] && [ -e "$mapper" ]; then
-        mp=$(mapper_mount "$mapper")
-        if [ -n "$mp" ]; then
-          status="разблокирован, смонтирован в $mp"
+        if is_system_mapper "$mapper"; then
+          status="системный (закрытие запрещено)"
         else
-          status="разблокирован как $mapper (не смонтирован)"
+          mp=$(mapper_mount "$mapper")
+          if [ -n "$mp" ]; then
+            status="разблокирован, смонтирован в $mp"
+          else
+            status="разблокирован как $mapper (не смонтирован)"
+          fi
         fi
       else
         status="не разблокирован (нечего закрывать)"
@@ -1037,12 +1049,23 @@ home.shellAliases = {
     if [ "$#" -ge 1 ]; then
       dev="$1"
     else
-      mapfile -t devices < <(lsblk -lpno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
+      # Собираем только те LUKS-устройства, которые можно безопасно закрыть
+      mapfile -t all_devices < <(lsblk -lpno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
+      devices=()
+      for d in "''${all_devices[@]}"; do
+        mapper=$(find_mapper "$d" || true)
+        if [ -n "$mapper" ] && [ -e "$mapper" ] && is_system_mapper "$mapper"; then
+          continue
+        fi
+        devices+=("$d")
+      done
+
       if [ "''${#devices[@]}" -eq 0 ]; then
-        echo "LUKS-устройства не найдены." >&2
-        exit 1
+        echo "Нет LUKS-устройств, доступных для безопасного закрытия."
+        exit 0
       fi
-      echo "LUKS-устройства:"
+
+      echo "LUKS-устройства (системные исключены):"
       echo
       for i in "''${!devices[@]}"; do
         d="''${devices[$i]}"
@@ -1067,8 +1090,9 @@ home.shellAliases = {
       exit 0
     fi
 
-    if findmnt -n -o TARGET "$mapper" 2>/dev/null | grep -qx "/"; then
-      echo "Отказано: $mapper содержит корневую ФС. Закрытие невозможно." >&2
+    if is_system_mapper "$mapper"; then
+      echo "Отказано: $mapper смонтирован в системный путь ($(mapper_mount "$mapper"))." >&2
+      echo "Закрытие системного контейнера приведёт к краху системы." >&2
       exit 1
     fi
 
