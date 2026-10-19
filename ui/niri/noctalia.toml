@@ -48,7 +48,6 @@ order = [ "default" ]
         "volume",
         "brightness",
         "keyboard_layout",
-        "control-center",
         "battery",
         "session",
     ]
