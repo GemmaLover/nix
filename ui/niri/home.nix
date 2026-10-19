@@ -19,6 +19,11 @@
   #   * JetBrains Mono (Nerd Font) — единственный кастомный шрифт,
   #     используется везде: sans-serif, monospace, GTK, Qt, foot.
   #   * Montserrat удалён — см. историю git.
+  #
+  # ПАЛИТРА:
+  #   * Eldritch-Black — кастомная палитра для Noctalia:
+  #     фоны #000000 (AMOLED), акценты из Eldritch (зелёный/фиолетовый/
+  #     голубой/красный), основной текст — белый (#ffffff).
   # =====================================================================
 
   programs.niri.settings = {
@@ -56,7 +61,7 @@
       options = "grp:caps_toggle,caps:escape";
     };
 
-              # === Фон за рабочими пространствами (backdrop) ===
+    # === Фон за рабочими пространствами (backdrop) ===
     # Устанавливаем чёрный цвет фона, который виден при переключении
     # рабочих столов и в обзоре (overview). Это убирает светлую
     # полоску и делает переходы более однородными.
@@ -89,8 +94,6 @@
         # обводка не рисуется, когда фокус на другом окне.
         inactive.color = "#00000000";
       };
-
-
 
       # === НОВОЕ: пресеты ширины колонок для Mod+X ===
       # Niri циклически переключает ширину активной колонки
@@ -345,6 +348,91 @@
     # См. документацию: programs.noctalia.settings может быть
     # attrset, raw TOML string или path к .toml.
     settings = ./noctalia.toml;
+
+    # =====================================================================
+    # Кастомная палитра "Eldritch-Black".
+    #
+    # Сочетает лучшее из двух палитр:
+    #   * фоны (mSurface, mSurfaceVariant, mShadow, terminal.background) —
+    #     чисто чёрные #000000, как в Lilac AMOLED;
+    #   * акценты (mPrimary/mSecondary/mTertiary/mError) — оригинальные
+    #     цвета Eldritch: зелёный #37f499, фиолетовый #a48cf2,
+    #     голубой #04d1f9, красный #f16c75;
+    #   * основной текст — БЕЛЫЙ (#ffffff), чтобы не мешал цветным
+    #     акцентам и хорошо читался на чёрном.
+    #
+    # Light-режим полностью дублирует dark — светлая тема не нужна,
+    # но модуль требует её наличия.
+    #
+    # Чтобы палитра применилась, в noctalia.toml должно быть:
+    #   [theme]
+    #   source = "custom"
+    #   custom_palette = "Eldritch-Black"
+    #   pure_black_dark = false
+    # =====================================================================
+    customPalettes."Eldritch-Black" = let
+      eldritchBlack = {
+        # --- Акценты (Eldritch) ---
+        mPrimary = "#37f499";        # зелёный
+        mOnPrimary = "#000000";
+        mSecondary = "#a48cf2";      # фиолетовый
+        mOnSecondary = "#000000";
+        mTertiary = "#04d1f9";       # голубой
+        mOnTertiary = "#000000";
+        mError = "#f16c75";          # красный
+        mOnError = "#000000";
+
+        # --- Фоны (чистый чёрный, AMOLED) ---
+        mSurface = "#000000";
+        mSurfaceVariant = "#000000";
+        mShadow = "#000000";
+        mOutline = "#4c3a70";        # границы — тёмно-фиолетовый Eldritch
+        mHover = "#a48cf2";          # hover — фиолетовый (как mSecondary)
+        mOnHover = "#000000";
+
+        # --- Текст (БЕЛЫЙ) ---
+        # mOnSurface — основной текст на фоне (заголовки, кнопки).
+        # mOnSurfaceVariant — приглушённый текст (подписи, hint).
+        # Оба белые, variant чуть серее для визуальной иерархии.
+        mOnSurface = "#ffffff";
+        mOnSurfaceVariant = "#d0d0d0";
+
+        # --- Терминал ---
+        terminal = {
+          background = "#000000";
+          foreground = "#ffffff";            # белый основной текст
+          cursor = "#37f499";                # курсор — зелёный акцент
+          cursorText = "#000000";
+          selectionBg = "#4c3a70";           # выделение — тёмно-фиолетовый
+          selectionFg = "#ffffff";
+          normal = {
+            black = "#000000";
+            red = "#f16c75";
+            green = "#37f499";
+            yellow = "#f1fc79";
+            blue = "#7081d0";
+            magenta = "#a48cf2";
+            cyan = "#04d1f9";
+            white = "#ffffff";
+          };
+          bright = {
+            black = "#323449";
+            red = "#f16c75";
+            green = "#37f499";
+            yellow = "#f1fc79";
+            blue = "#7081d0";
+            magenta = "#a48cf2";
+            cyan = "#04d1f9";
+            white = "#ffffff";
+          };
+        };
+      };
+    in {
+      # dark — рабочая палитра
+      dark = eldritchBlack;
+      # light — полный дубль dark (светлая тема не используется)
+      light = eldritchBlack;
+    };
   };
 
   # =====================================================================
