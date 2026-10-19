@@ -792,39 +792,44 @@ userChrome = ''
     };
   };
 
-systemd.user.services.polkit-gnome-authentication-agent-1 = {
-  Unit = {
-    Description = "polkit-gnome-authentication-agent-1";
-    After = [ "graphical-session.target" ];
-    Wants = [ "graphical-session.target" ];
-  };
-  Service = {
-    Type = "simple";
-    ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
-    Restart = "on-failure";
-    RestartSec = 1;
-    TimeoutStopSec = 10;
-  };
-  Install = {
-    WantedBy = [ "graphical-session.target" ];
-  };
-};
+# systemd.user.services.polkit-gnome-authentication-agent-1 = {
+#   Unit = {
+#     Description = "polkit-gnome-authentication-agent-1";
+#     After = [ "graphical-session.target" ];
+#     Wants = [ "graphical-session.target" ];
+#   };
+#   Service = {
+#     Type = "simple";
+#     ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
+#     Restart = "on-failure";
+#     RestartSec = 1;
+#     TimeoutStopSec = 10;
+#   };
+#   Install = {
+#     WantedBy = [ "graphical-session.target" ];
+#   };
+# };
 
-systemd.user.services.kded6 = {
-  Unit = {
-    Description = "KDE Daemon (kded6) for SolidUiServer";
-    After = [ "graphical-session.target" ];
-    Wants = [ "graphical-session.target" ];
-  };
-  Service = {
-    Type = "simple";
-    ExecStart = "${pkgs.kdePackages.kded}/bin/kded6";
-    Restart = "on-failure";
-    RestartSec = 1;
-  };
-  Install = {
-    WantedBy = [ "graphical-session.target" ];
-  };
+# systemd.user.services.kded6 = {
+#   Unit = {
+#     Description = "KDE Daemon (kded6) for SolidUiServer";
+#     After = [ "graphical-session.target" ];
+#     Wants = [ "graphical-session.target" ];
+#   };
+#   Service = {
+#     Type = "simple";
+#     ExecStart = "${pkgs.kdePackages.kded}/bin/kded6";
+#     Restart = "on-failure";
+#     RestartSec = 1;
+#   };
+#   Install = {
+#     WantedBy = [ "graphical-session.target" ];
+#   };
+# };
+
+home.shellAliases = {
+  sr = "sudo reboot";
+  c  = "clear";
 };
 
   # === Пакеты ===
@@ -838,7 +843,7 @@ systemd.user.services.kded6 = {
     adwaita-icon-theme
 
     # предоставляет kded6 и SolidUiServer
-    kdePackages.kded
+#     kdePackages.kded
 
     polkit_gnome
 
@@ -872,5 +877,53 @@ systemd.user.services.kded6 = {
     unzip
     zip
     nethogs
+
+
+
+
+
+
+      (writeShellScriptBin "luksmount" ''
+    set -u
+
+    # Если передан аргумент — используем его как устройство, без меню
+    if [ "$#" -ge 1 ]; then
+      dev="$1"
+    else
+      mapfile -t devices < <(lsblk -pno NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1}')
+
+      if [ "''${#devices[@]}" -eq 0 ]; then
+        echo "LUKS-устройства не найдены." >&2
+        exit 1
+      fi
+
+      echo "Доступные LUKS-устройства:"
+      PS3="Введите номер устройства: "
+      select dev in "''${devices[@]}"; do
+        if [ -n "''${dev:-}" ]; then break; fi
+        echo "Неверный выбор, попробуйте ещё раз." >&2
+      done
+    fi
+
+    # UUID LUKS-контейнера (он же основа имени маппера в udisks2)
+    uuid=$(lsblk -pno UUID "$dev")
+    if [ -z "$uuid" ]; then
+      echo "Не удалось прочитать UUID у $dev" >&2
+      exit 1
+    fi
+    mapper="/dev/mapper/luks-$uuid"
+
+    if [ -e "$mapper" ]; then
+      echo "$dev уже разблокирован как $mapper"
+    else
+      echo "Разблокировка $dev (введите пароль LUKS)..."
+      udisksctl unlock --block-device "$dev" || { echo "Разблокировка не удалась." >&2; exit 1; }
+    fi
+
+    echo "Монтирование $mapper ..."
+    udisksctl mount --block-device "$mapper"
+  '')
+
+
   ];
 }
