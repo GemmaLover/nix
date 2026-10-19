@@ -136,21 +136,21 @@
       # opacity 0.85 означает 85% непрозрачности (15% прозрачности).
       {
         matches = [ { app-id = "foot"; } ];
-        opacity = 0.90;
+        opacity = 1.00;
       }
 
       # === Прозрачность для Kate ===
       # app-id для Kate в KDE обычно "org.kde.kate".
       {
         matches = [ { app-id = "org.kde.kate"; } ];
-        opacity = 0.90;
+        opacity = 1.00;
       }
 
       # === Прозрачность для Dolphin ===
       # app-id для Dolphin — "org.kde.dolphin".
       {
         matches = [ { app-id = "org.kde.dolphin"; } ];
-        opacity = 0.90;
+        opacity = 1.00;
       }
 
     ];
@@ -669,6 +669,11 @@
 
       # Подключаем userChrome.css для кастомизации интерфейса.
       userChrome = ''
+        /* ============================================================
+           Firefox UI — Eldritch-Black
+           Черные фоны + белый текст + акценты Eldritch
+           ============================================================ */
+
         :root {
           --eldritch-green: #37f499;
           --eldritch-purple: #a48cf2;
@@ -676,35 +681,57 @@
           --eldritch-red: #f16c75;
           --eldritch-white: #ffffff;
           --eldritch-black: #000000;
+          --eldritch-radius: 8px;
         }
 
         /* --- Панель вкладок --- */
-        #TabsToolbar, #tabbrowser-tabs, .tabbrowser-tab {
+        #TabsToolbar,
+        #tabbrowser-tabs,
+        .tabbrowser-tab {
           background-color: var(--eldritch-black) !important;
         }
+
         .tabbrowser-tab[selected="true"] .tab-background {
           background-color: var(--eldritch-purple) !important;
           opacity: 0.8 !important;
-          border-radius: 4px !important;
+          border-radius: var(--eldritch-radius) !important;
         }
+
         .tab-label {
           color: var(--eldritch-white) !important;
         }
 
+        /* Ховер вкладки — едва заметный фиолетовый */
+        .tabbrowser-tab:hover .tab-background:not([selected="true"]) {
+          background-color: rgba(164, 140, 242, 0.15) !important;
+          border-radius: var(--eldritch-radius) !important;
+        }
+
         /* --- Адресная строка и панель навигации --- */
-        #nav-bar, #urlbar-container, #searchbar {
+        #nav-bar,
+        #urlbar-container,
+        #searchbar {
           background-color: var(--eldritch-black) !important;
           color: var(--eldritch-white) !important;
         }
-        #urlbar-input, #urlbar {
+
+        #urlbar-input,
+        #urlbar {
           color: var(--eldritch-white) !important;
         }
 
-        /* --- Кнопки и меню --- */
+        /* --- Кнопки --- */
         toolbarbutton {
           color: var(--eldritch-white) !important;
         }
-        menupopup, panel {
+
+        /* --- Меню (исключая tooltip!) --- */
+        /* ВАЖНО: убираем `panel` из общего правила — иначе оно
+           перехватывает #tabbrowser-tab-tooltip и превращает
+           превью вкладки в чёрный квадрат без скруглений.
+           Вместо этого стилизуем конкретные панели по id. */
+        menupopup,
+        #navigator-toolbox menupopup {
           background-color: var(--eldritch-black) !important;
           color: var(--eldritch-white) !important;
         }
@@ -713,8 +740,39 @@
         #navigator-toolbox {
           border-bottom: 1px solid var(--eldritch-purple) !important;
         }
+
         #urlbar {
-          border-radius: 8px !important;
+          border-radius: var(--eldritch-radius) !important;
+        }
+
+        /* ============================================================
+           Tooltip / Превью вкладки — скругление вместо чёрного квадрата
+           ============================================================ */
+
+        /* Нативный tooltip Firefox — отключаем нативную отрисовку,
+           чтобы применить скругление и тень. */
+        tooltip {
+          -moz-appearance: none !important;
+          background-color: transparent !important;
+          border: none !important;
+          outline: none !important;
+        }
+
+        /* Превью вкладки — фон с прозрачностью и скругление. */
+        #tabbrowser-tab-tooltip,
+        .tabbrowser-tab-tooltip {
+          background-color: rgba(0, 0, 0, 0.9) !important;
+          border: 1px solid var(--eldritch-purple) !important;
+          border-radius: var(--eldritch-radius) !important;
+          padding: 4px !important;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6) !important;
+        }
+
+        /* Убираем чёрный outline при фокусе (иногда появляется в Niri). */
+        tooltip:focus,
+        tooltip:focus-within {
+          outline: none !important;
+          border: none !important;
         }
       '';
 
