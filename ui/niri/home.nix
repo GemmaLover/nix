@@ -882,7 +882,7 @@ home.shellAliases = {
 
 
 
-(writeShellScriptBin "luksmount" ''
+ (writeShellScriptBin "luksmount" ''
     set -u
 
     if [ "$#" -ge 1 ]; then
@@ -896,18 +896,38 @@ home.shellAliases = {
       fi
 
       echo "Доступные LUKS-устройства:"
+      echo
       PS3="Введите номер устройства: "
       select dev in "''${devices[@]}"; do
-        if [ -n "''${dev:-}" ]; then break; fi
-        echo "Неверный выбор, попробуйте ещё раз." >&2
+        if [ -z "''${dev:-}" ]; then
+          echo "Неверный выбор." >&2
+          continue
+        fi
+
+        size=$(lsblk -lpno SIZE "$dev")
+        pk=$(lsblk -lpno PKNAME "$dev")
+        model=""
+        if [ -n "$pk" ]; then
+          model=$(lsblk -dpno MODEL "/dev/$pk" 2>/dev/null | xargs || true)
+        fi
+        child=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1 || true)
+        if [ -n "''${child:-}" ]; then
+          status="разблокирован как $child"
+        else
+          status="не разблокирован"
+        fi
+
+        echo
+        echo "Выбрано: $dev"
+        echo "  Размер:   $size"
+        [ -n "$model" ] && echo "  Носитель: $model"
+        echo "  Статус:   $status"
+        echo
+        break
       done
     fi
 
     uuid=$(lsblk -lpno UUID "$dev")
-    if [ -z "$uuid" ]; then
-      echo "Не удалось прочитать UUID у $dev" >&2
-      exit 1
-    fi
     mapper="/dev/mapper/luks-$uuid"
 
     if [ -e "$mapper" ]; then
@@ -915,10 +935,47 @@ home.shellAliases = {
     else
       echo "Разблокировка $dev (введите пароль LUKS)..."
       udisksctl unlock --block-device "$dev" || { echo "Разблокировка не удалась." >&2; exit 1; }
+      # udisksctl обычно создаёт /dev/mapper/luks-<UUID>, но подстрахуемся
+      [ -e "$mapper" ] || mapper=$(lsblk -lpno NAME "$dev" | tail -n +2 | head -n1)
     fi
 
     echo "Монтирование $mapper ..."
     udisksctl mount --block-device "$mapper"
+
+    mp=$(findmnt -n -o TARGET "$mapper" 2>/dev/null || true)
+    echo
+    echo "=== Информация о томе ==="
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS "$dev"
+    if [ -n "$mp" ]; then
+      echo
+      df -h "$mp"
+      echo
+      echo "Точка монтирования: $mp"
+    fi
+  '')
+
+  (writeShellScriptBin "luksinfo" ''
+    set -u
+    echo "=== LUKS-контейнеры ==="
+    echo
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS | awk '
+      NR==1 {print; next}
+      $3=="crypto_LUKS" {print; found=1; next}
+      found && /^[^ ]/ {found=0}
+      found {print}
+    '
+
+    echo
+    echo "=== Разблокированные мапперы ==="
+    for m in /dev/mapper/luks-*; do
+      [ -e "$m" ] || continue
+      echo
+      lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS "$m"
+      mp=$(findmnt -n -o TARGET "$m" 2>/dev/null || true)
+      if [ -n "$mp" ]; then
+        df -h "$mp"
+      fi
+    done
   '')
 
 
