@@ -76,6 +76,11 @@ stdenv.mkDerivation rec {
     libssh2
     libpsl
     brotli
+
+     # --- НОВЫЕ ЗАВИСИМОСТИ ДЛЯ ЗВУКА ---
+  alsa-lib
+  libpulseaudio
+  soxr
   ];
 
   # Приватные библиотеки AIMP лежат в $out/usr/lib/ и грузятся через
@@ -135,7 +140,7 @@ stdenv.mkDerivation rec {
     # libbass-aimp.so, libavcodec-aimp.so.61 и т.д.
     commonWrapArgs="--prefix LD_LIBRARY_PATH : $out/usr/lib \
       --prefix LD_LIBRARY_PATH : $out/opt/aimp \
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib ]} \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib alsa-lib libpulseaudio soxr ]} \
       --prefix XDG_DATA_DIRS : ${hicolor-icon-theme}/share \
       --prefix XDG_DATA_DIRS : ${gtk3}/share/gsettings-schemas/${gtk3.name} \
       --prefix GIO_EXTRA_MODULES : ${glib}/lib/gio/modules \
