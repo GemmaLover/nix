@@ -47,8 +47,6 @@
     # Если после перелогина обои не появляются — увеличь sleep до 3-5.
     spawn-at-startup = [
       { command = [ "noctalia-shell" ]; }
-      { command = [ "${pkgs.kdePackages.kded}/bin/kded6" ]; }
-
   ];
 
     # Раскладка клавиатуры: та же, что в base/system/keyboard.nix.
@@ -806,6 +804,23 @@ systemd.user.services.polkit-gnome-authentication-agent-1 = {
     Restart = "on-failure";
     RestartSec = 1;
     TimeoutStopSec = 10;
+  };
+  Install = {
+    WantedBy = [ "graphical-session.target" ];
+  };
+};
+
+systemd.user.services.kded6 = {
+  Unit = {
+    Description = "KDE Daemon (kded6) for SolidUiServer";
+    After = [ "graphical-session.target" ];
+    Wants = [ "graphical-session.target" ];
+  };
+  Service = {
+    Type = "simple";
+    ExecStart = "${pkgs.kdePackages.kded}/bin/kded6";
+    Restart = "on-failure";
+    RestartSec = 1;
   };
   Install = {
     WantedBy = [ "graphical-session.target" ];
