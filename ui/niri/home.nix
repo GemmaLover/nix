@@ -179,14 +179,13 @@
       # Команды Noctalia (v5+):
       #   screenshot-region     — выделение области + редактор
       #   screenshot-fullscreen — весь экран + редактор
-      #   screenshot-window     — активное окно + редактор
       #
       # Если команда не срабатывает, проверьте точный синтаксис:
       #   noctalia msg --help | grep -i screenshot
       # ================================================================
       "Mod+Shift+Z".action.spawn-sh = "noctalia msg screenshot-region";
       "Mod+Shift+X".action.spawn-sh = "noctalia msg screenshot-fullscreen";
-      "Mod+Shift+C".action.spawn-sh = "noctalia msg screenshot-window";
+      "Mod+Shift+C".action.spawn-sh = "noctalia msg panel-toggle clipboard";
 
       # ================================================================
       # === Рабочие пространства ===
