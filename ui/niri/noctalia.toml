@@ -51,7 +51,6 @@ order = [ "default" ]
         "control-center",
         "battery",
         "session",
-        "screenshot"
     ]
     font_scale = 1.0
     font_weight = 500

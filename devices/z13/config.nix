@@ -89,6 +89,9 @@
   powerOnBoot = true;  # Автоматически включать адаптер при загрузке
 };
 
+  # Включаем UPower — он нужен для работы виджета батареи в Noctalia.
+  services.upower.enable = true;
+
   hardware.enableRedistributableFirmware = true;
 
   # Хостнейм для z13
