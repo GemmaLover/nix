@@ -793,6 +793,18 @@ userChrome = ''
   };
 
 
+  home.file.".config/mpv/mpv.conf".text = ''
+  # Включаем аппаратное декодирование
+  hwdec=auto-safe
+  # Используем качественный алгоритм масштабирования
+  scale=ewa_lanczossharp
+  dscale=mitchell
+  # Профиль для высокого качества
+  profile=high-quality
+  # Использовать Wayland для вывода
+  gpu-context=wayland
+'';
+
 xdg.mimeApps = {
   enable = true;
   defaultApplications = {
