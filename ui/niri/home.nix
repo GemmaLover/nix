@@ -792,6 +792,15 @@ userChrome = ''
     };
   };
 
+  home.activation.fixAimpAudio = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  ini="$HOME/.config/AIMP/AIMP.ini"
+  if [ -f "$ini" ]; then
+    if ! grep -qx 'DeviceName=PortAudio: pulse' "$ini"; then
+      ${pkgs.gnused}/bin/sed -i -E 's|^DeviceName=.*|DeviceName=PortAudio: pulse|' "$ini"
+    fi
+  fi
+'';
+
 # systemd.user.services.polkit-gnome-authentication-agent-1 = {
 #   Unit = {
 #     Description = "polkit-gnome-authentication-agent-1";
