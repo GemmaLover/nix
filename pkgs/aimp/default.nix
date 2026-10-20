@@ -29,8 +29,19 @@
 , alsa-lib
 , libpulseaudio
 , soxr
+, portaudio
 }:
 
+let
+  # PortAudio в nixpkgs собран без бэкенда PulseAudio (есть только PaAlsa_*,
+  # PaJack_*, PaOSS_* — символов PaPulse_* нет). AIMP/BASS ищет устройства
+  # через PortAudio и в PipeWire-системе не видит ни одного, потому что
+  # «сырые» ALSA-hw уже заняты. Пересобираем PortAudio с libpulseaudio.
+  portaudioWithPulse = portaudio.overrideAttrs (oldAttrs: {
+    buildInputs = (oldAttrs.buildInputs or [ ]) ++ [ libpulseaudio ];
+    configureFlags = (oldAttrs.configureFlags or [ ]) ++ [ "--with-pulseaudio" ];
+  });
+in
 stdenv.mkDerivation rec {
   pname = "aimp";
   version = "6.00.3090beta7";
@@ -43,7 +54,7 @@ stdenv.mkDerivation rec {
   #
   # Ключевое отличие от беты 3089: в 3088 и 3087 файлы libbass/libav лежат
   # в usr/lib/, а в 3089 — их нет вообще (AIMP поломал сборку).
-    src = ./aimp-6.00.3090beta7-1-x86_64.pkg.tar.zst;
+  src = ./aimp-6.00.3090beta7-1-x86_64.pkg.tar.zst;
 
   nativeBuildInputs = [
     autoPatchelfHook
@@ -76,10 +87,11 @@ stdenv.mkDerivation rec {
     libpsl
     brotli
 
-     # --- НОВЫЕ ЗАВИСИМОСТИ ДЛЯ ЗВУКА ---
-  alsa-lib
-  libpulseaudio
-  soxr
+    # --- Зависимости для звука ---
+    alsa-lib
+    libpulseaudio
+    soxr
+    portaudioWithPulse
   ];
 
   # Приватные библиотеки AIMP лежат в $out/usr/lib/ и грузятся через
@@ -137,9 +149,14 @@ stdenv.mkDerivation rec {
     # стёр оригинальный $ORIGIN. Поэтому добавляем $out/usr/lib в
     # LD_LIBRARY_PATH — линкер проверит его раньше RPATH и найдёт
     # libbass-aimp.so, libavcodec-aimp.so.61 и т.д.
+    #
+    # portaudioWithPulse идёт последним — именно его libportaudio.so.2
+    # должна найтись первой через LD_LIBRARY_PATH, чтобы AIMP получил
+    # PulseAudio-бэкенд (PaPulse_Initialize), иначе PortAudio видит только
+    # «сырые» ALSA hw-устройства, занятые PipeWire, и отдаёт "(no sound)".
     commonWrapArgs="--prefix LD_LIBRARY_PATH : $out/usr/lib \
       --prefix LD_LIBRARY_PATH : $out/opt/aimp \
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib alsa-lib libpulseaudio soxr ]} \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib alsa-lib libpulseaudio soxr portaudioWithPulse ]} \
       --prefix XDG_DATA_DIRS : ${hicolor-icon-theme}/share \
       --prefix XDG_DATA_DIRS : ${gtk3}/share/gsettings-schemas/${gtk3.name} \
       --prefix GIO_EXTRA_MODULES : ${glib}/lib/gio/modules \

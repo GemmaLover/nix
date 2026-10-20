@@ -792,22 +792,7 @@ userChrome = ''
     };
   };
 
-home.activation.fixAimpAudio = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-  ini="$HOME/.config/AIMP/AIMP.ini"
-  [ -f "$ini" ] || exit 0
 
-  if grep -q '^\[AIMPSoundOut\]' "$ini"; then
-    # секция есть — заменяем или добавляем строку внутри неё
-    if grep -q '^DeviceName=' "$ini"; then
-      ${pkgs.gnused}/bin/sed -i -E 's|^DeviceName=.*|DeviceName=PortAudio: pulse|' "$ini"
-    else
-      ${pkgs.gnused}/bin/sed -i '/^\[AIMPSoundOut\]/a DeviceName=PortAudio: pulse' "$ini"
-    fi
-  else
-    # секции нет — добавляем в конец файла
-    printf '\n[AIMPSoundOut]\nDeviceName=PortAudio: pulse\n' >> "$ini"
-  fi
-'';
 
 # systemd.user.services.polkit-gnome-authentication-agent-1 = {
 #   Unit = {
