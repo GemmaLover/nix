@@ -817,6 +817,17 @@ xdg.mimeApps = {
     "image/webp" = "org.gnome.Loupe.desktop";
     "image/svg+xml" = "org.gnome.Loupe.desktop";
     # Можно добавить и другие форматы при необходимости
+
+        # --- Видео форматы ---
+    "video/mp4" = "io.github.celluloid_player.Celluloid.desktop"; # или "org.kde.haruna.desktop"
+    "video/x-matroska" = "io.github.celluloid_player.Celluloid.desktop";
+    "video/webm" = "io.github.celluloid_player.Celluloid.desktop";
+    "video/x-msvideo" = "io.github.celluloid_player.Celluloid.desktop"; # .avi
+    "video/quicktime" = "io.github.celluloid_player.Celluloid.desktop"; # .mov
+    "video/mpeg" = "io.github.celluloid_player.Celluloid.desktop";
+    "video/ogg" = "io.github.celluloid_player.Celluloid.desktop";
+    "video/x-flv" = "io.github.celluloid_player.Celluloid.desktop";
+    "video/mp2t" = "io.github.celluloid_player.Celluloid.desktop"; # .ts
   };
 };
 
