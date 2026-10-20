@@ -8,6 +8,7 @@
 , cairo
 , pango
 , sqlite
+, libogg
 , libvorbis
 , harfbuzz
 , libappindicator-gtk3
@@ -69,6 +70,7 @@ stdenv.mkDerivation rec {
     cairo
     pango
     sqlite
+    libogg
     libvorbis
     harfbuzz
     libappindicator-gtk3
@@ -132,6 +134,20 @@ stdenv.mkDerivation rec {
     # Симлинк на libcurl.so.4 в директории AIMP — AIMP ищет её в $ORIGIN.
     ln -sf "${lib.getLib curl}/lib/libcurl.so.4" "$out/opt/aimp/libcurl.so.4"
 
+    # === Симлинки на аудио-библиотеки в $ORIGIN ===
+    # AIMP/BASS грузит их через dlopen с голым именем (libasound.so.2 и т.п.)
+    # и не видит LD_LIBRARY_PATH из обёртки. Кладём симлинки рядом с бинарником,
+    # чтобы dlopen находил их в $ORIGIN (директория AIMP).
+    ln -sf "${lib.getLib alsa-lib}/lib/libasound.so.2"       "$out/opt/aimp/libasound.so.2"
+    ln -sf "${lib.getLib soxr}/lib/libsoxr.so.0"             "$out/opt/aimp/libsoxr.so.0"
+    ln -sf "${lib.getLib libogg}/lib/libogg.so.0"            "$out/opt/aimp/libogg.so.0"
+    ln -sf "${lib.getLib libvorbis}/lib/libvorbis.so.0"      "$out/opt/aimp/libvorbis.so.0"
+    ln -sf "${lib.getLib libvorbis}/lib/libvorbisenc.so.2"   "$out/opt/aimp/libvorbisenc.so.2"
+    ln -sf "${lib.getLib libpulseaudio}/lib/libpulse.so.0"   "$out/opt/aimp/libpulse.so.0"
+
+    # PortAudio с PulseAudio-бэкендом — тоже в $ORIGIN.
+    ln -sf "${lib.getLib portaudioWithPulse}/lib/libportaudio.so.2" "$out/opt/aimp/libportaudio.so.2"
+
     runHook postInstall
   '';
 
@@ -143,7 +159,7 @@ stdenv.mkDerivation rec {
   postFixup = ''
     mkdir -p $out/bin
 
-    # === КЛЮЧЕВОЙ МОМЕНТ: LD_LIBRARY_PATH ===
+    # === LD_LIBRARY_PATH обёртки ===
     # Приватные библиотеки AIMP лежат в $out/usr/lib/ (не в opt/aimp/!).
     # autoPatchelfHook перезаписал RPATH бинарника на пути Nix store и
     # стёр оригинальный $ORIGIN. Поэтому добавляем $out/usr/lib в
@@ -152,8 +168,7 @@ stdenv.mkDerivation rec {
     #
     # portaudioWithPulse идёт последним — именно его libportaudio.so.2
     # должна найтись первой через LD_LIBRARY_PATH, чтобы AIMP получил
-    # PulseAudio-бэкенд (PaPulse_Initialize), иначе PortAudio видит только
-    # «сырые» ALSA hw-устройства, занятые PipeWire, и отдаёт "(no sound)".
+    # PulseAudio-бэкенд (PaPulse_Initialize).
     commonWrapArgs="--prefix LD_LIBRARY_PATH : $out/usr/lib \
       --prefix LD_LIBRARY_PATH : $out/opt/aimp \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib alsa-lib libpulseaudio soxr portaudioWithPulse ]} \
