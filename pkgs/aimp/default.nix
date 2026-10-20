@@ -34,10 +34,6 @@
 }:
 
 let
-  # PortAudio в nixpkgs собран без бэкенда PulseAudio (есть только PaAlsa_*,
-  # PaJack_*, PaOSS_* — символов PaPulse_* нет). AIMP/BASS ищет устройства
-  # через PortAudio и в PipeWire-системе не видит ни одного, потому что
-  # «сырые» ALSA-hw уже заняты. Пересобираем PortAudio с libpulseaudio.
   portaudioWithPulse = portaudio.overrideAttrs (oldAttrs: {
     buildInputs = (oldAttrs.buildInputs or [ ]) ++ [ libpulseaudio ];
     configureFlags = (oldAttrs.configureFlags or [ ]) ++ [ "--with-pulseaudio" ];
@@ -47,14 +43,6 @@ stdenv.mkDerivation rec {
   pname = "aimp";
   version = "6.00.3090beta7";
 
-  # Arch-пакет с официального сайта AIMP (native Linux beta).
-  # Содержимое:
-  #   opt/aimp/     — бинарь AIMP, плагины, скины, System/ (некоторые .so)
-  #   usr/lib/      — приватные библиотеки: libbass-aimp.so, libav*.so*
-  #   usr/share/    — .desktop-файлы и иконки
-  #
-  # Ключевое отличие от беты 3089: в 3088 и 3087 файлы libbass/libav лежат
-  # в usr/lib/, а в 3089 — их нет вообще (AIMP поломал сборку).
   src = ./aimp-6.00.3090beta7-1-x86_64.pkg.tar.zst;
 
   nativeBuildInputs = [
@@ -88,17 +76,12 @@ stdenv.mkDerivation rec {
     libssh2
     libpsl
     brotli
-
-    # --- Зависимости для звука ---
     alsa-lib
     libpulseaudio
     soxr
     portaudioWithPulse
   ];
 
-  # Приватные библиотеки AIMP лежат в $out/usr/lib/ и грузятся через
-  # LD_LIBRARY_PATH wrapper-обёрток. autoPatchelfHook их не находит —
-  # игнорируем на этапе проверки.
   autoPatchelfIgnoreMissingDeps = [
     "libbass-aimp.so"
     "libavcodec-aimp.so.61"
@@ -114,61 +97,54 @@ stdenv.mkDerivation rec {
     runHook preInstall
 
     mkdir -p $out
-
-    # opt/ — сам AIMP (бинарь, ресурсы, плагины).
     cp -r opt $out/
-
-    # usr/ — ВАЖНО: здесь usr/lib/ с приватными библиотеками AIMP
-    # (libbass-aimp.so, libavcodec-aimp.so.61 и др.) и usr/share/
-    # с .desktop-файлами. Копируем ЦЕЛИКОМ, не удаляем после.
     [ -d usr ] && cp -r usr $out/ || true
 
-    # Дублируем usr/share → share для NixOS (иначе .desktop не найдётся).
-    # usr/lib оставляем на месте — он нужен для LD_LIBRARY_PATH.
     if [ -d "$out/usr/share" ]; then
       mkdir -p "$out/share"
       cp -r "$out/usr/share/." "$out/share/"
-      # usr/ НЕ удаляем — там usr/lib с приватными .so
     fi
 
-    # Симлинк на libcurl.so.4 в директории AIMP — AIMP ищет её в $ORIGIN.
+    # Symlink на libcurl.so.4 (AIMP ищет её в $ORIGIN).
     ln -sf "${lib.getLib curl}/lib/libcurl.so.4" "$out/opt/aimp/libcurl.so.4"
 
-    # === Симлинки на аудио-библиотеки в $ORIGIN ===
-    # AIMP/BASS грузит их через dlopen с голым именем (libasound.so.2 и т.п.)
-    # и не видит LD_LIBRARY_PATH из обёртки. Кладём симлинки рядом с бинарником,
-    # чтобы dlopen находил их в $ORIGIN (директория AIMP).
-    ln -sf "${lib.getLib alsa-lib}/lib/libasound.so.2"       "$out/opt/aimp/libasound.so.2"
-    ln -sf "${lib.getLib soxr}/lib/libsoxr.so.0"             "$out/opt/aimp/libsoxr.so.0"
-    ln -sf "${lib.getLib libogg}/lib/libogg.so.0"            "$out/opt/aimp/libogg.so.0"
-    ln -sf "${lib.getLib libvorbis}/lib/libvorbis.so.0"      "$out/opt/aimp/libvorbis.so.0"
-    ln -sf "${lib.getLib libvorbis}/lib/libvorbisenc.so.2"   "$out/opt/aimp/libvorbisenc.so.2"
-    ln -sf "${lib.getLib libpulseaudio}/lib/libpulse.so.0"   "$out/opt/aimp/libpulse.so.0"
-
-    # PortAudio с PulseAudio-бэкендом — тоже в $ORIGIN.
+    # === Симлинки в $ORIGIN с ОБОИМИ именами (с версией и без) ===
+    # AIMP/BASS вызывает dlopen("libasound.so") — БЕЗ суффикса версии.
+    # Поэтому нужны и libasound.so, и libasound.so.2 в $ORIGIN.
+    ln -sf "${lib.getLib alsa-lib}/lib/libasound.so.2"     "$out/opt/aimp/libasound.so"
+    ln -sf "${lib.getLib alsa-lib}/lib/libasound.so.2"     "$out/opt/aimp/libasound.so.2"
+    ln -sf "${lib.getLib soxr}/lib/libsoxr.so.0"           "$out/opt/aimp/libsoxr.so"
+    ln -sf "${lib.getLib soxr}/lib/libsoxr.so.0"           "$out/opt/aimp/libsoxr.so.0"
+    ln -sf "${lib.getLib libogg}/lib/libogg.so.0"          "$out/opt/aimp/libogg.so"
+    ln -sf "${lib.getLib libogg}/lib/libogg.so.0"          "$out/opt/aimp/libogg.so.0"
+    ln -sf "${lib.getLib libvorbis}/lib/libvorbis.so.0"    "$out/opt/aimp/libvorbis.so"
+    ln -sf "${lib.getLib libvorbis}/lib/libvorbis.so.0"    "$out/opt/aimp/libvorbis.so.0"
+    ln -sf "${lib.getLib libvorbis}/lib/libvorbisenc.so.2" "$out/opt/aimp/libvorbisenc.so"
+    ln -sf "${lib.getLib libvorbis}/lib/libvorbisenc.so.2" "$out/opt/aimp/libvorbisenc.so.2"
+    ln -sf "${lib.getLib libpulseaudio}/lib/libpulse.so.0" "$out/opt/aimp/libpulse.so"
+    ln -sf "${lib.getLib libpulseaudio}/lib/libpulse.so.0" "$out/opt/aimp/libpulse.so.0"
+    ln -sf "${lib.getLib portaudioWithPulse}/lib/libportaudio.so.2" "$out/opt/aimp/libportaudio.so"
     ln -sf "${lib.getLib portaudioWithPulse}/lib/libportaudio.so.2" "$out/opt/aimp/libportaudio.so.2"
+
+    # Приватные AIMP .so из usr/lib — тоже в $ORIGIN, чтобы dlopen нашёл их
+    # без опоры на LD_LIBRARY_PATH (AIMP его игнорирует при dlopen).
+    for f in "$out"/usr/lib/libbass-aimp.so \
+             "$out"/usr/lib/libavcodec-aimp.so.61 \
+             "$out"/usr/lib/libavutil-aimp.so.59 \
+             "$out"/usr/lib/libavfilter-aimp.so.10; do
+      [ -e "$f" ] && ln -sf "$f" "$out/opt/aimp/$(basename "$f")" || true
+    done
 
     runHook postInstall
   '';
 
   preFixup = ''
-    # libcurl.so.4 нужен в DT_NEEDED главного бинарника AIMP.
     patchelf --add-needed libcurl.so.4 $out/opt/aimp/AIMP
   '';
 
   postFixup = ''
     mkdir -p $out/bin
 
-    # === LD_LIBRARY_PATH обёртки ===
-    # Приватные библиотеки AIMP лежат в $out/usr/lib/ (не в opt/aimp/!).
-    # autoPatchelfHook перезаписал RPATH бинарника на пути Nix store и
-    # стёр оригинальный $ORIGIN. Поэтому добавляем $out/usr/lib в
-    # LD_LIBRARY_PATH — линкер проверит его раньше RPATH и найдёт
-    # libbass-aimp.so, libavcodec-aimp.so.61 и т.д.
-    #
-    # portaudioWithPulse идёт последним — именно его libportaudio.so.2
-    # должна найтись первой через LD_LIBRARY_PATH, чтобы AIMP получил
-    # PulseAudio-бэкенд (PaPulse_Initialize).
     commonWrapArgs="--prefix LD_LIBRARY_PATH : $out/usr/lib \
       --prefix LD_LIBRARY_PATH : $out/opt/aimp \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ curl openssl nghttp2 libssh2 libpsl brotli glib alsa-lib libpulseaudio soxr portaudioWithPulse ]} \
@@ -181,7 +157,6 @@ stdenv.mkDerivation rec {
     [ -x "$out/opt/aimp/AIMPate" ] && makeWrapper $out/opt/aimp/AIMPate $out/bin/aimp-ate $commonWrapArgs || true
     [ -x "$out/opt/aimp/AIMPac" ] && makeWrapper $out/opt/aimp/AIMPac $out/bin/aimp-ac $commonWrapArgs || true
 
-    # Патч .desktop для AIMPate/AIMPac (используем --replace, не --replace-fail).
     for desktop in "$out"/share/applications/aimpate.desktop \
                    "$out"/share/applications/aimpac.desktop; do
       [ -f "$desktop" ] || continue
@@ -192,7 +167,6 @@ stdenv.mkDerivation rec {
         --replace "/usr/bin/aimp-ac" "$out/bin/aimp-ac"
     done
 
-    # Создаём aimp.desktop (в Arch-пакете он пустой).
     mkdir -p "$out/share/applications"
     cat > "$out/share/applications/aimp.desktop" <<EOF
 [Desktop Entry]
