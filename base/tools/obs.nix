@@ -20,4 +20,10 @@
     extraPortals = [ pkgs.xdg-desktop-portal-gnome ];
     config.niri.default = [ "gnome" ];
   };
+
+    # Утилиты для диагностики камер и V4L2/ISP-устройств.
+  environment.systemPackages = with pkgs; [
+    v4l-utils        # даёт v4l2-ctl, media-ctl
+    libcamera        # даёт cam, поддержка ISP-камер
+  ];
 }

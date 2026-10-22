@@ -1,0 +1,7 @@
+todo
+
+DSH STRATA----
+--conversation-cache-mib 8192 --conversation-cache-slots 4 solve problenm, but how can i save this config.
+
+Thanks, and good to hear --conversation-cache-mib 8192 --conversation-cache-slots 4 fixed it. To keep them, add the two flags to the model's start options: in the app under the model's Expert settings, or in the args list of the model's config file in the Terminal. We're also changing the defaults so the cache is sized for agent use by itself, so this won't be needed in a future release.
+
