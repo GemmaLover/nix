@@ -52,6 +52,7 @@
     # === Базовое ПО для всех ===
     ../../base/tools/base.nix
     ../../base/tools/flatpak.nix
+    ../../base/tools/obs.nix
     # ../../base/tools/portmaster.nix   # закомментировано (как в baseline): сервис отключён
 
     # Сюда НЕ переносим:
