@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, pkgs, ... }:
 
 {
   # OBS Studio с виртуальной камерой и плагинами.
@@ -21,9 +21,11 @@
     config.niri.default = [ "gnome" ];
   };
 
-    # Утилиты для диагностики камер и V4L2/ISP-устройств.
-  environment.systemPackages = with pkgs; [
-    v4l-utils        # даёт v4l2-ctl, media-ctl
-    libcamera        # даёт cam, поддержка ISP-камер
-  ];
+  # Отключить публикацию камер через WirePlumber/libcamera.
+  # Приложения, ходящие в /dev/video* напрямую (OBS), не затрагиваются.
+  services.pipewire.wireplumber.extraConfig."10-disable-camera" = {
+    "wireplumber.profiles" = {
+      main."monitor.libcamera" = "disabled";
+    };
+  };
 }
