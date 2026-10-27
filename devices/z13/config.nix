@@ -31,6 +31,7 @@
     ./specific/lid-daemon.nix
     ./specific/touchpad.nix        # перенесён из base/system/touchpad.nix
     ./specific/uninstall-helper.nix # перенесён из base/system/scripts/
+    ../../llm/llm-mode.nix
 
     # === Базовые модули для всех устройств (DE- и железо-независимые) ===
     ../../base/system/boot.nix
