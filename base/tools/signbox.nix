@@ -367,6 +367,44 @@
   # TCP-порта и -w для таймаута.
   # =====================================================================
   environment.systemPackages = [
+    # =====================================================================
+    # sb — простое управление сервисом sing-box.
+    #   sb start   — запустить
+    #   sb stop    — остановить
+    #   sb restart — перезапустить
+    #   sb status  — показать состояние (без pager'а)
+    #   sb fix     — перезапуск sing-box + nfqws2 (лечит «интернет отвалился
+    #                после nixos-rebuild switch»)
+    #
+    # ВАЖНО про синтаксис systemctl:
+    #   правильный порядок — `systemctl stop sing-box`,
+    #   а НЕ `systemctl sing-box stop` (последнее даёт
+    #   "Unknown command verb 'sing-box'", потому что systemctl
+    #   воспринимает имя юнита как команду).
+    # =====================================================================
+    (pkgs.writeShellApplication {
+      name = "sb";
+      runtimeInputs = [ pkgs.systemd pkgs.coreutils ];
+      text = ''
+        set -euo pipefail
+        case "''${1:-}" in
+          start)   sudo systemctl start   sing-box ;;
+          stop)    sudo systemctl stop    sing-box ;;
+          restart) sudo systemctl restart sing-box ;;
+          status)  systemctl status sing-box --no-pager ;;
+          fix)
+            sudo systemctl restart sing-box
+            sleep 2
+            sudo systemctl restart nfqws2
+            ;;
+          *)
+            echo "Usage: sb {start|stop|restart|status|fix}" >&2
+            exit 1
+            ;;
+        esac
+      '';
+    })
+
     # Переключить всю систему на VPN внутри Waydroid.
     (pkgs.writeShellApplication {
       name = "waydroid-vpn-connect";
