@@ -10,14 +10,17 @@
   # Файл создаётся лениво при первом вызове. Если файла нет —
   # status показывает 127.0.0.1 (безопасный дефолт).
   #
-  # Сервисы, которые читают этот файл (llama-cpp, unsloth, dsh),
-  # должны иметь EnvironmentFile = "-%h/.local/state/llm-mode.env"
-  # и в ExecStart использовать --host ''${LLM_HOST}.
-  # Это делается отдельными правками, не в этом файле.
+  # ВАЖНО: команда НЕ перезапускает сервисы. Она только пишет
+  # файл. Чтобы изменения подхватились, сервис надо перезапустить
+  # вручную (strata-stop && strata-start, systemctl --user restart
+  # llama-cpp и т.д.) или он сам должен читать EnvironmentFile
+  # при старте:
+  #     EnvironmentFile = "-%h/.local/state/llm-mode.env"
+  #     ExecStart = "... --host ''${LLM_HOST} ..."
   environment.systemPackages = [
     (pkgs.writeShellApplication {
       name = "llm";
-      runtimeInputs = [ pkgs.systemd pkgs.iproute2 pkgs.coreutils ];
+      runtimeInputs = [ pkgs.iproute2 pkgs.coreutils ];
       text = ''
         set -euo pipefail
 
@@ -36,40 +39,15 @@
           mkdir -p "$(dirname "$MODE_FILE")"
           echo "LLM_HOST=$1" > "$MODE_FILE"
           echo "Режим: LLM_HOST=$1"
-        }
-
-        restart_services() {
-          # Strata (rootless podman, от имени пользователя).
-          if command -v strata-start >/dev/null 2>&1; then
-            strata-stop >/dev/null 2>&1 || true
-            if strata-start >/dev/null 2>&1; then
-              echo "  strata:    перезапущен"
-            else
-              echo "  strata:    ошибка (см. strata-logs)" >&2
-            fi
-          fi
-
-          # user-сервисы. Если у тебя они system-level —
-          # замени `systemctl --user` на `sudo systemctl`.
-          for svc in llama-cpp unsloth dsh; do
-            if systemctl --user list-unit-files "$svc.service" >/dev/null 2>&1; then
-              if systemctl --user restart "$svc.service" 2>/dev/null; then
-                echo "  $svc: перезапущен"
-              else
-                echo "  $svc: не запущен или ошибка" >&2
-              fi
-            fi
-          done
+          echo "Сервисы не перезапущены — сделай вручную, когда удобно."
         }
 
         case "''${1:-}" in
           local)
             set_mode "127.0.0.1"
-            restart_services
             ;;
           global)
             set_mode "0.0.0.0"
-            restart_services
             ;;
           status)
             HOST=$(get_host)
