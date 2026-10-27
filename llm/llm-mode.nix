@@ -1,12 +1,29 @@
 { config, lib, pkgs, ... }:
 
+let
+  # Порты активных LLM-сервисов (host-сторона).
+  # Источники:
+  #   strata       — llm/strata/default.nix:52   (portHost)
+  #   dsh (local)  — llm/dsh/local/nix.nix:22    (port)
+  #   unsloth      — llm/unsloth/default.nix:16  (portHost)
+  #   cockpit ROCm — llm/cockpit/default.nix:31  (portHost)
+  #   cockpit Vulk — llm/cockpit/default.nix:38  (portHost)
+  #   gufo         — llm/gufo/default.nix:25     (portHost)
+  #
+  # deprecated/* не включены: не импортируются в llm/home.nix.
+  # Если добавишь новый сервис — допиши его порт сюда.
+  llmPorts = [ 5747 7718 8005 8085 8086 8640 ];
+
+  portsStr = builtins.concatStringsSep " " (map toString llmPorts);
+  portsRe  = builtins.concatStringsSep "|" (map toString llmPorts);
+in
 {
   # Команда llm — переключатель режима для LLM-сервисов.
   #   llm local   — сервисы слушают только 127.0.0.1 (по умолчанию)
-  #                 + временное правило фаервола сбрасывается
+  #                 + временные правила фаервола сбрасываются
   #   llm global  — сервисы слушают 0.0.0.0 (доступны по LAN)
-  #                 + временно открывается TCP-порт 5747 в фаерволе
-  #   llm status  — текущий режим + что реально слушает
+  #                 + временно открываются TCP-порты LLM в фаерволе
+  #   llm status  — текущий режим, что слушает, что открыто в фаерволе
   #
   # Состояние — файл $HOME/.local/state/llm-mode.env с LLM_HOST=...
   # Файл создаётся лениво при первом вызове. Если файла нет —
@@ -14,44 +31,34 @@
   #
   # ВАЖНО про фаервол:
   #   NixOS-фаервол (networking.firewall) по умолчанию блокирует
-  #   входящие TCP на 5747. Мы НЕ открываем порт декларативно
-  #   (allowedTCPPorts), потому что тогда он был бы доступен всегда.
+  #   входящие TCP на порты LLM. Мы НЕ открываем их декларативно
+  #   (allowedTCPPorts), потому что тогда они были бы доступны всегда.
   #   Вместо этого используем nixos-firewall-tool — он добавляет
-  #   временное правило в runtime-цепочку nixos-fw, которое:
-  #     * не сохраняется между reboot'ами;
-  #     * сбрасывается командой `nixos-firewall-tool reset`
+  #   временные правила, которые:
+  #     * не сохраняются между reboot'ами;
+  #     * сбрасываются командой `nixos-firewall-tool reset`
   #       (вызывается в `llm local`).
-  #
-  #   Это значит: после reboot'а режим = local (порт закрыт),
+  #   Это значит: после reboot'а режим = local (порты закрыты),
   #   даже если в llm-mode.env осталось LLM_HOST=0.0.0.0.
-  #   Если нужно поведение «после reboot'а восстановить режим» —
-  #   добавь вызов llm в activation или systemd-юнит, это отдельная
-  #   задача.
   #
   #   `nixos-firewall-tool reset` сбрасывает ВСЕ временные правила,
-  #   не только для 5747. Если начнёшь открывать через него другие
-  #   порты — переделай close_firewall() на точечное удаление.
+  #   не только LLM-порты. Если начнёшь открывать через него другие
+  #   порты — переделай local на точечное удаление.
   #
   # ВАЖНО про Podman:
   #   `-p 5747:5747` без IP публикует порт на 0.0.0.0 — это делает
   #   podman, не мы. Закрытие доступа из LAN обеспечивает фаервол:
-  #   пока порт не открыт в nixos-fw, входящие из LAN отбрасываются,
-  #   даже если podman слушает 0.0.0.0. Поэтому в local-режиме
-  #   podman-порт всё равно будет виден в `podman port` как
-  #   0.0.0.0:5747 — это НЕ значит, что он доступен из LAN.
+  #   пока порт не открыт, входящие из LAN отбрасываются, даже если
+  #   podman слушает 0.0.0.0.
   #
   # ВАЖНО про сервисы:
   #   Команда НЕ перезапускает сервисы. Она только пишет файл
   #   и дёргает фаервол. Чтобы изменения подхватились, сервис надо
-  #   перезапустить вручную (strata-stop && strata-start,
-  #   systemctl --user restart llama-cpp и т.д.) или он сам должен
-  #   читать EnvironmentFile при старте:
+  #   перезапустить вручную или он сам должен читать EnvironmentFile
+  #   при старте:
   #     EnvironmentFile = "-%h/.local/state/llm-mode.env"
   #     ExecStart = "... --host ''${LLM_HOST} ..."
   environment.systemPackages = [
-    # nixos-firewall-tool — обычно уже в системе при включённом
-    # networking.firewall, но добавляем явно, чтобы команда llm
-    # не зависела от того, что ещё есть в PATH.
     pkgs.nixos-firewall-tool
 
     (pkgs.writeShellApplication {
@@ -59,14 +66,16 @@
       runtimeInputs = [
         pkgs.iproute2
         pkgs.coreutils
+        pkgs.iptables
+        pkgs.nftables
         pkgs.nixos-firewall-tool
-        pkgs.util-linux   # для sudo? нет, sudo отдельно; util-linux для setsid не нужен, но пусть
       ];
       text = ''
         set -euo pipefail
 
         MODE_FILE="$HOME/.local/state/llm-mode.env"
-        PORT="5747"
+        PORTS="${portsStr}"
+        PORTS_RE="${portsRe}"
 
         get_host() {
           if [ -f "$MODE_FILE" ]; then
@@ -83,28 +92,21 @@
           echo "Режим: LLM_HOST=$1"
         }
 
-        open_firewall() {
-          echo "Открываю TCP-порт $PORT в фаерволе (временно, до reboot'а или llm local)..."
-          sudo nixos-firewall-tool open tcp "$PORT"
-        }
-
-        close_firewall() {
-          echo "Сбрасываю временные правила фаервола..."
-          sudo nixos-firewall-tool reset
-        }
-
         case "''${1:-}" in
           local)
             set_mode "127.0.0.1"
-            close_firewall
-            echo "Сервисы не перезапущены — сделай вручную, когда удобно:"
-            echo "  strata-stop && strata-start"
+            echo "Сбрасываю временные правила фаервола..."
+            sudo nixos-firewall-tool reset
+            echo "Готово. Перезапусти LLM-сервисы вручную, когда удобно."
             ;;
           global)
             set_mode "0.0.0.0"
-            open_firewall
-            echo "Сервисы не перезапущены — сделай вручную, когда удобно:"
-            echo "  strata-stop && strata-start"
+            echo "Открываю TCP-порты в фаерволе (временно, до reboot'а или llm local):"
+            for p in $PORTS; do
+              echo "  $p"
+              sudo nixos-firewall-tool open tcp "$p"
+            done
+            echo "Готово. Перезапусти LLM-сервисы вручную, когда удобно."
             ;;
           status)
             HOST=$(get_host)
@@ -115,19 +117,24 @@
               *)         echo "→ неизвестное значение" ;;
             esac
             echo
-            echo "Слушают порты:"
-            ss -tln 2>/dev/null | grep -E ':(5747|8080|8888)\b' || echo "  (ничего из ожидаемого)"
+            echo "Слушают порты ($PORTS):"
+            ss -tln 2>/dev/null | grep -E ":($PORTS_RE)\b" || echo "  (ничего из ожидаемого)"
             echo
-            echo "Временные правила фаервола:"
-            sudo nft list chain inet nixos-fw nixos-fw 2>/dev/null \
-              | grep -E "dport $PORT\b" \
-              || echo "  (правило для $PORT не найдено — порт закрыт из LAN)"
+            echo "Фаервол (временные правила):"
+            FW_RULES=$(sudo nft list ruleset 2>/dev/null; sudo iptables -S 2>/dev/null || true)
+            for p in $PORTS; do
+              if echo "$FW_RULES" | grep -qE "dport $p "; then
+                echo "  $p — открыт"
+              else
+                echo "  $p — не найден"
+              fi
+            done
             ;;
           *)
             echo "Usage: llm {local|global|status}" >&2
-            echo "  local  — только 127.0.0.1 + сброс временных правил фаервола" >&2
-            echo "  global — 0.0.0.0 + временное открытие TCP $PORT в фаерволе" >&2
-            echo "  status — текущий режим и что реально слушает" >&2
+            echo "  local  — только 127.0.0.1, сброс временных правил фаервола" >&2
+            echo "  global — 0.0.0.0, временное открытие TCP-портов: $PORTS" >&2
+            echo "  status — текущий режим, порты и правила фаервола" >&2
             exit 1
             ;;
         esac
