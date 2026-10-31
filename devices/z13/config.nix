@@ -101,4 +101,9 @@
 
   # stateVersion — НЕ МЕНЯТЬ после установки
   system.stateVersion = "26.05";
+
+  nixpkgs.config.rewriteURL = url:
+  if builtins.match ".*nodejs\\.org/dist/.*" url != null
+  then builtins.replaceStrings ["https://nodejs.org/dist/"] ["https://mirrors.huaweicloud.com/nodejs/"] url
+  else url;
 }
