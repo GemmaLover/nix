@@ -26,11 +26,11 @@
   };
 
    boot.initrd.luks.devices."cryptroot" = {
-    device = "/dev/disk/by-uuid/630ca97f-16bb-4020-9838-fc394df6d5ac";
+    device = "/dev/disk/by-label/cryptroot";
   };
 
     fileSystems."/boot" = {
-    device = "/dev/disk/by-uuid/8B43-B2C7";
+    device = "/dev/disk/by-label/EFI";
     fsType = "vfat";
     options = [ "fmask=0022" "dmask=0022" ];
   };
