@@ -258,6 +258,7 @@ PYEOF
             .venv/bin/python setup.py --setup \
               --backend hip \
               --models-dir /models \
+              --parallel 3 \
               --data-dir /data \
               --host 0.0.0.0 \
               --port ${toString portContainer} \
