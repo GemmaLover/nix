@@ -287,6 +287,15 @@ PYEOF
     # Имя конфига setup.py выбирает сам (по family+model, которые ты
     # выбрал интерактивно), поэтому здесь мы не проверяем конкретное
     # имя — просто запускаем setup.py, он сам найдёт конфиг.
+    #
+    # ПРОБЛЕМА (обновление Strata): если /data/config/ пуст, setup.py
+    # без --setup начинает интерактивно спрашивать family/model — но
+    # в режиме `podman run -d` stdin закрыт, и он падает с
+    #   [X] input ended before a setup answer was received
+    # Поэтому перед детачным запуском проверяем конфиг: если пуст
+    # (или явно передан --setup) — сначала прогоняем
+    # `podman run --rm -it … setup.py --setup …`, даём ответить на
+    # вопросы, и только потом стартуем детачнуто.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -300,12 +309,84 @@ PYEOF
         DATA_DIR="${dataDir}"
         MODELS_DIR="${modelsDir}"
         PORT_HOST=${toString portHost}
+        CONFIG_DIR="$DATA_DIR/config"
 
         if [ ! -x "$STRATA_DIR/src/engine/strata" ]; then
           echo "Движок не установлен. Сначала: strata-setup" >&2
           exit 1
         fi
 
+        # === Разбор аргументов ===
+        # --setup перехватывается самим скриптом (форсирует интерактивную
+        # настройку перед стартом). Все остальные аргументы пробрасываются
+        # в setup.py на этапе детачного запуска — как было с "$@".
+        SETUP_FLAG=0
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+          if [ "$arg" = "--setup" ]; then
+            SETUP_FLAG=1
+          else
+            EXTRA_ARGS+=("$arg")
+          fi
+        done
+
+        # === Проверка конфига ===
+        # Каталог /data/config/ должен существовать и быть непустым.
+        # Имя файла конфига setup.py выбирает сам (по family+model),
+        # поэтому проверяем «есть хотя бы одна запись».
+        CONFIG_MISSING=0
+        if ! [ -d "$CONFIG_DIR" ] || [ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null || true)" ]; then
+          CONFIG_MISSING=1
+        fi
+
+        # === Интерактивная настройка при необходимости ===
+        # Запускается, если конфига нет ИЛИ явно передан --setup.
+        # Используем тот же набор флагов, что и strata-setup, чтобы
+        # setup.py создал совместимый конфиг.
+        if [ "$CONFIG_MISSING" = "1" ] || [ "$SETUP_FLAG" = "1" ]; then
+          echo "=== Конфиг Strata отсутствует или запрошена пересборка (--setup) ==="
+          echo "=== Запускаю интерактивную настройку ==="
+          echo "=== Ответь на вопросы; после завершения сервер стартует автоматически ==="
+          echo
+
+          podman run --rm -it \
+            ${gpuArgs} \
+            -e STRATA_DATA=/data \
+            -e HOME=/data/home \
+            -e ROCM_PATH=/opt/rocm \
+            -e HIP_PATH=/opt/rocm \
+            -e HIP_PLATFORM=amd \
+            -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib \
+            -v "$STRATA_DIR:/strata:Z" \
+            -v "$SDK:/opt/rocm" \
+            -v "$DATA_DIR:/data:Z" \
+            -v "$MODELS_DIR:/models:Z" \
+            -w /strata/src \
+            "${imageName}:${imageTag}" \
+            /strata/src/.venv/bin/python /strata/src/setup.py \
+              --setup \
+              --backend hip \
+              --models-dir /models \
+              --parallel 3 \
+              --data-dir /data \
+              --host 0.0.0.0 \
+              --port ${toString portContainer} \
+              --no-start
+
+          # setup.py идемпотентен: если модели уже скачаны и pack
+          # собран — эти шаги пропускаются. Проверяем, что конфиг
+          # действительно создан, иначе дальше стартовать бессмысленно.
+          if ! [ -d "$CONFIG_DIR" ] || [ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null || true)" ]; then
+            echo "ОШИБКА: setup.py завершился, но конфиг в $CONFIG_DIR/ так и не появился." >&2
+            echo "Проверь вывод выше. Возможно, нужно запустить strata-setup вручную." >&2
+            exit 1
+          fi
+
+          echo
+          echo "=== Настройка завершена, запускаю сервер ==="
+        fi
+
+        # === Запуск сервера ===
         podman rm -f "${containerName}" 2>/dev/null || true
 
         echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
@@ -328,7 +409,7 @@ PYEOF
           "${imageName}:${imageTag}" \
           /strata/src/.venv/bin/python /strata/src/setup.py \
             --port ${toString portContainer} \
-            "$@"
+            "''${EXTRA_ARGS[@]}"
 
         # Проверка что контейнер не упал сразу.
         sleep 5
