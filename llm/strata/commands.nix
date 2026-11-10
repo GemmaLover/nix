@@ -284,18 +284,18 @@ PYEOF
     # setup.py без --setup читает готовый конфиг из /data/config/ и
     # поднимает serve/server.py. Конфиг создан на этапе --setup.
     #
-    # Имя конфига setup.py выбирает сам (по family+model, которые ты
-    # выбрал интерактивно), поэтому здесь мы не проверяем конкретное
-    # имя — просто запускаем setup.py, он сам найдёт конфиг.
-    #
-    # ПРОБЛЕМА (обновление Strata): если /data/config/ пуст, setup.py
-    # без --setup начинает интерактивно спрашивать family/model — но
-    # в режиме `podman run -d` stdin закрыт, и он падает с
+    # После обновления Strata setup.py в no-flag режиме может
+    # спросить «Which one?» (выбор модели). При `podman run -d`
+    # stdin закрыт и он падает с
     #   [X] input ended before a setup answer was received
-    # Поэтому перед детачным запуском проверяем конфиг: если пуст
-    # (или явно передан --setup) — сначала прогоняем
-    # `podman run --rm -it … setup.py --setup …`, даём ответить на
-    # вопросы, и только потом стартуем детачнуто.
+    # Поэтому запускаем через `podman run -it` (foreground с открытым
+    # stdin): если вопрос появится — ответишь номером и Enter, после
+    # чего сервер продолжит работать в этом же терминале. Ctrl+C —
+    # остановка (контейнер удаляется вручную или при следующем
+    # strata-start).
+    #
+    # Автооткрытие браузера вынесено в фоновый subshell ДО podman run,
+    # иначе с -it (foreground) до него не дойдёт.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -309,89 +309,37 @@ PYEOF
         DATA_DIR="${dataDir}"
         MODELS_DIR="${modelsDir}"
         PORT_HOST=${toString portHost}
-        CONFIG_DIR="$DATA_DIR/config"
 
         if [ ! -x "$STRATA_DIR/src/engine/strata" ]; then
           echo "Движок не установлен. Сначала: strata-setup" >&2
           exit 1
         fi
 
-        # === Разбор аргументов ===
-        # --setup перехватывается самим скриптом (форсирует интерактивную
-        # настройку перед стартом). Все остальные аргументы пробрасываются
-        # в setup.py на этапе детачного запуска — как было с "$@".
-        SETUP_FLAG=0
-        EXTRA_ARGS=()
-        for arg in "$@"; do
-          if [ "$arg" = "--setup" ]; then
-            SETUP_FLAG=1
-          else
-            EXTRA_ARGS+=("$arg")
-          fi
-        done
-
-        # === Проверка конфига ===
-        # Каталог /data/config/ должен существовать и быть непустым.
-        # Имя файла конфига setup.py выбирает сам (по family+model),
-        # поэтому проверяем «есть хотя бы одна запись».
-        CONFIG_MISSING=0
-        if ! [ -d "$CONFIG_DIR" ] || [ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null || true)" ]; then
-          CONFIG_MISSING=1
-        fi
-
-        # === Интерактивная настройка при необходимости ===
-        # Запускается, если конфига нет ИЛИ явно передан --setup.
-        # Используем тот же набор флагов, что и strata-setup, чтобы
-        # setup.py создал совместимый конфиг.
-        if [ "$CONFIG_MISSING" = "1" ] || [ "$SETUP_FLAG" = "1" ]; then
-          echo "=== Конфиг Strata отсутствует или запрошена пересборка (--setup) ==="
-          echo "=== Запускаю интерактивную настройку ==="
-          echo "=== Ответь на вопросы; после завершения сервер стартует автоматически ==="
-          echo
-
-          podman run --rm -it \
-            ${gpuArgs} \
-            -e STRATA_DATA=/data \
-            -e HOME=/data/home \
-            -e ROCM_PATH=/opt/rocm \
-            -e HIP_PATH=/opt/rocm \
-            -e HIP_PLATFORM=amd \
-            -e LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/lib/rocm_sysdeps/lib:/opt/rocm/lib/llvm/lib \
-            -v "$STRATA_DIR:/strata:Z" \
-            -v "$SDK:/opt/rocm" \
-            -v "$DATA_DIR:/data:Z" \
-            -v "$MODELS_DIR:/models:Z" \
-            -w /strata/src \
-            "${imageName}:${imageTag}" \
-            /strata/src/.venv/bin/python /strata/src/setup.py \
-              --setup \
-              --backend hip \
-              --models-dir /models \
-              --parallel 3 \
-              --data-dir /data \
-              --host 0.0.0.0 \
-              --port ${toString portContainer} \
-              --no-start
-
-          # setup.py идемпотентен: если модели уже скачаны и pack
-          # собран — эти шаги пропускаются. Проверяем, что конфиг
-          # действительно создан, иначе дальше стартовать бессмысленно.
-          if ! [ -d "$CONFIG_DIR" ] || [ -z "$(ls -A "$CONFIG_DIR" 2>/dev/null || true)" ]; then
-            echo "ОШИБКА: setup.py завершился, но конфиг в $CONFIG_DIR/ так и не появился." >&2
-            echo "Проверь вывод выше. Возможно, нужно запустить strata-setup вручную." >&2
-            exit 1
-          fi
-
-          echo
-          echo "=== Настройка завершена, запускаю сервер ==="
-        fi
-
-        # === Запуск сервера ===
         podman rm -f "${containerName}" 2>/dev/null || true
 
-        echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
+        URL="http://localhost:$PORT_HOST"
 
-        podman run -d --name "${containerName}" \
+        echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
+        echo "=== Если setup.py спросит модель — ответь номером и Enter ==="
+        echo "=== Ctrl+C — остановить ==="
+        echo "=== URL:  $URL ==="
+        echo "=== Модель грузится 1-3 минуты; страница откроется, когда сервер ответит ==="
+
+        # Ждём HTTP-ответа и открываем браузер — в фоне, параллельно
+        # с foreground-контейнером.
+        (
+          for _ in $(seq 1 600); do
+            if curl -fsS -o /dev/null "$URL/health" 2>/dev/null \
+              || curl -fsS -o /dev/null "$URL/" 2>/dev/null; then
+              ${pkgs.xdg-utils}/bin/xdg-open "$URL" >/dev/null 2>&1 || true
+              exit 0
+            fi
+            sleep 2
+          done
+        ) &
+
+        # -it вместо -d: даём ответить на возможный вопрос setup.py.
+        podman run -it --name "${containerName}" \
           ${gpuArgs} \
           -p "$PORT_HOST:${toString portContainer}" \
           -e STRATA_DATA=/data \
@@ -409,33 +357,9 @@ PYEOF
           "${imageName}:${imageTag}" \
           /strata/src/.venv/bin/python /strata/src/setup.py \
             --port ${toString portContainer} \
-            "''${EXTRA_ARGS[@]}"
+            "$@"
 
-        # Проверка что контейнер не упал сразу.
-        sleep 5
-        STATUS=$(podman inspect "${containerName}" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [ "$STATUS" != "running" ]; then
-          echo "Контейнер упал (статус: $STATUS). Логи:" >&2
-          podman logs "${containerName}" 2>&1 | tail -60 >&2 || true
-          exit 1
-        fi
-
-        URL="http://localhost:$PORT_HOST"
-        echo "=== Запущено. Логи: strata-logs ==="
-        echo "=== URL:  $URL ==="
-        echo "=== Модель грузится 1-3 минуты; страница откроется, когда сервер ответит ==="
-
-        # Ждём HTTP-ответа и открываем браузер.
-        (
-          for _ in $(seq 1 600); do
-            if curl -fsS -o /dev/null "$URL/health" 2>/dev/null \
-              || curl -fsS -o /dev/null "$URL/" 2>/dev/null; then
-              ${pkgs.xdg-utils}/bin/xdg-open "$URL" >/dev/null 2>&1 || true
-              exit 0
-            fi
-            sleep 2
-          done
-        ) &
+        echo "=== ${containerName} остановлен ==="
       '';
     })
 
