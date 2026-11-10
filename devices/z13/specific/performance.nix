@@ -38,14 +38,19 @@ let
   #     performance 70/86/86) и «нормальная» кривая вентиляторов.
   #   * 311 — на форумах жалуются, что EC ленивее повышает обороты
   #     под длительной нагрузкой → те же PL, но выше температуры.
-  #   `z13ctl init308` = заводские PL + заводская кривая (покопированная
-  #   из вывода fancurve --get на BIOS 308) + 100% на 90°C для
-  #   термобезопасности.
-  #   `z13ctl init311` = заводские PL + агрессивная кривая
-  #   (aggressiveFanCurve ниже) + 100% на 90°C.
   #
-  # Принцип: TDP НЕ трогаем в обоих режимах — оставляем заводские PL
-  # для текущего профиля. Крутим ТОЛЬКО вентиляторы.
+  # `z13ctl init308` — ЗАВОДСКОЙ BASELINE:
+  #   Для всех профилей — заводская кривая (baseFanCurves.<profile>),
+  #   покопированная из вывода `fancurve --get` на BIOS 308, каждая
+  #   дополнена 90:100% для термобезопасности.
+  #
+  # `z13ctl init311` — КОМПЕНСАЦИЯ BIOS 311:
+  #   * quiet       → заводская quiet-кривая + 90:100% (НЕ агрессивная:
+  #                   в тихом режиме агрессивная слишком шумная, а PL
+  #                   40/55/55 и так низкие);
+  #   * balanced    → агрессивная кривая + 90:100%;
+  #   * performance → агрессивная кривая + 90:100%.
+  #   TDP НЕ трогаем — оставляем заводские PL для текущего профиля.
   #
   # ПОБОЧНЫЙ ЭФФЕКТ: раз init308/init311 пишут fancurve, вентиляторы
   # переходят в custom mode (pwm_enable=1). После этого F5 меняет
@@ -67,7 +72,8 @@ let
   # гарантирует, что к 90°C вентиляторы выходят на 100%, независимо
   # от профиля.
   #
-  # Эти кривые используются в `z13ctl init308`.
+  # Эти кривые используются в `z13ctl init308` (все профили) и в
+  # `z13ctl init311` для профиля quiet.
   # ---------------------------------------------------------------------
   baseFanCurves = {
     # из `z13ctl fancurve --get` на BIOS 308, профиль power-saver/quiet:
@@ -89,7 +95,9 @@ let
   # заводская balanced. Точка 90:100% — та же термобезопасность,
   # что и в базовых кривых.
   #
-  # Используется в `z13ctl init311`.
+  # Используется в `z13ctl init311` для профилей balanced и
+  # performance. Для quiet остаётся заводская кривая (агрессивная
+  # в тихом режиме слишком шумная, а PL 40/55/55 и так низкие).
   #
   # Крути по вкусу, но держи монотонность по температуре. Если стало
   # слишком шумно — сдвинь точки на +3-5°C или урежь проценты.
@@ -254,19 +262,20 @@ let
   # профиля. Крутим только вентиляторы.
   #
   #   z13ctl-init 308   (или base)
-  #     Заводская кривая вентиляторов (покопирована из BIOS 308) +
-  #     100% на 90°C. Профиль PPD определяется автоматически:
-  #       power-saver → quiet   кривая (baseFanCurves.quiet)
-  #       balanced    → balanced кривая (baseFanCurves.balanced)
-  #       performance → performance кривая (baseFanCurves.performance)
+  #     Заводская кривая вентиляторов для текущего профиля
+  #     (baseFanCurves.<profile>) + 100% на 90°C.
   #     Плюс `z13ctl profile --set <phys>` — чтобы firmware применил
   #     свои PL для этого профиля.
   #     Используй: как «здоровый» baseline, паритет с первым
   #     устройством на BIOS 308.
   #
   #   z13ctl-init 311   (или aggressive)
-  #     Заводские PL + агрессивная кривая вентиляторов
-  #     (aggressiveFanCurve) + 100% на 90°C.
+  #     Заводские PL + кривая вентиляторов:
+  #       quiet       → baseFanCurves.quiet       (заводская + 90:100%)
+  #       balanced    → aggressiveFanCurve         (агрессивная + 90:100%)
+  #       performance → aggressiveFanCurve         (агрессивная + 90:100%)
+  #     Для quiet агрессивная не используется: PL 40/55/55 и так
+  #     низкие, а агрессивная кривая в тихом режиме слишком шумная.
   #     Используй: на втором устройстве с BIOS 311, если температуры
   #     выше, чем на первом (308) при одинаковых PL.
   #
@@ -309,6 +318,13 @@ let
       }
       echo "[z13ctl-init] PPD active → physical profile: $PHYS"
 
+      # Кривая по профилю для базового режима (308).
+      case "$PHYS" in
+        quiet)       BASE_CURVE="${baseFanCurves.quiet}" ;;
+        balanced)    BASE_CURVE="${baseFanCurves.balanced}" ;;
+        performance) BASE_CURVE="${baseFanCurves.performance}" ;;
+      esac
+
       # ── Режимы ──────────────────────────────────────────────────
       case "$MODE" in
         308|base)
@@ -316,28 +332,32 @@ let
           # (по профилю) + 100% на 90°C.
           echo "[z13ctl-init308] Заводские PL + заводская кривая + 100% на 90°C."
           z13ctl profile --set "$PHYS"
-          case "$PHYS" in
-            quiet)       CURVE="${baseFanCurves.quiet}" ;;
-            balanced)    CURVE="${baseFanCurves.balanced}" ;;
-            performance) CURVE="${baseFanCurves.performance}" ;;
-          esac
-          echo "[z13ctl-init308] fancurve ($PHYS): $CURVE"
-          z13ctl fancurve --set "$CURVE"
+          echo "[z13ctl-init308] fancurve ($PHYS): $BASE_CURVE"
+          z13ctl fancurve --set "$BASE_CURVE"
           ;;
 
         311|aggressive)
-          # Заводские PL + агрессивная кривая + 100% на 90°C.
-          echo "[z13ctl-init311] Заводские PL + агрессивная кривая + 100% на 90°C."
+          # Заводские PL + кривая, зависящая от профиля:
+          #   quiet       → заводская quiet + 90:100%
+          #   balanced    → агрессивная + 90:100%
+          #   performance → агрессивная + 90:100%
           z13ctl profile --set "$PHYS"
-          echo "[z13ctl-init311] fancurve: ${aggressiveFanCurve}"
-          z13ctl fancurve --set "${aggressiveFanCurve}"
+          if [ "$PHYS" = "quiet" ]; then
+            echo "[z13ctl-init311] quiet → заводская кривая + 90:100%"
+            echo "[z13ctl-init311] fancurve: $BASE_CURVE"
+            z13ctl fancurve --set "$BASE_CURVE"
+          else
+            echo "[z13ctl-init311] $PHYS → агрессивная кривая + 90:100%"
+            echo "[z13ctl-init311] fancurve: ${aggressiveFanCurve}"
+            z13ctl fancurve --set "${aggressiveFanCurve}"
+          fi
           ;;
 
         *)
           echo "[z13ctl-init] Неизвестный режим: $MODE" >&2
           echo "[z13ctl-init] Использование: z13ctl init {308|311}" >&2
-          echo "[z13ctl-init]   308 (base)       — заводская кривая (BIOS 308) + 90:100%" >&2
-          echo "[z13ctl-init]   311 (aggressive) — агрессивная кривая + 90:100%" >&2
+          echo "[z13ctl-init]   308 (base)       — заводская кривая (по профилю) + 90:100%" >&2
+          echo "[z13ctl-init]   311 (aggressive) — quiet: заводская; balanced/perf: агрессивная; + 90:100%" >&2
           exit 1
           ;;
       esac
@@ -457,10 +477,11 @@ in
   # =====================================================================
   # z13ctl init308 / init311 — приведение к известному состоянию.
   #
-  #   z13ctl init308   — заводские PL + заводская кривая для текущего
-  #                      профиля (baseFanCurves) + 100% на 90°C.
-  #   z13ctl init311   — заводские PL + агрессивная кривая
-  #                      (aggressiveFanCurve) + 100% на 90°C.
+  #   z13ctl init308   — заводская кривая для текущего профиля
+  #                      (baseFanCurves) + 100% на 90°C.
+  #   z13ctl init311   — quiet: заводская кривая + 100% на 90°C;
+  #                      balanced/performance: агрессивная кривая +
+  #                      100% на 90°C. TDP не трогаем.
   #
   # Также работают: z13ctl init 308, z13ctl init 311.
   #
