@@ -30,16 +30,71 @@ let
   # перестаёт вызывать set, но EC помнит последнее записанное).
   # Отсюда возможное расхождение температур между устройствами:
   # на одном когда-то сработали кастомные set, на другом — нет.
-  # Для приведения к одному известному состоянию добавлены
-  # `z13ctl init` / `z13ctl-init` — см. ниже.
+  # Для приведения к одному известному состоянию используется
+  # `z13ctl init308` / `z13ctl init311` — см. ниже.
   #
-  # Принцип z13ctl init: писать ТОЛЬКО те значения, которые НЕ
-  # превышают заводской PPT (eco=10W, balanced=75W, performance=75W).
-  # Именно 90W+force раньше уводил platform_profile в `custom` и
-  # ломал F5 — поэтому z13ctl init 90W+force больше НЕ использует.
+  # Про BIOS 308 vs 311:
+  #   * 308 — заводские PL (quiet 40/55/55, balanced 52/71/70,
+  #     performance 70/86/86) и «нормальная» кривая вентиляторов.
+  #   * 311 — на форумах жалуются, что EC ленивее повышает обороты
+  #     под длительной нагрузкой → те же PL, но выше температуры.
+  #   `z13ctl init308` = заводские PL + заводская кривая (покопированная
+  #   из вывода fancurve --get на BIOS 308) + 100% на 90°C для
+  #   термобезопасности.
+  #   `z13ctl init311` = заводские PL + агрессивная кривая
+  #   (aggressiveFanCurve ниже) + 100% на 90°C.
+  #
+  # Принцип: TDP НЕ трогаем в обоих режимах — оставляем заводские PL
+  # для текущего профиля. Крутим ТОЛЬКО вентиляторы.
+  #
+  # ПОБОЧНЫЙ ЭФФЕКТ: раз init308/init311 пишут fancurve, вентиляторы
+  # переходят в custom mode (pwm_enable=1). После этого F5 меняет
+  # только platform_profile (TDP), но НЕ обороты вентиляторов — они
+  # идут строго по нашей кривой. Чтобы вернуть F5-контроль над
+  # вентиляторами — ребут (EC вернёт свои дефолты).
   # =====================================================================
 
   z13ctl-plus = pkgs.callPackage ../../../pkgs/z13ctl-plus { };
+
+  # ---------------------------------------------------------------------
+  # Базовые кривые вентиляторов — покопированы из вывода
+  # `z13ctl fancurve --get` на BIOS 308 (эталонное устройство), каждая
+  # дополнена точкой 90:100% для термобезопасности.
+  #
+  # Зачем 90:100%: заводские кривые плато на ~40-57% до 76-80°C, и
+  # при BIOS 311 EC может не успеть раскрутить вентиляторы до
+  # максимума до того, как APU упрётся в троттлинг. Точка 90:100%
+  # гарантирует, что к 90°C вентиляторы выходят на 100%, независимо
+  # от профиля.
+  #
+  # Эти кривые используются в `z13ctl init308`.
+  # ---------------------------------------------------------------------
+  baseFanCurves = {
+    # из `z13ctl fancurve --get` на BIOS 308, профиль power-saver/quiet:
+    # 50:0%, 54:0%, 58:8%, 62:11%, 64:16%, 67:21%, 71:26%, 71:26%
+    quiet = "50:0%,54:0%,58:8%,62:11%,64:16%,67:21%,71:26%,90:100%";
+
+    # из `z13ctl fancurve --get` на BIOS 308, профиль balanced:
+    # 48:0%, 53:8%, 57:11%, 60:16%, 63:21%, 65:26%, 70:34%, 76:40%
+    balanced = "48:0%,53:8%,57:11%,60:16%,63:21%,65:26%,70:34%,76:40%,90:100%";
+
+    # из `z13ctl fancurve --get` на BIOS 308, профиль performance:
+    # 42:11%, 50:21%, 55:26%, 60:33%, 65:36%, 70:44%, 75:51%, 80:57%
+    performance = "42:11%,50:21%,55:26%,60:33%,65:36%,70:44%,75:51%,80:57%,90:100%";
+  };
+
+  # ---------------------------------------------------------------------
+  # Агрессивная кривая — компенсация «ленивого» EC на BIOS 311.
+  # Примерно в 1.5–2 раза выше по PWM в рабочем диапазоне, чем
+  # заводская balanced. Точка 90:100% — та же термобезопасность,
+  # что и в базовых кривых.
+  #
+  # Используется в `z13ctl init311`.
+  #
+  # Крути по вкусу, но держи монотонность по температуре. Если стало
+  # слишком шумно — сдвинь точки на +3-5°C или урежь проценты.
+  # ---------------------------------------------------------------------
+  aggressiveFanCurve = "50:10%,55:20%,60:35%,65:50%,70:70%,75:85%,80:95%,90:100%";
 
   # ---------------------------------------------------------------------
   # ПРОФИЛЬ "POWER SAVER" (PPD: power-saver → firmware: quiet)
@@ -48,8 +103,6 @@ let
   # Оригинальный кастом (для справки):
   #   tdp = 10;
   #   fan-curve = "55:0%,60:0%,65:8%,70:18%,75:35%,80:60%,85:85%,90:100%";
-  # `z13ctl init eco` применяет именно эти значения (10W ниже
-  # заводского потолка → platform_profile остаётся normal, F5 циклии).
   eco = {
     tdp = null;
     force = false;
@@ -62,8 +115,6 @@ let
   # Default: 75W + заводская кривая вентиляторов от прошивки.
   # Оригинальный кастом (для справки):
   #   tdp = 75;
-  # `z13ctl init balanced` применяет 75W — ровно заводскую границу,
-  # поэтому F5 продолжает циклить.
   balanced = {
     tdp = null;
     force = false;
@@ -74,18 +125,11 @@ let
   # ПРОФИЛЬ "PERFORMANCE" (PPD: performance → firmware: performance)
   # ---------------------------------------------------------------------
   # Default: 75W (без --force) — именно эту границу держит firmware.
-  # `z13ctl init performance` применяет profile=performance + tdp=75
-  # БЕЗ --force. Это:
-  #   * снимает stale-кастом (если на устройстве раньше остался 90W
-  #     от ручных экспериментов) — 75W явно перезаписывает EC;
-  #   * не выходит за заводской PPT → platform_profile остаётся
-  #     normal, F5 продолжает циклить.
-  #
   # 90W с флагом --force ОТКЛЮЧАЛО F5: драйвер видел PPT выше заводских
   # и переводил platform_profile в `custom`. Этот вариант сохранён
   # в комментариях ТОЛЬКО для ручного применения через
   #   systemctl start z13-apply-performance
-  # после раскомментирования значений — но z13ctl init его НЕ
+  # после раскомментирования значений — но z13ctl-init его НЕ
   # использует.
   # Оригинальный кастом (для справки, ломает F5):
   #   tdp = 90;
@@ -205,31 +249,32 @@ let
   };
 
   # ---------------------------------------------------------------------
-  # z13ctl-init — РУЧНОЕ применение известных значений из комментариев
-  # выше (eco/balanced/performance). Одна команда:
+  # z13ctl-init — приведение устройства к одному из двух известных
+  # состояний. TDP НЕ трогаем — оставляем заводские PL для текущего
+  # профиля. Крутим только вентиляторы.
   #
-  #   z13ctl-init                 # auto: профиль определяется по PPD
-  #   z13ctl-init eco             # profile=quiet, tdp=10, кастомная fan-curve
-  #   z13ctl-init balanced        # profile=balanced, tdp=75
-  #   z13ctl-init performance     # profile=performance, tdp=75 (БЕЗ --force)
+  #   z13ctl-init 308   (или base)
+  #     Заводская кривая вентиляторов (покопирована из BIOS 308) +
+  #     100% на 90°C. Профиль PPD определяется автоматически:
+  #       power-saver → quiet   кривая (baseFanCurves.quiet)
+  #       balanced    → balanced кривая (baseFanCurves.balanced)
+  #       performance → performance кривая (baseFanCurves.performance)
+  #     Плюс `z13ctl profile --set <phys>` — чтобы firmware применил
+  #     свои PL для этого профиля.
+  #     Используй: как «здоровый» baseline, паритет с первым
+  #     устройством на BIOS 308.
   #
-  # Зачем: `z13ctl tdp --set …` / `fancurve --set …` пишут состояние в
-  # EC/ACPI, и оно переживает смену конфига на Path A. Если на одном
-  # устройстве когда-то применялся кастом, а на другом — нет, при
-  # одинаковой LLM-нагрузке температуры разойдутся. `z13ctl-init`
-  # применяет ОДНИ И ТЕ ЖЕ значения на обоих устройствах → паритет.
+  #   z13ctl-init 311   (или aggressive)
+  #     Заводские PL + агрессивная кривая вентиляторов
+  #     (aggressiveFanCurve) + 100% на 90°C.
+  #     Используй: на втором устройстве с BIOS 311, если температуры
+  #     выше, чем на первом (308) при одинаковых PL.
   #
-  # ПРИНЦИП: пишем только то, что НЕ превышает заводской PPT.
-  #   eco=10W (ниже потолка), balanced=75W (ровно потолок),
-  #   performance=75W (ровно потолок, БЕЗ --force).
-  # Именно поэтому F5 продолжает циклить после любого z13ctl-init:
-  # platform_profile не уходит в `custom`.
-  #
-  # 90W --force больше НЕ используется: он раньше переводил драйвер
-  # в `custom` и «залипал» F5. Если очень нужно 90W — только вручную
-  # через `systemctl start z13-apply-performance` после раскомменти-
-  # рования кастома в let-блоке, понимая, что F5 после этого
-  # перестанет циклить до перезагрузки.
+  # ВНИМАНИЕ: обе подкоманды пишут fancurve → вентиляторы переходят
+  # в custom mode (pwm_enable=1). После этого F5 меняет только
+  # platform_profile (TDP), но НЕ обороты вентиляторов — они идут
+  # строго по нашей кривой. Чтобы вернуть F5-контроль над
+  # вентиляторами — ребут (EC вернёт свои дефолты).
   # ---------------------------------------------------------------------
   z13ctl-init = pkgs.writeShellApplication {
     name = "z13ctl-init";
@@ -237,86 +282,92 @@ let
     text = ''
       set -euo pipefail
 
-      TARGET="''${1:-auto}"
+      MODE="''${1:-308}"
 
-      if [ "$TARGET" = "auto" ]; then
-        RAW=$(busctl --system get-property \
+      # ── Определение текущего профиля PPD → physical ────────────
+      detect_phys() {
+        local raw cur
+        raw=$(busctl --system get-property \
           net.hadess.PowerProfiles \
           /net/hadess/PowerProfiles \
           net.hadess.PowerProfiles \
           ActiveProfile 2>/dev/null || echo "")
-        CURRENT="''${RAW#*\"}"
-        CURRENT="''${CURRENT%\"*}"
-        case "$CURRENT" in
-          power-saver) TARGET=eco ;;
-          balanced)    TARGET=balanced ;;
-          performance) TARGET=performance ;;
-          *)
-            echo "Не удалось определить PPD ActiveProfile (получено: '$CURRENT')." >&2
-            echo "Укажи профиль явно: z13ctl-init {eco|balanced|performance}" >&2
-            exit 1
-            ;;
+        cur="''${raw#*\"}"
+        cur="''${cur%\"*}"
+        case "$cur" in
+          power-saver) echo "quiet" ;;
+          balanced)    echo "balanced" ;;
+          performance) echo "performance" ;;
+          *) return 1 ;;
         esac
-        echo "[z13ctl-init] PPD ActiveProfile = $CURRENT → профиль $TARGET"
-      fi
+      }
 
-      case "$TARGET" in
-        eco)
-          # 10W — ниже заводского потолка, кастомная fan-curve не
-          # выходит за заводские границы. platform_profile остаётся
-          # normal, F5 циклии.
-          echo "[z13ctl-init] eco: profile=quiet, tdp=10, кастомная fan-curve"
-          z13ctl profile --set quiet
-          z13ctl tdp --set 10
-          z13ctl fancurve --set "55:0%,60:0%,65:8%,70:18%,75:35%,80:60%,85:85%,90:100%"
+      PHYS=$(detect_phys) || {
+        echo "[z13ctl-init] Не удалось определить PPD ActiveProfile." >&2
+        echo "[z13ctl-init] Убедись, что power-profiles-daemon запущен." >&2
+        exit 1
+      }
+      echo "[z13ctl-init] PPD active → physical profile: $PHYS"
+
+      # ── Режимы ──────────────────────────────────────────────────
+      case "$MODE" in
+        308|base)
+          # Заводские PL через profile --set + заводская кривая
+          # (по профилю) + 100% на 90°C.
+          echo "[z13ctl-init308] Заводские PL + заводская кривая + 100% на 90°C."
+          z13ctl profile --set "$PHYS"
+          case "$PHYS" in
+            quiet)       CURVE="${baseFanCurves.quiet}" ;;
+            balanced)    CURVE="${baseFanCurves.balanced}" ;;
+            performance) CURVE="${baseFanCurves.performance}" ;;
+          esac
+          echo "[z13ctl-init308] fancurve ($PHYS): $CURVE"
+          z13ctl fancurve --set "$CURVE"
           ;;
-        balanced)
-          # 75W — ровно та граница, которую держит firmware для
-          # balanced. Явная запись 75W синхронизирует оба устройства
-          # (снимает stale-кастом на первом), но НЕ выходит за
-          # заводской PPT → platform_profile остаётся normal, F5 циклии.
-          echo "[z13ctl-init] balanced: profile=balanced, tdp=75"
-          z13ctl profile --set balanced
-          z13ctl tdp --set 75
+
+        311|aggressive)
+          # Заводские PL + агрессивная кривая + 100% на 90°C.
+          echo "[z13ctl-init311] Заводские PL + агрессивная кривая + 100% на 90°C."
+          z13ctl profile --set "$PHYS"
+          echo "[z13ctl-init311] fancurve: ${aggressiveFanCurve}"
+          z13ctl fancurve --set "${aggressiveFanCurve}"
           ;;
-        performance)
-          # ВАЖНО: 75W БЕЗ --force. Явная запись 75W снимает
-          # возможный stale-кастом 90W на первом устройстве, но не
-          # выходит за заводской PPT → platform_profile остаётся
-          # normal, F5 продолжает циклить.
-          # 90W --force больше НЕ используется: именно он раньше
-          # переводил драйвер в `custom` и «залипал» F5.
-          echo "[z13ctl-init] performance: profile=performance, tdp=75 (без --force)"
-          z13ctl profile --set performance
-          z13ctl tdp --set 75
-          ;;
+
         *)
-          echo "Неизвестный профиль: $TARGET" >&2
-          echo "Использование: z13ctl-init [eco|balanced|performance]" >&2
+          echo "[z13ctl-init] Неизвестный режим: $MODE" >&2
+          echo "[z13ctl-init] Использование: z13ctl init {308|311}" >&2
+          echo "[z13ctl-init]   308 (base)       — заводская кривая (BIOS 308) + 90:100%" >&2
+          echo "[z13ctl-init]   311 (aggressive) — агрессивная кривая + 90:100%" >&2
           exit 1
           ;;
       esac
 
-      # Пост-проверка: при значениях выше platform_profile НЕ должен
-      # становиться `custom`. Если стал — EC был в неожиданном
-      # состоянии, F5 может не циклить. Сообщаем явно.
+      # ── Пост-проверка ───────────────────────────────────────────
+      echo
+      echo "--- TDP ---"
+      z13ctl tdp --get || true
+      echo "--- Fans ---"
+      z13ctl fancurve --get || true
       PP=$(cat /sys/firmware/acpi/platform_profile 2>/dev/null || echo "")
-      echo "[z13ctl-init] platform_profile = ''${PP:-<unknown>}"
+      echo "--- platform_profile: ''${PP:-<unknown>} ---"
+
       if [ "$PP" = "custom" ]; then
         echo "[z13ctl-init] ВНИМАНИЕ: platform_profile=custom — F5 может не циклить." >&2
-        echo "[z13ctl-init] Перезагрузи устройство, чтобы вернуть firmware-контроль." >&2
-        exit 2
+        echo "[z13ctl-init] Это ожидаемо после записи fancurve; для полного сброса — reboot." >&2
       fi
 
-      echo "[z13ctl-init] Готово. F5 должен продолжать циклить."
+      echo "[z13ctl-init] Готово."
     '';
   };
 
   # ---------------------------------------------------------------------
-  # z13ctl-with-init — обёртка над z13ctl, добавляющая `init` как
-  # подкоманду. Всё остальное делегируется в оригинальный z13ctl
-  # из z13ctl-plus. Нужна, чтобы работала привычная запись
-  #   z13ctl init [eco|balanced|performance]
+  # z13ctl-with-init — обёртка над z13ctl, добавляющая `init`, `init308`,
+  # `init311` как подкоманды. Всё остальное делегируется в оригинальный
+  # z13ctl из z13ctl-plus. Нужна, чтобы работали привычные записи:
+  #   z13ctl init308
+  #   z13ctl init311
+  #   z13ctl init 308
+  #   z13ctl init 311
   # при сохранении всех остальных подкоманд (profile, tdp, fancurve).
   #
   # ВАЖНО: эта обёртка — ЕДИНСТВЕННЫЙ z13ctl в PATH (z13ctl-plus
@@ -331,11 +382,12 @@ let
     runtimeInputs = [ z13ctl-plus z13ctl-init ];
     text = ''
       set -euo pipefail
-      if [ "''${1:-}" = "init" ]; then
-        shift
-        exec z13ctl-init "$@"
-      fi
-      exec z13ctl "$@"
+      case "''${1:-}" in
+        init)    shift; exec z13ctl-init "$@" ;;
+        init308) shift; exec z13ctl-init 308 ;;
+        init311) shift; exec z13ctl-init 311 ;;
+        *)       exec z13ctl "$@" ;;
+      esac
     '';
   };
 
@@ -353,11 +405,6 @@ in
   # =====================================================================
   # z13-ppd-sync — ОТКЛЮЧЁН (Path A).
   #
-  # Причина: при стандартных профилях (без кастомных TDP/кривых)
-  # firmware сам применяет правильные TDP и кривую вентиляторов
-  # при смене platform_profile. Сервис-синхронизатор не нужен и
-  # только создаёт race condition.
-  #
   # ЧТОБЫ ВЕРНУТЬ КАСТОМ:
   #   1. Раскомментируйте tdp/fan-curve в eco/balanced/performance выше.
   #   2. Раскомментируйте блок ниже.
@@ -366,7 +413,6 @@ in
   # systemd.services.z13-ppd-sync = {
   #   description = "Sync z13ctl TDP/fan curves with power-profiles-daemon";
   #
-  #   # Мягкая привязка к графической сессии.
   #   wantedBy = [ "graphical.target" ];
   #   after = [ "graphical.target" "power-profiles-daemon.service" ];
   #   wants = [ "power-profiles-daemon.service" ];
@@ -383,14 +429,7 @@ in
 
   # =====================================================================
   # Ручные команды для отладки.
-  #
-  # При Path A они применяют ТОЛЬКО profile (без TDP/fancurve).
-  # Если раскомментировать кастомные значения в let-блоке — они
-  # применят и кастомный TDP (ручной вызов, не через F5).
   # =====================================================================
-  # systemctl start z13-apply-eco
-  # systemctl start z13-apply-balanced
-  # systemctl start z13-apply-performance
   systemd.services.z13-apply-eco = {
     description = "Apply Z13 eco profile (firmware default, quiet)";
     serviceConfig = {
@@ -416,22 +455,16 @@ in
   };
 
   # =====================================================================
-  # z13ctl init — ручное применение известных значений на оба устройства.
+  # z13ctl init308 / init311 — приведение к известному состоянию.
   #
-  # z13ctl-with-init даёт бинарь `z13ctl` с подкомандой `init`:
-  #   z13ctl init                 # auto по PPD ActiveProfile
-  #   z13ctl init eco             # profile=quiet, tdp=10, fan-curve
-  #   z13ctl init balanced        # profile=balanced, tdp=75
-  #   z13ctl init performance     # profile=performance, tdp=75 (без --force)
+  #   z13ctl init308   — заводские PL + заводская кривая для текущего
+  #                      профиля (baseFanCurves) + 100% на 90°C.
+  #   z13ctl init311   — заводские PL + агрессивная кривая
+  #                      (aggressiveFanCurve) + 100% на 90°C.
   #
-  # Все три варианта пишут только те значения, которые НЕ превышают
-  # заводской PPT → platform_profile остаётся normal, F5 циклии.
-  # 90W+force больше НЕ используется: он раньше «залипал» F5.
+  # Также работают: z13ctl init 308, z13ctl init 311.
   #
-  # z13ctl-init — та же функциональность как самостоятельный бинарь
-  # (удобно для shell-автодополнения и скриптов).
-  #
-  # ВАЖНО: z13ctl-plus НЕ добавлен сюда, поэтому в PATH ровно один
+  # ВАЖНО: z13ctl-plus НЕ добавлен сюда, в PATH ровно один
   # `z13ctl` (обёртка). Скрипты mkApplyProfile/ppdSyncScript берут
   # оригинал через runtimeInputs — рекурсии нет.
   # =====================================================================
