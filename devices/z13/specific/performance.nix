@@ -38,14 +38,34 @@ let
   #     performance 70/86/86) и «нормальная» кривая вентиляторов.
   #   * 311 — на форумах жалуются, что EC ленивее повышает обороты
   #     под длительной нагрузкой → те же PL, но выше температуры.
-  #   `z13ctl init308` = заводские PL + заводская кривая (покопированная
-  #   из вывода fancurve --get на BIOS 308) + 100% на 90°C для
-  #   термобезопасности.
-  #   `z13ctl init311` = заводские PL + агрессивная кривая
-  #   (aggressiveFanCurve ниже) + 100% на 90°C.
   #
-  # Принцип: TDP НЕ трогаем в обоих режимах — оставляем заводские PL
-  # для текущего профиля. Крутим ТОЛЬКО вентиляторы.
+  # `z13ctl init308` — ЗАВОДСКОЙ BASELINE:
+  #   `tdp --reset` (сброс залипших PPT к заводским) →
+  #   `profile --set <phys>` → заводская кривая по профилю
+  #   (baseFanCurves.<profile>) + 90:100% на 90°C.
+  #
+  # `z13ctl init311` — КОМПЕНСАЦИЯ BIOS 311:
+  #   `tdp --reset` (сброс залипших PPT к заводским) →
+  #   `profile --set <phys>` →
+  #   * quiet       → заводская quiet-кривая + 90:100% (НЕ агрессивная:
+  #                   в тихом режиме агрессивная слишком шумная, а PL
+  #                   40/55/55 и так низкие);
+  #   * balanced    → агрессивная кривая + 90:100%;
+  #   * performance → агрессивная кривая + 90:100%.
+  #   TDP после reset'а остаётся заводским для текущего профиля —
+  #   никаких `tdp --set 75`.
+  #
+  # ПОЧЕМУ `tdp --reset` ОБЯЗАТЕЛЕН:
+  #   `profile --set` САМ ПО СЕБЕ не перезаписывает PPT-лимиты, если
+  #   они были зафиксированы командой `tdp --set` (это документированное
+  #   поведение z13ctl: firmware не переприменяет заводские значения
+  #   при смене platform_profile, это должен делать инструмент явно).
+  #   Поэтому если на устройстве ранее сработал `tdp --set 75`, то
+  #   после `init311` без `tdp --reset` остаются 75/75/75 во всех
+  #   профилях — это и наблюдалось. `tdp --reset` переключает на
+  #   balanced, сбрасывает fan-curve в auto и восстанавливает стоковые
+  #   PPT для balanced (52/71/70); после него `profile --set` уже
+  #   работает с чистыми заводскими лимитами.
   #
   # ПОБОЧНЫЙ ЭФФЕКТ: раз init308/init311 пишут fancurve, вентиляторы
   # переходят в custom mode (pwm_enable=1). После этого F5 меняет
@@ -67,7 +87,8 @@ let
   # гарантирует, что к 90°C вентиляторы выходят на 100%, независимо
   # от профиля.
   #
-  # Эти кривые используются в `z13ctl init308`.
+  # Эти кривые используются в `z13ctl init308` (все профили) и в
+  # `z13ctl init311` для профиля quiet.
   # ---------------------------------------------------------------------
   baseFanCurves = {
     # из `z13ctl fancurve --get` на BIOS 308, профиль power-saver/quiet:
@@ -89,7 +110,9 @@ let
   # заводская balanced. Точка 90:100% — та же термобезопасность,
   # что и в базовых кривых.
   #
-  # Используется в `z13ctl init311`.
+  # Используется в `z13ctl init311` для профилей balanced и
+  # performance. Для quiet остаётся заводская кривая (агрессивная
+  # в тихом режиме слишком шумная, а PL 40/55/55 и так низкие).
   #
   # Крути по вкусу, но держи монотонность по температуре. Если стало
   # слишком шумно — сдвинь точки на +3-5°C или урежь проценты.
@@ -250,25 +273,36 @@ let
 
   # ---------------------------------------------------------------------
   # z13ctl-init — приведение устройства к одному из двух известных
-  # состояний. TDP НЕ трогаем — оставляем заводские PL для текущего
-  # профиля. Крутим только вентиляторы.
+  # состояний. TDP после сброса остаётся ЗАВОДСКИМ для текущего
+  # профиля (см. `tdp --reset` ниже). Крутим только вентиляторы.
   #
   #   z13ctl-init 308   (или base)
-  #     Заводская кривая вентиляторов (покопирована из BIOS 308) +
-  #     100% на 90°C. Профиль PPD определяется автоматически:
-  #       power-saver → quiet   кривая (baseFanCurves.quiet)
-  #       balanced    → balanced кривая (baseFanCurves.balanced)
-  #       performance → performance кривая (baseFanCurves.performance)
-  #     Плюс `z13ctl profile --set <phys>` — чтобы firmware применил
-  #     свои PL для этого профиля.
+  #     `tdp --reset` → заводские PPT для balanced →
+  #     `profile --set <phys>` → заводская кривая по профилю
+  #     (baseFanCurves.<profile>) + 100% на 90°C.
   #     Используй: как «здоровый» baseline, паритет с первым
   #     устройством на BIOS 308.
   #
   #   z13ctl-init 311   (или aggressive)
-  #     Заводские PL + агрессивная кривая вентиляторов
-  #     (aggressiveFanCurve) + 100% на 90°C.
+  #     `tdp --reset` → заводские PPT для balanced →
+  #     `profile --set <phys>` → кривая по профилю:
+  #       quiet       → baseFanCurves.quiet       (заводская + 90:100%)
+  #       balanced    → aggressiveFanCurve         (агрессивная + 90:100%)
+  #       performance → aggressiveFanCurve         (агрессивная + 90:100%)
+  #     Для quiet агрессивная не используется: PL 40/55/55 и так
+  #     низкие, а агрессивная кривая в тихом режиме слишком шумная.
   #     Используй: на втором устройстве с BIOS 311, если температуры
   #     выше, чем на первом (308) при одинаковых PL.
+  #
+  # ПОЧЕМУ `tdp --reset` В НАЧАЛЕ:
+  #   `profile --set` САМ ПО СЕБЕ не перезаписывает PPT-лимиты, если
+  #   они были зафиксированы `tdp --set` (документированное поведение
+  #   z13ctl). Без `tdp --reset` на устройстве остаются залипшие
+  #   75/75/75 от старых экспериментов, и `init311` их не убирает —
+  #   именно это и наблюдалось. `tdp --reset` переключает на balanced,
+  #   сбрасывает fan-curve в auto и восстанавливает стоковые PPT
+  #   (52/71/70); после него `profile --set` работает с чистыми
+  #   заводскими лимитами.
   #
   # ВНИМАНИЕ: обе подкоманды пишут fancurve → вентиляторы переходят
   # в custom mode (pwm_enable=1). После этого F5 меняет только
@@ -309,35 +343,47 @@ let
       }
       echo "[z13ctl-init] PPD active → physical profile: $PHYS"
 
+      # Кривая по профилю для базового режима (308).
+      case "$PHYS" in
+        quiet)       BASE_CURVE="${baseFanCurves.quiet}" ;;
+        balanced)    BASE_CURVE="${baseFanCurves.balanced}" ;;
+        performance) BASE_CURVE="${baseFanCurves.performance}" ;;
+      esac
+
       # ── Режимы ──────────────────────────────────────────────────
       case "$MODE" in
         308|base)
-          # Заводские PL через profile --set + заводская кривая
-          # (по профилю) + 100% на 90°C.
-          echo "[z13ctl-init308] Заводские PL + заводская кривая + 100% на 90°C."
+          echo "[z13ctl-init308] Сброс TDP к заводским (tdp --reset),"
+          echo "[z13ctl-init308] затем заводская кривая + 100% на 90°C."
+          z13ctl tdp --reset
           z13ctl profile --set "$PHYS"
-          case "$PHYS" in
-            quiet)       CURVE="${baseFanCurves.quiet}" ;;
-            balanced)    CURVE="${baseFanCurves.balanced}" ;;
-            performance) CURVE="${baseFanCurves.performance}" ;;
-          esac
-          echo "[z13ctl-init308] fancurve ($PHYS): $CURVE"
-          z13ctl fancurve --set "$CURVE"
+          echo "[z13ctl-init308] fancurve ($PHYS): $BASE_CURVE"
+          z13ctl fancurve --set "$BASE_CURVE"
           ;;
 
         311|aggressive)
-          # Заводские PL + агрессивная кривая + 100% на 90°C.
-          echo "[z13ctl-init311] Заводские PL + агрессивная кривая + 100% на 90°C."
+          echo "[z13ctl-init311] Сброс TDP к заводским (tdp --reset),"
+          echo "[z13ctl-init311] затем кривая по профилю."
+          # Без этого 75/75/75 из прошлых tdp --set остаются —
+          # profile --set их не перезаписывает.
+          z13ctl tdp --reset
           z13ctl profile --set "$PHYS"
-          echo "[z13ctl-init311] fancurve: ${aggressiveFanCurve}"
-          z13ctl fancurve --set "${aggressiveFanCurve}"
+          if [ "$PHYS" = "quiet" ]; then
+            echo "[z13ctl-init311] quiet → заводская кривая + 90:100%"
+            echo "[z13ctl-init311] fancurve: $BASE_CURVE"
+            z13ctl fancurve --set "$BASE_CURVE"
+          else
+            echo "[z13ctl-init311] $PHYS → агрессивная кривая + 90:100%"
+            echo "[z13ctl-init311] fancurve: ${aggressiveFanCurve}"
+            z13ctl fancurve --set "${aggressiveFanCurve}"
+          fi
           ;;
 
         *)
           echo "[z13ctl-init] Неизвестный режим: $MODE" >&2
           echo "[z13ctl-init] Использование: z13ctl init {308|311}" >&2
-          echo "[z13ctl-init]   308 (base)       — заводская кривая (BIOS 308) + 90:100%" >&2
-          echo "[z13ctl-init]   311 (aggressive) — агрессивная кривая + 90:100%" >&2
+          echo "[z13ctl-init]   308 (base)       — tdp --reset + заводская кривая + 90:100%" >&2
+          echo "[z13ctl-init]   311 (aggressive) — tdp --reset + quiet: заводская; balanced/perf: агрессивная; + 90:100%" >&2
           exit 1
           ;;
       esac
@@ -457,10 +503,14 @@ in
   # =====================================================================
   # z13ctl init308 / init311 — приведение к известному состоянию.
   #
-  #   z13ctl init308   — заводские PL + заводская кривая для текущего
+  #   z13ctl init308   — tdp --reset + заводская кривая для текущего
   #                      профиля (baseFanCurves) + 100% на 90°C.
-  #   z13ctl init311   — заводские PL + агрессивная кривая
-  #                      (aggressiveFanCurve) + 100% на 90°C.
+  #   z13ctl init311   — tdp --reset + quiet: заводская кривая
+  #                      + 100% на 90°C; balanced/performance:
+  #                      агрессивная кривая + 100% на 90°C.
+  #
+  # После tdp --reset TDP заводской для текущего профиля —
+  # никаких `tdp --set 75` тут нет.
   #
   # Также работают: z13ctl init 308, z13ctl init 311.
   #
