@@ -258,6 +258,7 @@ PYEOF
             .venv/bin/python setup.py --setup \
               --backend hip \
               --models-dir /models \
+              --parallel 3 \
               --data-dir /data \
               --host 0.0.0.0 \
               --port ${toString portContainer} \
@@ -283,9 +284,18 @@ PYEOF
     # setup.py без --setup читает готовый конфиг из /data/config/ и
     # поднимает serve/server.py. Конфиг создан на этапе --setup.
     #
-    # Имя конфига setup.py выбирает сам (по family+model, которые ты
-    # выбрал интерактивно), поэтому здесь мы не проверяем конкретное
-    # имя — просто запускаем setup.py, он сам найдёт конфиг.
+    # После обновления Strata setup.py в no-flag режиме может
+    # спросить «Which one?» (выбор модели). При `podman run -d`
+    # stdin закрыт и он падает с
+    #   [X] input ended before a setup answer was received
+    # Поэтому запускаем через `podman run -it` (foreground с открытым
+    # stdin): если вопрос появится — ответишь номером и Enter, после
+    # чего сервер продолжит работать в этом же терминале. Ctrl+C —
+    # остановка (контейнер удаляется вручную или при следующем
+    # strata-start).
+    #
+    # Автооткрытие браузера вынесено в фоновый subshell ДО podman run,
+    # иначе с -it (foreground) до него не дойдёт.
     # =====================================================================
     (pkgs.writeShellApplication {
       name = "strata-start";
@@ -307,9 +317,29 @@ PYEOF
 
         podman rm -f "${containerName}" 2>/dev/null || true
 
-        echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
+        URL="http://localhost:$PORT_HOST"
 
-        podman run -d --name "${containerName}" \
+        echo "=== Запуск ${containerName} (порт $PORT_HOST) ==="
+        echo "=== Если setup.py спросит модель — ответь номером и Enter ==="
+        echo "=== Ctrl+C — остановить ==="
+        echo "=== URL:  $URL ==="
+        echo "=== Модель грузится 1-3 минуты; страница откроется, когда сервер ответит ==="
+
+        # Ждём HTTP-ответа и открываем браузер — в фоне, параллельно
+        # с foreground-контейнером.
+        (
+          for _ in $(seq 1 600); do
+            if curl -fsS -o /dev/null "$URL/health" 2>/dev/null \
+              || curl -fsS -o /dev/null "$URL/" 2>/dev/null; then
+              ${pkgs.xdg-utils}/bin/xdg-open "$URL" >/dev/null 2>&1 || true
+              exit 0
+            fi
+            sleep 2
+          done
+        ) &
+
+        # -it вместо -d: даём ответить на возможный вопрос setup.py.
+        podman run -it --name "${containerName}" \
           ${gpuArgs} \
           -p "$PORT_HOST:${toString portContainer}" \
           -e STRATA_DATA=/data \
@@ -329,31 +359,7 @@ PYEOF
             --port ${toString portContainer} \
             "$@"
 
-        # Проверка что контейнер не упал сразу.
-        sleep 5
-        STATUS=$(podman inspect "${containerName}" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
-        if [ "$STATUS" != "running" ]; then
-          echo "Контейнер упал (статус: $STATUS). Логи:" >&2
-          podman logs "${containerName}" 2>&1 | tail -60 >&2 || true
-          exit 1
-        fi
-
-        URL="http://localhost:$PORT_HOST"
-        echo "=== Запущено. Логи: strata-logs ==="
-        echo "=== URL:  $URL ==="
-        echo "=== Модель грузится 1-3 минуты; страница откроется, когда сервер ответит ==="
-
-        # Ждём HTTP-ответа и открываем браузер.
-        (
-          for _ in $(seq 1 600); do
-            if curl -fsS -o /dev/null "$URL/health" 2>/dev/null \
-              || curl -fsS -o /dev/null "$URL/" 2>/dev/null; then
-              ${pkgs.xdg-utils}/bin/xdg-open "$URL" >/dev/null 2>&1 || true
-              exit 0
-            fi
-            sleep 2
-          done
-        ) &
+        echo "=== ${containerName} остановлен ==="
       '';
     })
 
